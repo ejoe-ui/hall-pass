@@ -1,0 +1,1120 @@
+'use client'
+import { useState, useEffect, useRef, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { supabase } from '../../lib/supabase'
+import QRCode from 'qrcode'
+
+const RHS_GREEN = '#006938'
+const TIME_LIMIT = 10
+const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Water', 'Errand', 'On Assignment', 'School Store', 'Other']
+const TEACHERS = [
+  'Castro', 'Simpson', 'Tiller',
+  'Aguiniga', 'Anders', 'Banuelos', 'Bettencourt', 'Bianchi', 'Bishop',
+  'Carrion', 'Ceballos', 'Chavez', 'Chavira', 'Cuiriz', 'De La Pena',
+  'Edlund', 'Farris', 'Garibaldi', 'Gerling', 'Gjoshe', 'Gonzalez',
+  'Hughes', 'Jessup', 'Kang', 'Kellogg', 'Mendoza Sanchez', 'Mullane',
+  'Nemeth', 'Reyes', 'Sunamoto', 'Warden', 'Weibert', 'Welch', 'Yehl',
+]
+const PERIODS = [
+  { label: 'Periods 1 & 2', value: '1' },
+  { label: 'Periods 4 & 5', value: '4' },
+  { label: 'Periods 6 & 7', value: '6' },
+]
+
+function playAlert() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain); gain.connect(ctx.destination)
+    osc.frequency.setValueAtTime(880, ctx.currentTime)
+    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15)
+    gain.gain.setValueAtTime(0.3, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4)
+  } catch (e) {}
+}
+
+function playClearAlert() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain); gain.connect(ctx.destination)
+    osc.frequency.setValueAtTime(660, ctx.currentTime)
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15)
+    gain.gain.setValueAtTime(0.3, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4)
+  } catch (e) {}
+}
+
+function QRScanner({ onUnlock, unlockCode, deviceId }) {
+  const videoRef = useRef(null)
+  const canvasRef = useRef(null)
+  useEffect(() => {
+    let stream, interval
+    async function start() {
+      try {
+        const constraints = deviceId
+          ? { video: { deviceId: { exact: deviceId } } }
+          : { video: { facingMode: 'environment' } }
+        stream = await navigator.mediaDevices.getUserMedia(constraints)
+        if (videoRef.current) videoRef.current.srcObject = stream
+        interval = setInterval(scan, 500)
+      } catch (e) {}
+    }
+    async function scan() {
+      if (!videoRef.current || !canvasRef.current) return
+      const canvas = canvasRef.current
+      const ctx = canvas.getContext('2d')
+      canvas.width = videoRef.current.videoWidth
+      canvas.height = videoRef.current.videoHeight
+      ctx.drawImage(videoRef.current, 0, 0)
+      try {
+        const { BarcodeDetector } = window
+        if (!BarcodeDetector) return
+        const detector = new BarcodeDetector({ formats: ['qr_code'] })
+        const codes = await detector.detect(canvas)
+        for (const code of codes) {
+          // Handle magic link QR
+          if (code.rawValue.includes('magic=1')) {
+            const url = new URL(code.rawValue)
+            const email = url.searchParams.get('email')
+            if (email) onUnlock(email)
+            return
+          }
+          // Handle legacy unlock code
+          if (unlockCode && code.rawValue.includes(unlockCode)) {
+            onUnlock(null)
+          }
+        }
+      } catch (e) {}
+    }
+    start()
+    return () => {
+      if (stream) stream.getTracks().forEach(t => t.stop())
+      if (interval) clearInterval(interval)
+    }
+  }, [unlockCode, deviceId])
+  return (
+    <div className="relative w-48 h-36 rounded-xl overflow-hidden shadow-lg" style={{ border: `2px solid ${RHS_GREEN}` }}>
+      <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+      <canvas ref={canvasRef} className="hidden" />
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="w-24 h-24 rounded-lg opacity-70" style={{ border: `2px solid ${RHS_GREEN}` }} />
+      </div>
+      <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-black/50 rounded-full px-1.5 py-0.5">
+        <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: RHS_GREEN }} />
+        <span className="text-white text-xs font-medium">SCAN</span>
+      </div>
+    </div>
+  )
+}
+
+async function printLatePass({ studentName, toTeacher, timeIssued, lateReason, issuedBy, room }) {
+  const win = window.open('', '_blank', 'width=420,height=650')
+  win.document.write(`
+    <!DOCTYPE html><html><head><title>Late Pass</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 72mm; margin: 0 auto; }
+      body { font-family: 'Courier New', monospace; font-size: 17px; padding: 8px 10px; text-align: center; }
+      .divider { border-top: 1px dashed #000; margin: 9px 0; }
+      .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 2px; }
+      .value { font-size: 20px; font-weight: bold; margin-bottom: 8px; }
+      .tag { display: inline-block; border: 2px solid #000; padding: 4px 10px; font-weight: bold; font-size: 14px; letter-spacing: 0.1em; margin-bottom: 8px; }
+      .header-title { font-size: 26px; font-weight: bold; }
+      .header-sub { font-size: 12px; margin-bottom: 4px; }
+      .sig-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 4px; }
+      .sig-line { border-bottom: 1px solid #000; width: 80%; margin: 0 auto 4px auto; height: 28px; }
+      .sig-name { font-size: 13px; color: #555; }
+      .footer { font-size: 12px; color: #444; margin-top: 10px; line-height: 1.6; }
+      @media print { html, body { margin: 0 auto; } }
+    </style></head><body>
+      <div class="header-title">RHS PassAble</div>
+      <div class="header-sub">Riverdale High School · Room ${room}</div>
+      <div class="divider"></div>
+      <div class="tag">LATE PASS TO CLASS</div>
+      <div class="divider"></div>
+      <div class="label">Student</div><div class="value">${studentName}</div>
+      <div class="label">Reporting To</div><div class="value">${toTeacher}</div>
+      <div class="label">Issued By</div><div class="value">${issuedBy}</div>
+      ${lateReason ? `<div class="label">Reason for Lateness</div><div class="value">${lateReason}</div>` : ''}
+      <div class="divider"></div>
+      <div class="label">Date & Time Issued</div><div class="value">${timeIssued}</div>
+      <div class="divider"></div>
+      <div class="sig-label">Signature / Initials</div>
+      <div class="sig-line"></div>
+      <div class="sig-name">${issuedBy} · Room ${room}</div>
+      <div class="divider"></div>
+      <div class="footer">Student is not expected to return to Room ${room}.<br/>Please mark student appropriately upon arrival.</div>
+      <script>window.onload = function() { window.print(); }</script>
+    </body></html>
+  `)
+  win.document.close()
+}
+
+function printPullPass({ studentName, fromTeacher, purpose, timeIssued, issuedBy, room }) {
+  const win = window.open('', '_blank', 'width=420,height=550')
+  win.document.write(`
+    <!DOCTYPE html><html><head><title>Pull Pass</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 72mm; margin: 0 auto; }
+      body { font-family: 'Courier New', monospace; font-size: 17px; padding: 8px 10px; text-align: center; }
+      .divider { border-top: 1px dashed #000; margin: 9px 0; }
+      .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 2px; }
+      .value { font-size: 20px; font-weight: bold; margin-bottom: 8px; }
+      .tag { display: inline-block; border: 2px solid #000; padding: 4px 10px; font-weight: bold; font-size: 14px; letter-spacing: 0.1em; margin-bottom: 8px; }
+      .header-title { font-size: 26px; font-weight: bold; }
+      .header-sub { font-size: 12px; margin-bottom: 4px; }
+      .sig-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 4px; }
+      .sig-line { border-bottom: 1px solid #000; width: 80%; margin: 0 auto 4px auto; height: 28px; }
+      .sig-name { font-size: 13px; color: #555; }
+      .footer { font-size: 12px; color: #444; margin-top: 10px; line-height: 1.6; }
+      @media print { html, body { margin: 0 auto; } }
+    </style></head><body>
+      <div class="header-title">RHS PassAble</div>
+      <div class="header-sub">Riverdale High School · Room ${room}</div>
+      <div class="divider"></div>
+      <div class="tag">REQUEST TO RELEASE STUDENT</div>
+      <div class="divider"></div>
+      <div class="label">Student</div><div class="value">${studentName}</div>
+      <div class="label">Currently In</div><div class="value">${fromTeacher}</div>
+      <div class="label">Requested By</div><div class="value">${issuedBy} · Room ${room}</div>
+      ${purpose ? `<div class="label">Purpose</div><div class="value">${purpose}</div>` : ''}
+      <div class="divider"></div>
+      <div class="label">Date & Time</div><div class="value">${timeIssued}</div>
+      <div class="divider"></div>
+      <div style="display: flex; justify-content: space-between; gap: 10px;">
+        <div style="flex: 1; text-align: center;">
+          <div class="sig-label">Authorized By</div>
+          <div class="sig-line"></div>
+          <div class="sig-name">${issuedBy} · Rm ${room}</div>
+        </div>
+        <div style="flex: 1; text-align: center;">
+          <div class="sig-label">Released By</div>
+          <div class="sig-line"></div>
+          <div class="sig-name">${fromTeacher}</div>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="footer">Please send student to Room ${room}.<br/>Thank you!</div>
+      <script>window.onload = function() { window.print(); }</script>
+    </body></html>
+  `)
+  win.document.close()
+}
+
+async function notifyReceivingTeacher({ toTeacher, studentName, issuedBy, timeIssued, passUrl }) {
+  console.log('[PassAble] Late pass notification (stub):', {
+    to: `${toTeacher.toLowerCase().replace(/\s+/g, '.')}@rjusd.org`,
+    subject: `Late Pass — ${studentName} heading your way`,
+    body: `${studentName} has been issued a late pass to your class by ${issuedBy} at ${timeIssued}. Pass: ${passUrl}`
+  })
+}
+
+function TeacherInner() {
+  const searchParams = useSearchParams()
+  const [session, setSession] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [currentTeacher, setCurrentTeacher] = useState(null)
+  const [email, setEmail] = useState('')
+  const [authMode, setAuthMode] = useState('magic') // 'magic' or 'password'
+  const [password, setPassword] = useState('')
+  const [authError, setAuthError] = useState('')
+  const [magicSent, setMagicSent] = useState(false)
+  const [magicEmail, setMagicEmail] = useState('')
+  const [signingIn, setSigningIn] = useState(false)
+  const [cameras, setCameras] = useState([])
+  const [selectedCamera, setSelectedCamera] = useState('')
+  const [unlockCode, setUnlockCode] = useState('')
+  const [activePeriod, setActivePeriod] = useState(null)
+  const [activePasses, setActivePasses] = useState([])
+  const [heldPasses, setHeldPasses] = useState([])
+  const [students, setStudents] = useState({})
+  const [selected, setSelected] = useState('')
+  const [reason, setReason] = useState('')
+  const [assignedTeacher, setAssignedTeacher] = useState('')
+  const [purposeText, setPurposeText] = useState('')
+  const [errandTeacher, setErrandTeacher] = useState('')
+  const [allStudents, setAllStudents] = useState([])
+  const [now, setNow] = useState(Date.now())
+  const [unlockQR, setUnlockQR] = useState('')
+  const [rotating, setRotating] = useState(false)
+  const [rotated, setRotated] = useState(false)
+  const [currentPin, setCurrentPin] = useState('')
+  const [newPin, setNewPin] = useState('')
+  const [pinSaved, setPinSaved] = useState(false)
+  const [subCode, setSubCode] = useState('')
+  const [newSubCode, setNewSubCode] = useState('')
+  const [subCodeSaved, setSubCodeSaved] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const prevHeldIds = useRef([])
+  const prevActiveIds = useRef([])
+  const [showLatePass, setShowLatePass] = useState(false)
+  const [lateStudent, setLateStudent] = useState('')
+  const [lateTeacher, setLateTeacher] = useState('')
+  const [lateReason, setLateReason] = useState('')
+  const [issuingLatePass, setIssuingLatePass] = useState(false)
+  const [latePassSuccess, setLatePassSuccess] = useState(null)
+  const [showPullPass, setShowPullPass] = useState(false)
+  const [pullStudentName, setPullStudentName] = useState('')
+  const [pullFromTeacher, setPullFromTeacher] = useState('')
+  const [pullPurpose, setPullPurpose] = useState('')
+  const [selfCheckoutMode, setSelfCheckoutMode] = useState(false)
+  const [selfCheckoutCode, setSelfCheckoutCode] = useState('')
+  const [kioskReturnRequired, setKioskReturnRequired] = useState(true)
+  const [kioskReturnSaved, setKioskReturnSaved] = useState(false)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session); setAuthLoading(false)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session))
+    return () => subscription.unsubscribe()
+  }, [])
+
+  // Handle magic link QR scan — send OTP to the scanned email
+  useEffect(() => {
+    const magic = searchParams.get('magic')
+    const emailParam = searchParams.get('email')
+    if (magic === '1' && emailParam && !session) {
+      handleMagicLinkFromQR(emailParam)
+    }
+  }, [searchParams])
+
+  useEffect(() => {
+    const saved = localStorage.getItem('teacher_camera')
+    if (saved) setSelectedCamera(saved)
+    async function getCameras() {
+      try {
+        await navigator.mediaDevices.getUserMedia({ video: true })
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        setCameras(devices.filter(d => d.kind === 'videoinput'))
+      } catch (e) {}
+    }
+    getCameras()
+  }, [])
+
+  useEffect(() => {
+    if (session) {
+      loadSettings()
+      loadCurrentTeacher()
+    }
+  }, [session])
+
+  useEffect(() => {
+    async function fetchUnlockCode() {
+      const { data } = await supabase.from('settings').select('value').eq('key', 'teacher_unlock_code').maybeSingle()
+      if (data) setUnlockCode(data.value)
+    }
+    fetchUnlockCode()
+  }, [])
+
+  useEffect(() => {
+    if (!activePeriod) return
+    loadData()
+    const timer = setInterval(() => { setNow(Date.now()); loadData() }, 15000)
+    return () => clearInterval(timer)
+  }, [activePeriod, currentTeacher])
+
+  async function loadCurrentTeacher() {
+    const { data: { session: s } } = await supabase.auth.getSession()
+    if (!s) return
+    const { data } = await supabase
+      .from('teachers')
+      .select('*')
+      .eq('auth_id', s.user.id)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (data) setCurrentTeacher(data)
+  }
+
+  // Called when QR scanner detects a magic link QR
+  async function handleQRScan(scannedEmail) {
+    if (scannedEmail) {
+      await handleMagicLinkFromQR(scannedEmail)
+    } else {
+      // Legacy unlock code — just refresh session
+      const { data: { session: s } } = await supabase.auth.getSession()
+      if (s) setSession(s)
+    }
+  }
+
+  async function handleMagicLinkFromQR(scannedEmail) {
+    setMagicEmail(scannedEmail)
+    const { error } = await supabase.auth.signInWithOtp({
+      email: scannedEmail,
+      options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' }
+    })
+    if (!error) setMagicSent(true)
+  }
+
+  async function handleSendMagicLink() {
+    setSigningIn(true); setAuthError('')
+    if (!email.endsWith('@rjusd.org')) {
+      setAuthError('Only @rjusd.org accounts are allowed.')
+      setSigningIn(false); return
+    }
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' }
+    })
+    if (error) {
+      setAuthError('Could not send link. Try again.')
+    } else {
+      setMagicSent(true)
+      setMagicEmail(email)
+    }
+    setSigningIn(false)
+  }
+
+  async function handlePasswordSignIn() {
+    setSigningIn(true); setAuthError('')
+    if (!email.endsWith('@rjusd.org')) {
+      setAuthError('Only @rjusd.org accounts are allowed.')
+      setSigningIn(false); return
+    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) setAuthError('Invalid email or password.')
+    setSigningIn(false)
+  }
+
+  async function handleSignOut() {
+    await supabase.auth.signOut()
+    setActivePeriod(null); setShowSettings(false); setCurrentTeacher(null)
+    setMagicSent(false); setMagicEmail('')
+  }
+
+  async function loadSettings() {
+    const { data } = await supabase.from('settings').select('key, value').in('key', ['teacher_unlock_code', 'teacher_pin', 'sub_code', 'teacher_checkout_code', 'kiosk_return_required'])
+    if (data) {
+      const unlockRow = data.find(r => r.key === 'teacher_unlock_code')
+      const pinRow = data.find(r => r.key === 'teacher_pin')
+      const subRow = data.find(r => r.key === 'sub_code')
+      const selfRow = data.find(r => r.key === 'teacher_checkout_code')
+      const kioskRow = data.find(r => r.key === 'kiosk_return_required')
+      if (unlockRow) {
+        setUnlockCode(unlockRow.value)
+        const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${unlockRow.value}`
+        const qr = await QRCode.toDataURL(url, { width: 160, margin: 1 })
+        setUnlockQR(qr)
+      }
+      if (pinRow) setCurrentPin(pinRow.value)
+      if (subRow) setSubCode(subRow.value)
+      if (selfRow) setSelfCheckoutCode(selfRow.value)
+      if (kioskRow) setKioskReturnRequired(kioskRow.value !== 'false')
+    }
+  }
+
+  async function loadData() {
+    let passQuery = supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod).order('time_out')
+    if (currentTeacher?.id) {
+      passQuery = passQuery.eq('teacher_id', currentTeacher.id)
+    }
+    const { data: passes } = await passQuery
+    const { data: studs } = await supabase.from('students').select('id, full_name, last_name').eq('period', activePeriod).order('first_name')
+    const { data: holds } = await supabase.from('pass_holds').select('*').is('released_at', null).order('held_at')
+
+    if (passes) {
+      const newIds = passes.map(p => p.student_id)
+      const returned = prevActiveIds.current.filter(id => !newIds.includes(id))
+      if (returned.length > 0 && holds && holds.length > 0) playClearAlert()
+      const LABEL_REASONS = ['Library', 'Office', 'Errand', 'On Assignment']
+      const prevIds = prevActiveIds.current
+      const newPasses = passes.filter(p => !prevIds.includes(p.student_id))
+      newPasses.forEach(p => {
+        const baseReason = p.reason?.split(' — ')[0]
+        if (LABEL_REASONS.includes(baseReason)) window.open(`/pass/${p.id}/label`, '_blank')
+      })
+      prevActiveIds.current = newIds
+      setActivePasses(passes)
+    }
+    if (studs) {
+      setAllStudents(studs)
+      const map = {}; studs.forEach(s => map[s.id] = s); setStudents(map)
+    }
+    if (holds) {
+      const newIds = holds.map(h => h.id)
+      const hasNew = newIds.some(id => !prevHeldIds.current.includes(id))
+      if (hasNew && holds.length > 0) playAlert()
+      prevHeldIds.current = newIds
+      setHeldPasses(holds)
+    }
+  }
+
+  async function handleReturn(passId) {
+    const pass = activePasses.find(p => p.id === passId)
+    const mins = Math.floor((new Date() - new Date(pass.time_out)) / 60000)
+    await supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', passId)
+    loadData()
+  }
+
+  async function handleOverride(hold) {
+    await supabase.from('pass_holds').update({
+      released_at: new Date().toISOString(),
+      override: true,
+      override_by: currentTeacher?.email || session?.user?.email || 'unknown'
+    }).eq('id', hold.id)
+    await supabase.from('passes').insert({
+      student_id: hold.student_id, reason: hold.reason,
+      room: currentTeacher?.room || '27', period: hold.period,
+      teacher_id: currentTeacher?.id || null, time_out: new Date().toISOString()
+    })
+    loadData()
+  }
+
+  async function handleDismissHold(holdId) {
+    await supabase.from('pass_holds').update({ released_at: new Date().toISOString() }).eq('id', holdId)
+    loadData()
+  }
+
+  async function handleTeacherCheckout() {
+    if (!selected || !reason) return
+    if (reason === 'On Assignment' && !assignedTeacher) return
+    let finalReason = reason
+    if (reason === 'On Assignment' && assignedTeacher) {
+      finalReason = purposeText.trim() ? `On Assignment — ${assignedTeacher} — ${purposeText.trim()}` : `On Assignment — ${assignedTeacher}`
+    } else if (reason === 'Errand' && errandTeacher) {
+      finalReason = purposeText.trim() ? `Errand — ${errandTeacher} — ${purposeText.trim()}` : `Errand — ${errandTeacher}`
+    } else if (reason === 'Errand' && purposeText.trim()) {
+      finalReason = `Errand — ${purposeText.trim()}`
+    }
+    await supabase.from('passes').insert({
+      student_id: selected, reason: finalReason,
+      room: currentTeacher?.room || '27', period: activePeriod,
+      teacher_id: currentTeacher?.id || null
+    })
+    setSelected(''); setReason(''); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText('')
+    loadData()
+  }
+
+  async function handleIssueLatePass() {
+    if (!lateStudent || !lateTeacher) return
+    setIssuingLatePass(true)
+    const issuedBy = currentTeacher?.name || session?.user?.email?.split('@')[0] || 'Teacher'
+    const room = currentTeacher?.room || '27'
+    const now = new Date()
+    const timeIssued = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+      ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const { data: passData } = await supabase.from('passes').insert({
+      student_id: lateStudent, reason: `Late Pass → ${lateTeacher}`,
+      room, period: activePeriod, teacher_id: currentTeacher?.id || null,
+      time_out: now.toISOString(), time_in: now.toISOString(), duration_minutes: 0, pass_type: 'late_pass',
+    }).select().single()
+    const studentName = allStudents.find(s => s.id === lateStudent)?.full_name || 'Student'
+    const passUrl = passData?.id ? `${window.location.origin}/pass/${passData.id}` : window.location.origin
+    printLatePass({ studentName, toTeacher: lateTeacher, timeIssued, lateReason, issuedBy, room })
+    await notifyReceivingTeacher({ toTeacher: lateTeacher, studentName, issuedBy, timeIssued, passUrl })
+    setLatePassSuccess({ studentName, toTeacher: lateTeacher })
+    setIssuingLatePass(false)
+    setLateStudent(''); setLateTeacher(''); setLateReason('')
+    loadData()
+    setTimeout(() => { setLatePassSuccess(null); setShowLatePass(false) }, 4000)
+  }
+
+  async function rotateUnlockCode() {
+    setRotating(true)
+    const newCode = Math.random().toString(36).substring(2, 12)
+    await supabase.from('settings').update({ value: newCode }).eq('key', 'teacher_unlock_code')
+    setUnlockCode(newCode)
+    const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${newCode}`
+    const qr = await QRCode.toDataURL(url, { width: 160, margin: 1 })
+    setUnlockQR(qr)
+    setRotating(false); setRotated(true)
+    setTimeout(() => setRotated(false), 3000)
+  }
+
+  async function savePin() {
+    if (newPin.length !== 4 || isNaN(newPin)) return
+    await supabase.from('settings').update({ value: newPin }).eq('key', 'teacher_pin')
+    setCurrentPin(newPin); setNewPin(''); setPinSaved(true)
+    setTimeout(() => setPinSaved(false), 3000)
+  }
+
+  async function saveSubCode() {
+    if (newSubCode.length !== 4 || isNaN(newSubCode)) return
+    await supabase.from('settings').update({ value: newSubCode }).eq('key', 'sub_code')
+    setSubCode(newSubCode); setNewSubCode(''); setSubCodeSaved(true)
+    setTimeout(() => setSubCodeSaved(false), 3000)
+  }
+
+  async function saveKioskReturn(val) {
+    await supabase.from('settings').upsert({ key: 'kiosk_return_required', value: val ? 'true' : 'false' })
+    setKioskReturnRequired(val)
+    setKioskReturnSaved(true)
+    setTimeout(() => setKioskReturnSaved(false), 2000)
+  }
+
+  async function generateCheckoutCode() {
+    const code = Math.floor(1000 + Math.random() * 9000).toString()
+    setSelfCheckoutCode(code)
+    await supabase.from('settings').update({ value: code }).eq('key', 'active_checkout_code')
+  }
+
+  function elapsed(timeOut) { return Math.floor((now - new Date(timeOut)) / 60000) }
+  function elapsedColor(mins) {
+    if (mins >= TIME_LIMIT) return 'text-red-500'
+    if (mins >= TIME_LIMIT * 0.7) return 'text-amber-500'
+    return 'text-green-600'
+  }
+
+  const overLimit = activePasses.filter(p => elapsed(p.time_out) >= TIME_LIMIT)
+  const periodLabel = PERIODS.find(p => p.value === activePeriod)?.label
+  const teacherDisplayName = currentTeacher?.name || session?.user?.email?.split('@')[0] || 'Teacher'
+  const teacherRoom = currentTeacher?.room || '27'
+
+  if (authLoading) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="w-6 h-6 border-2 border-gray-300 rounded-full animate-spin" style={{ borderTopColor: RHS_GREEN }} />
+    </div>
+  )
+
+  if (!session) {
+    // Magic link sent — waiting for teacher to click email link
+    if (magicSent) return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
+        <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-4" />
+        <div className="text-4xl mb-4">📬</div>
+        <h1 className="text-xl font-bold mb-2" style={{ color: RHS_GREEN }}>Check your email</h1>
+        <p className="text-gray-500 text-sm text-center mb-2">
+          A sign-in link was sent to<br />
+          <span className="font-medium text-gray-700">{magicEmail}</span>
+        </p>
+        <p className="text-gray-400 text-xs text-center mb-8">
+          Tap the link in your email to sign in.<br />
+          You can close this tab on the kiosk.
+        </p>
+        <button onClick={() => { setMagicSent(false); setMagicEmail('') }}
+          className="text-sm text-gray-400 hover:text-gray-600">← Try again</button>
+      </div>
+    )
+
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
+        <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
+        <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>RHS PassAble</h1>
+        <p className="text-gray-400 text-sm mb-8">Sign in to continue</p>
+        <div className="w-full max-w-xs flex flex-col gap-3">
+
+          {authMode === 'magic' ? (
+            <>
+              <input type="email" placeholder="you@rjusd.org" value={email}
+                onChange={e => setEmail(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSendMagicLink()}
+                className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
+                style={{ borderColor: RHS_GREEN }} />
+              {authError && <p className="text-red-500 text-xs text-center">{authError}</p>}
+              <button onClick={handleSendMagicLink} disabled={signingIn || !email}
+                className="w-full py-3 text-sm font-semibold rounded-xl text-white disabled:opacity-40"
+                style={{ backgroundColor: RHS_GREEN }}>
+                {signingIn ? 'Sending...' : '✉️ Send Sign-In Link'}
+              </button>
+              <button onClick={() => setAuthMode('password')}
+                className="text-xs text-center text-gray-400 hover:text-gray-600">
+                Use password instead
+              </button>
+            </>
+          ) : (
+            <>
+              <input type="email" placeholder="you@rjusd.org" value={email}
+                onChange={e => setEmail(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handlePasswordSignIn()}
+                className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
+                style={{ borderColor: RHS_GREEN }} />
+              <input type="password" placeholder="Password" value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handlePasswordSignIn()}
+                className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
+                style={{ borderColor: RHS_GREEN }} />
+              {authError && <p className="text-red-500 text-xs text-center">{authError}</p>}
+              <button onClick={handlePasswordSignIn} disabled={signingIn || !email || !password}
+                className="w-full py-3 text-sm font-semibold rounded-xl text-white disabled:opacity-40"
+                style={{ backgroundColor: RHS_GREEN }}>
+                {signingIn ? 'Signing in...' : 'Sign In'}
+              </button>
+              <button onClick={() => setAuthMode('magic')}
+                className="text-xs text-center text-gray-400 hover:text-gray-600">
+                ← Send magic link instead
+              </button>
+            </>
+          )}
+
+          <div className="flex items-center gap-3 my-1">
+            <div className="flex-1 h-px bg-gray-200" />
+            <span className="text-xs text-gray-400">or scan teacher QR</span>
+            <div className="flex-1 h-px bg-gray-200" />
+          </div>
+          <div className="flex flex-col items-center gap-2">
+            <QRScanner onUnlock={handleQRScan} unlockCode={unlockCode} deviceId={selectedCamera} />
+            {cameras.length > 1 && (
+              <select value={selectedCamera}
+                onChange={e => { setSelectedCamera(e.target.value); localStorage.setItem('teacher_camera', e.target.value) }}
+                className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2 py-1 bg-white w-48">
+                <option value="">Default camera</option>
+                {cameras.map((c, i) => <option key={c.deviceId} value={c.deviceId}>{c.label || `Camera ${i + 1}`}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+        <a href="/" className="mt-8 text-sm text-gray-400 hover:text-gray-600">← Home</a>
+      </div>
+    )
+  }
+
+  if (!activePeriod) return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
+      <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
+      <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>RHS PassAble</h1>
+      <p className="text-gray-400 text-sm mb-1">Welcome, {teacherDisplayName}</p>
+      <p className="text-gray-400 text-sm mb-8">Select the current period</p>
+      <div className="flex flex-col gap-3 w-full max-w-xs">
+        {PERIODS.map(p => (
+          <button key={p.value} onClick={() => { setActivePeriod(p.value); generateCheckoutCode() }}
+            className="py-4 text-lg font-bold bg-white border-2 rounded-xl shadow-sm hover:bg-green-50"
+            style={{ borderColor: RHS_GREEN, color: RHS_GREEN }}>{p.label}</button>
+        ))}
+      </div>
+      <button onClick={handleSignOut} className="mt-8 text-sm text-gray-400 hover:text-gray-600">Sign Out</button>
+    </div>
+  )
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+
+      {showPullPass && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">Request Student</h2>
+                <p className="text-xs text-gray-400">Print a pass to pull a student from another class</p>
+              </div>
+              <button onClick={() => { setShowPullPass(false); setPullStudentName(''); setPullFromTeacher(''); setPullPurpose('') }}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="flex flex-col gap-3 mb-4">
+              <div>
+                <label className="text-xs text-gray-500 font-medium mb-1 block">Student Name</label>
+                <input type="text" placeholder="First and last name" value={pullStudentName}
+                  onChange={e => setPullStudentName(e.target.value)}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-medium mb-1 block">Currently In</label>
+                <select value={pullFromTeacher} onChange={e => setPullFromTeacher(e.target.value)}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }}>
+                  <option value="">— Select teacher —</option>
+                  {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-medium mb-1 block">Purpose</label>
+                <input type="text" placeholder="e.g. meeting, project, makeup work..." value={pullPurpose}
+                  onChange={e => setPullPurpose(e.target.value)}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => {
+                const timeIssued = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+                  ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                printPullPass({ studentName: pullStudentName, fromTeacher: pullFromTeacher, purpose: pullPurpose, timeIssued, issuedBy: teacherDisplayName, room: teacherRoom })
+                setShowPullPass(false); setPullStudentName(''); setPullFromTeacher(''); setPullPurpose('')
+              }} disabled={!pullStudentName || !pullFromTeacher}
+                className="flex-1 py-3 text-white text-sm font-semibold rounded-xl disabled:opacity-30"
+                style={{ backgroundColor: RHS_GREEN }}>
+                🖨️ Print Pass
+              </button>
+              <button onClick={() => { setShowPullPass(false); setPullStudentName(''); setPullFromTeacher(''); setPullPurpose('') }}
+                className="flex-1 py-3 border border-gray-200 text-gray-600 text-sm rounded-xl hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showLatePass && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">Issue Late Pass</h2>
+                <p className="text-xs text-gray-400">Student will not return to Room {teacherRoom}</p>
+              </div>
+              <button onClick={() => { setShowLatePass(false); setLateStudent(''); setLateTeacher(''); setLateReason('') }}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            {latePassSuccess ? (
+              <div className="text-center py-4">
+                <div className="text-4xl mb-2">🖨️</div>
+                <p className="font-semibold text-gray-800">{latePassSuccess.studentName}</p>
+                <p className="text-sm text-gray-500">Late pass to {latePassSuccess.toTeacher} — printing...</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-3 mb-4">
+                  <div>
+                    <label className="text-xs text-gray-500 font-medium mb-1 block">Student</label>
+                    <select value={lateStudent} onChange={e => setLateStudent(e.target.value)}
+                      className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                      style={{ borderColor: RHS_GREEN }}>
+                      <option value="">— Select student —</option>
+                      {allStudents.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 font-medium mb-1 block">Reporting To</label>
+                    <select value={lateTeacher} onChange={e => setLateTeacher(e.target.value)}
+                      className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                      style={{ borderColor: RHS_GREEN }}>
+                      <option value="">— Select teacher —</option>
+                      {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 font-medium mb-1 block">Reason for Lateness</label>
+                    <input type="text" placeholder="e.g. finishing assignment, helping in class..."
+                      value={lateReason} onChange={e => setLateReason(e.target.value)}
+                      className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                      style={{ borderColor: RHS_GREEN }} />
+                  </div>
+                </div>
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-4 text-xs text-blue-700">
+                  A receipt will print and the receiving teacher will be notified.
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={handleIssueLatePass} disabled={!lateStudent || !lateTeacher || issuingLatePass}
+                    className="flex-1 py-3 text-white text-sm font-semibold rounded-xl disabled:opacity-30"
+                    style={{ backgroundColor: RHS_GREEN }}>
+                    {issuingLatePass ? 'Issuing...' : '🖨️ Print & Issue'}
+                  </button>
+                  <button onClick={() => { setShowLatePass(false); setLateStudent(''); setLateTeacher(''); setLateReason('') }}
+                    className="flex-1 py-3 border border-gray-200 text-gray-600 text-sm rounded-xl hover:bg-gray-50">
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
+        <div className="flex items-center gap-3">
+          <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
+          <div>
+            <h1 className="text-lg font-bold text-white">RHS PassAble · Teacher</h1>
+            <p className="text-green-200 text-xs">Room {teacherRoom} · {periodLabel} · {teacherDisplayName}</p>
+          </div>
+        </div>
+        <div className="flex gap-4 items-center">
+          <a href="/analytics" className="text-sm text-green-200 hover:text-white">Analytics</a>
+          {currentTeacher?.is_admin && (
+            <a href="/admin/teachers" className="text-sm text-green-200 hover:text-white">Teachers</a>
+          )}
+          <button onClick={() => setActivePeriod(null)} className="text-sm text-green-200 hover:text-white">← Period</button>
+          <button onClick={handleSignOut} className="text-sm text-green-200 hover:text-white">Sign Out</button>
+        </div>
+      </div>
+
+      <div className="p-6 max-w-3xl mx-auto">
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          {[
+            { label: 'Currently Out', value: activePasses.length, color: activePasses.length > 0 ? 'text-red-500' : 'text-green-600' },
+            { label: `Over ${TIME_LIMIT} min`, value: overLimit.length, color: overLimit.length > 0 ? 'text-red-500' : 'text-green-600' },
+            { label: 'On Hold', value: heldPasses.length, color: heldPasses.length > 0 ? 'text-amber-500' : 'text-green-600' },
+          ].map(m => (
+            <div key={m.label} className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-xs text-gray-500 mb-1">{m.label}</div>
+              <div className={`text-2xl font-semibold ${m.color}`}>{m.value}</div>
+            </div>
+          ))}
+        </div>
+
+        {heldPasses.length > 0 && (
+          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-2 bg-amber-100 border-b border-amber-200">
+              <span className="text-amber-700 text-sm font-medium">⚠ Students on Hold — conflict rule active</span>
+            </div>
+            {heldPasses.map(hold => (
+              <div key={hold.id} className="px-4 py-3 border-b border-amber-100 last:border-0 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-800">
+                    {students[hold.student_id]?.full_name || hold.student_id} → {hold.reason}
+                  </p>
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    Held at {new Date(hold.held_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · conflicting student still out
+                  </p>
+                </div>
+                <div className="flex gap-2 ml-4 flex-shrink-0">
+                  <button onClick={() => handleOverride(hold)}
+                    className="text-xs px-3 py-1.5 rounded-lg text-white font-medium" style={{ backgroundColor: RHS_GREEN }}>
+                    Override & Send
+                  </button>
+                  <button onClick={() => handleDismissHold(hold.id)}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50">
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activePasses.length >= 2 && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
+            ⚠ {activePasses.length} students out simultaneously: {activePasses.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')}
+          </div>
+        )}
+        {overLimit.length > 0 && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm">
+            ! {overLimit.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')} {overLimit.length === 1 ? 'has' : 'have'} been out over {TIME_LIMIT} min
+          </div>
+        )}
+
+        <div className="bg-white rounded-xl border border-gray-200 mb-6">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <span className="text-sm font-medium" style={{ color: RHS_GREEN }}>Students Out</span>
+            <div className="flex items-center gap-3">
+              <button onClick={() => setShowPullPass(true)}
+                className="text-xs px-3 py-1.5 rounded-lg text-white font-medium"
+                style={{ backgroundColor: '#7c3aed' }}>
+                📋 Request Student
+              </button>
+              <button onClick={() => setShowLatePass(true)}
+                className="text-xs px-3 py-1.5 rounded-lg text-white font-medium"
+                style={{ backgroundColor: '#1d4ed8' }}>
+                🖨️ Issue Late Pass
+              </button>
+              <button onClick={loadData} className="text-xs text-gray-400 hover:text-gray-600">Refresh</button>
+            </div>
+          </div>
+          {activePasses.length === 0 ? (
+            <div className="p-8 text-center text-gray-400 text-sm">All students are in the classroom</div>
+          ) : activePasses.map(pass => {
+            const mins = elapsed(pass.time_out)
+            const student = students[pass.student_id]
+            const isLatePass = pass.pass_type === 'late_pass'
+            return (
+              <div key={pass.id}
+                className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 ${isLatePass ? 'bg-blue-50' : ''}`}>
+                <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white"
+                  style={{ backgroundColor: isLatePass ? '#1d4ed8' : RHS_GREEN }}>
+                  {student?.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-800">{student?.full_name}</span>
+                    {isLatePass && <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">Late Pass</span>}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {pass.reason} · out at {new Date(pass.time_out).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
+                  </div>
+                </div>
+                <span className={`text-sm font-medium w-10 text-right ${elapsedColor(mins)}`}>{mins}m</span>
+                {!isLatePass && (
+                  <button onClick={() => handleReturn(pass.id)}
+                    className="text-xs px-3 py-1.5 rounded-lg text-white" style={{ backgroundColor: RHS_GREEN }}>
+                    Return
+                  </button>
+                )}
+              </div>
+            )
+          })}
+
+          <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl">
+            <div className="text-xs font-medium text-gray-500 mb-2">Check out a student</div>
+            <div className="flex gap-2 mb-2">
+              <select value={selected} onChange={e => setSelected(e.target.value)}
+                className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                style={{ borderColor: RHS_GREEN }}>
+                <option value="">— Student —</option>
+                {allStudents.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+              </select>
+              <select value={reason} onChange={e => { setReason(e.target.value); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText('') }}
+                className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                style={{ borderColor: RHS_GREEN }}>
+                <option value="">— Reason —</option>
+                {REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              <button onClick={handleTeacherCheckout}
+                disabled={!selected || !reason || (reason === 'On Assignment' && !assignedTeacher)}
+                className="px-4 py-2 text-sm rounded-lg disabled:opacity-30 font-medium text-white"
+                style={{ backgroundColor: RHS_GREEN }}>
+                Send
+              </button>
+            </div>
+            {reason === 'On Assignment' && (
+              <div className="flex flex-col gap-2">
+                <select value={assignedTeacher} onChange={e => setAssignedTeacher(e.target.value)}
+                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }}>
+                  <option value="">— Select a teacher —</option>
+                  {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <input type="text" placeholder="Purpose (e.g. picking up worksheets)"
+                  value={purposeText} onChange={e => setPurposeText(e.target.value)}
+                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+              </div>
+            )}
+            {reason === 'Errand' && (
+              <div className="flex flex-col gap-2">
+                <select value={errandTeacher} onChange={e => setErrandTeacher(e.target.value)}
+                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }}>
+                  <option value="">— Select a teacher (optional) —</option>
+                  {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <input type="text" placeholder="Purpose (e.g. returning equipment)"
+                  value={purposeText} onChange={e => setPurposeText(e.target.value)}
+                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+              </div>
+            )}
+
+            {/* Self-Checkout Mode */}
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <button onClick={() => setSelfCheckoutMode(false)}
+                  style={{ flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600, borderRadius: 8, border: 'none', cursor: 'pointer',
+                    background: !selfCheckoutMode ? RHS_GREEN : 'white', color: !selfCheckoutMode ? 'white' : '#6b7280',
+                    outline: selfCheckoutMode ? '1px solid #d1d5db' : 'none' }}>
+                  Manual
+                </button>
+                <button onClick={() => setSelfCheckoutMode(true)}
+                  style={{ flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600, borderRadius: 8, border: 'none', cursor: 'pointer',
+                    background: selfCheckoutMode ? RHS_GREEN : 'white', color: selfCheckoutMode ? 'white' : '#6b7280',
+                    outline: !selfCheckoutMode ? '1px solid #d1d5db' : 'none' }}>
+                  Self-Checkout Mode
+                </button>
+              </div>
+              {selfCheckoutMode && (
+                <div style={{ background: 'white', borderRadius: 12, padding: 16, border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                  <div style={{ fontSize: 40, fontWeight: 900, letterSpacing: 10, color: '#1f2937', fontFamily: 'monospace', marginBottom: 4 }}>
+                    {selfCheckoutCode || '—'}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Teacher session code — tell students to go to:</div>
+                  <div style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: RHS_GREEN, marginBottom: 8 }}>
+                    hall-pass-lime.vercel.app/self-checkout
+                  </div>
+                  <button onClick={generateCheckoutCode}
+                    style={{ fontSize: 11, padding: '4px 12px', borderRadius: 8, border: '1px solid #d1d5db', background: 'white', cursor: 'pointer', color: '#6b7280', marginBottom: 8 }}>
+                    🔄 Generate New Code
+                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: '#374151' }}>Kiosk return required:</span>
+                    <button onClick={() => saveKioskReturn(!kioskReturnRequired)}
+                      style={{ padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                        background: kioskReturnRequired ? RHS_GREEN : '#e5e7eb', color: kioskReturnRequired ? 'white' : '#6b7280' }}>
+                      {kioskReturnRequired ? 'ON' : 'OFF'}
+                    </button>
+                    {kioskReturnSaved && <span style={{ fontSize: 11, color: RHS_GREEN }}>✓ Saved</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+                    {kioskReturnRequired ? 'Students must scan at kiosk to return' : "Students see an \"I'm Back\" button on their device"}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {showSettings && (
+          <>
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Teacher Unlock QR</p>
+                  <p className="text-xs text-gray-400">Scan to sign in without typing password</p>
+                </div>
+                <button onClick={rotateUnlockCode} disabled={rotating}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${rotated ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                  {rotating ? 'Rotating...' : rotated ? '✓ Rotated' : 'Rotate Code'}
+                </button>
+              </div>
+              <div className="flex items-center gap-4">
+                {unlockQR && <img src={unlockQR} alt="Teacher unlock QR" className="w-24 h-24" />}
+                <div>
+                  <p className="text-xs text-gray-400 mb-1">Current code</p>
+                  <p className="text-sm font-mono text-gray-700">{unlockCode}</p>
+                  <p className="text-xs text-gray-400 mt-2">Tap Rotate Code anytime to invalidate the old one.</p>
+                  <a href="/unlock" target="_blank" className="text-xs mt-2 inline-block" style={{ color: RHS_GREEN }}>
+                    Open full-screen QR →
+                  </a>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="mb-3">
+                <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Substitute Code</p>
+                <p className="text-xs text-gray-400">Current code: <span className="font-mono">{subCode}</span></p>
+              </div>
+              <div className="flex gap-2">
+                <input type="number" maxLength={4} placeholder="New 4-digit sub code" value={newSubCode}
+                  onChange={e => setNewSubCode(e.target.value.slice(0, 4))}
+                  className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+                <button onClick={saveSubCode} disabled={newSubCode.length !== 4}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg ${subCodeSaved ? 'bg-green-50 border border-green-200 text-green-700' : 'text-white disabled:opacity-30'}`}
+                  style={!subCodeSaved ? { backgroundColor: RHS_GREEN } : {}}>
+                  {subCodeSaved ? '✓ Saved' : 'Save Code'}
+                </button>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
+              <div className="mb-3">
+                <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Keypad PIN</p>
+                <p className="text-xs text-gray-400">Current PIN: <span className="font-mono">{currentPin}</span></p>
+              </div>
+              <div className="flex gap-2">
+                <input type="number" maxLength={4} placeholder="New 4-digit PIN" value={newPin}
+                  onChange={e => setNewPin(e.target.value.slice(0, 4))}
+                  className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+                <button onClick={savePin} disabled={newPin.length !== 4}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg ${pinSaved ? 'bg-green-50 border border-green-200 text-green-700' : 'text-white disabled:opacity-30'}`}
+                  style={!pinSaved ? { backgroundColor: RHS_GREEN } : {}}>
+                  {pinSaved ? '✓ Saved' : 'Save PIN'}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="flex justify-end mb-4">
+          <button onClick={() => setShowSettings(s => !s)}
+            className="text-xs px-3 py-1.5 border rounded-lg text-gray-500 hover:bg-gray-50">
+            {showSettings ? '🔒 Hide Settings' : '⚙️ Show Settings'}
+          </button>
+        </div>
+
+        <div className="flex justify-between items-center flex-wrap gap-2">
+          <a href="/admin/students" className="text-sm text-gray-400 hover:text-gray-600">Manage Students →</a>
+          <a href="/admin/roster" className="text-sm text-gray-400 hover:text-gray-600">Import Roster →</a>
+          <a href="/qr" className="text-sm text-gray-400 hover:text-gray-600">Print QR Badges →</a>
+          <a href="/admin/photos" className="text-sm text-gray-400 hover:text-gray-600">Photo Upload →</a>
+          <a href="/log" className="text-sm text-gray-400 hover:text-gray-600">Pass Log →</a>
+          {currentTeacher?.is_admin && (
+            <a href="/admin/teachers" className="text-sm text-gray-400 hover:text-gray-600">Teacher Admin →</a>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function Teacher() {
+  return (
+    <Suspense>
+      <TeacherInner />
+    </Suspense>
+  )
+}

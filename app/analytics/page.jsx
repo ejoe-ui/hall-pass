@@ -1,0 +1,610 @@
+'use client'
+import { useState, useEffect } from 'react'
+import { supabase } from '../../lib/supabase'
+
+const RHS_GREEN = '#006938'
+
+const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Water', 'Errand', 'On Assignment', 'School Store', 'Other']
+const REASON_COLORS = {
+  'Restroom': '#3B82F6', 'Library': '#8B5CF6', 'Office': '#F59E0B', 'Counselor': '#EC4899',
+  'Water': '#06B6D4', 'Errand': '#10B981', 'On Assignment': '#F97316', 'School Store': '#6366F1', 'Other': '#94A3B8',
+}
+
+function BarChart({ data, maxVal, color }) {
+  if (!data || data.length === 0) return <div style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center', padding: 24 }}>No data yet</div>
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 120, padding: '0 8px' }}>
+      {data.map((d, i) => (
+        <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <div style={{ fontSize: 10, color: '#6b7280', fontWeight: 600 }}>{d.count}</div>
+          <div style={{ width: '100%', height: maxVal > 0 ? `${Math.max(4, (d.count / maxVal) * 100)}px` : 4, backgroundColor: color || RHS_GREEN, borderRadius: '4px 4px 0 0', opacity: d.count === 0 ? 0.2 : 1, transition: 'height 0.5s ease' }} />
+          <div style={{ fontSize: 10, color: '#9ca3af', textAlign: 'center' }}>{d.label}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function DonutChart({ data, total }) {
+  if (!data || data.length === 0 || total === 0) return <div style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center', padding: 24 }}>No data yet</div>
+  let offset = 0
+  const radius = 60
+  const circumference = 2 * Math.PI * radius
+  const segments = data.map(d => {
+    const pct = d.count / total
+    const dash = pct * circumference
+    const gap = circumference - dash
+    const seg = { ...d, dash, gap, offset, pct }
+    offset += dash
+    return seg
+  })
+  return (
+    <div style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+      <svg width={160} height={160} viewBox="0 0 160 160">
+        <circle cx={80} cy={80} r={radius} fill="none" stroke="#f3f4f6" strokeWidth={20} />
+        {segments.map((seg, i) => (
+          <circle key={i} cx={80} cy={80} r={radius} fill="none" stroke={seg.color} strokeWidth={20}
+            strokeDasharray={`${seg.dash} ${seg.gap}`} strokeDashoffset={-seg.offset}
+            transform="rotate(-90 80 80)" style={{ transition: 'stroke-dasharray 0.5s ease' }} />
+        ))}
+        <text x={80} y={76} textAnchor="middle" fontSize={22} fontWeight={700} fill="#1f2937">{total}</text>
+        <text x={80} y={92} textAnchor="middle" fontSize={11} fill="#9ca3af">total</text>
+      </svg>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 120 }}>
+        {segments.map((seg, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: seg.color, flexShrink: 0 }} />
+            <div style={{ fontSize: 12, color: '#374151', flex: 1 }}>{seg.label}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#6b7280' }}>{Math.round(seg.pct * 100)}%</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function HeatMap({ data }) {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const hours = Array.from({ length: 8 }, (_, i) => `${i + 8}:00`)
+  const max = Math.max(...Object.values(data), 1)
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `40px repeat(${hours.length}, 1fr)`, gap: 3, minWidth: 400 }}>
+        <div />
+        {hours.map(h => <div key={h} style={{ fontSize: 10, color: '#9ca3af', textAlign: 'center' }}>{h}</div>)}
+        {days.map(day => (
+          <>
+            <div key={day} style={{ fontSize: 11, color: '#6b7280', display: 'flex', alignItems: 'center', fontWeight: 500 }}>{day}</div>
+            {hours.map(hour => {
+              const key = `${day}-${hour}`
+              const val = data[key] || 0
+              const intensity = val / max
+              return <div key={key} title={`${day} ${hour}: ${val} passes`} style={{ height: 24, borderRadius: 4, backgroundColor: val === 0 ? '#f3f4f6' : `rgba(0, 105, 56, ${0.15 + intensity * 0.85})`, transition: 'background-color 0.3s' }} />
+            })}
+          </>
+        ))}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, justifyContent: 'flex-end' }}>
+        <span style={{ fontSize: 10, color: '#9ca3af' }}>Low</span>
+        {[0.1, 0.3, 0.5, 0.7, 0.9].map(i => <div key={i} style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: `rgba(0, 105, 56, ${i})` }} />)}
+        <span style={{ fontSize: 10, color: '#9ca3af' }}>High</span>
+      </div>
+    </div>
+  )
+}
+
+export default function Analytics() {
+  const [session, setSession] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
+  const [dateRange, setDateRange] = useState('week')
+  const [totalPasses, setTotalPasses] = useState(0)
+  const [avgDuration, setAvgDuration] = useState(0)
+  const [longestPass, setLongestPass] = useState(0)
+  const [longestPassDetail, setLongestPassDetail] = useState(null)
+  const [showLongestModal, setShowLongestModal] = useState(false)
+  const [showTotalModal, setShowTotalModal] = useState(false)
+  const [showAvgModal, setShowAvgModal] = useState(false)
+  const [showActiveModal, setShowActiveModal] = useState(false)
+  const [avgDurationDetail, setAvgDurationDetail] = useState(null)
+  const [activeNowDetail, setActiveNowDetail] = useState([])
+  const [activeNow, setActiveNow] = useState(0)
+  const [dailyData, setDailyData] = useState([])
+  const [reasonData, setReasonData] = useState([])
+  const [topStudents, setTopStudents] = useState([])
+  const [heatMapData, setHeatMapData] = useState({})
+  const [correlations, setCorrelations] = useState([])
+  const [periodData, setPeriodData] = useState([])
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); setAuthLoading(false) })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session))
+    return () => subscription.unsubscribe()
+  }, [])
+
+  useEffect(() => { if (session) loadAnalytics() }, [session, dateRange])
+
+  function getDateFilter() {
+    const now = new Date()
+    if (dateRange === 'today') { const s = new Date(now); s.setHours(0,0,0,0); return s.toISOString() }
+    if (dateRange === 'week') { const s = new Date(now); s.setDate(now.getDate() - 7); return s.toISOString() }
+    if (dateRange === 'month') { const s = new Date(now); s.setMonth(now.getMonth() - 1); return s.toISOString() }
+    return null
+  }
+
+  async function loadAnalytics() {
+    setLoading(true)
+    const dateFilter = getDateFilter()
+    let query = supabase.from('passes').select('*')
+    if (dateFilter) query = query.gte('time_out', dateFilter)
+    const { data: rawPasses } = await query.order('time_out', { ascending: false })
+    if (!rawPasses) { setLoading(false); return }
+
+    const { data: studData } = await supabase.from('students').select('id, full_name')
+    const studMap = {}
+    if (studData) studData.forEach(s => studMap[s.id] = s)
+    const passes = rawPasses.map(p => ({ ...p, students: studMap[p.student_id] || null }))
+
+    setTotalPasses(passes.length)
+    const completed = passes.filter(p => p.duration_minutes != null)
+    setAvgDuration(completed.length > 0 ? Math.round(completed.reduce((s, p) => s + p.duration_minutes, 0) / completed.length) : 0)
+
+    // Avg Duration detail
+    if (completed.length > 0) {
+      const sorted = [...completed].sort((a, b) => a.duration_minutes - b.duration_minutes)
+      const median = sorted[Math.floor(sorted.length / 2)]?.duration_minutes || 0
+      const over10 = completed.filter(p => p.duration_minutes > 10).length
+      const reasonTotals = completed.reduce((acc, p) => {
+        const r = p.reason?.split(' — ')[0] || 'Other'
+        acc[r] = (acc[r] || 0) + p.duration_minutes
+        return acc
+      }, {})
+      const longestReason = Object.entries(reasonTotals).sort((a, b) => b[1] - a[1])[0]?.[0] || '—'
+      setAvgDurationDetail({
+        median,
+        over10,
+        pctOver10: Math.round((over10 / completed.length) * 100),
+        completedCount: completed.length,
+        longestReason,
+      })
+    } else {
+      setAvgDurationDetail(null)
+    }
+
+    if (completed.length > 0) {
+      const longest = completed.reduce((max, p) => p.duration_minutes > max.duration_minutes ? p : max, completed[0])
+      setLongestPass(longest.duration_minutes)
+      setLongestPassDetail({
+        student: longest.students?.full_name || longest.student_id,
+        reason: longest.reason || '—',
+        duration: longest.duration_minutes,
+        date: new Date(longest.time_out).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        timeOut: new Date(longest.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timeIn: longest.time_in ? new Date(longest.time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—',
+        period: longest.period,
+      })
+    } else {
+      setLongestPass(0)
+      setLongestPassDetail(null)
+    }
+
+    // Currently Out detail
+    const activePasses = passes.filter(p => !p.time_in)
+    setActiveNow(activePasses.length)
+    setActiveNowDetail(activePasses.map(p => ({
+      name: p.students?.full_name || p.student_id,
+      reason: p.reason?.split(' — ')[0] || 'Other',
+      period: p.period,
+      timeOut: new Date(p.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      minutesOut: Math.round((Date.now() - new Date(p.time_out)) / 60000),
+    })))
+
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    const last7 = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (6 - i)); return d })
+    const dailyCounts = {}
+    last7.forEach(d => { dailyCounts[d.toDateString()] = 0 })
+    passes.forEach(p => { const k = new Date(p.time_out).toDateString(); if (dailyCounts[k] !== undefined) dailyCounts[k]++ })
+    setDailyData(last7.map(d => ({ label: days[d.getDay()], count: dailyCounts[d.toDateString()] || 0 })))
+
+    const reasonCounts = {}
+    passes.forEach(p => {
+      const r = p.reason?.split(' — ')[0] || 'Other'
+      const k = REASONS.find(x => r.startsWith(x)) || 'Other'
+      reasonCounts[k] = (reasonCounts[k] || 0) + 1
+    })
+    setReasonData(Object.entries(reasonCounts).map(([label, count]) => ({ label, count, color: REASON_COLORS[label] || '#94A3B8' })).sort((a, b) => b.count - a.count))
+
+    const sc = {}
+    passes.forEach(p => {
+      const id = p.student_id
+      if (!sc[id]) sc[id] = { id, name: p.students?.full_name || id, count: 0, totalMin: 0, reasons: {} }
+      sc[id].count++
+      if (p.duration_minutes) sc[id].totalMin += p.duration_minutes
+      const r = p.reason?.split(' — ')[0] || 'Other'
+      sc[id].reasons[r] = (sc[id].reasons[r] || 0) + 1
+    })
+    setTopStudents(Object.values(sc).sort((a, b) => b.count - a.count).slice(0, 10).map(s => ({
+      ...s,
+      avgMin: s.count > 0 ? Math.round(s.totalMin / s.count) : 0,
+      topReason: Object.entries(s.reasons).sort((a, b) => b[1] - a[1])[0]?.[0] || '—',
+    })))
+
+    const hm = {}
+    const dn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    passes.forEach(p => {
+      const d = new Date(p.time_out); const day = dn[d.getDay()]
+      if (day === 'Sat' || day === 'Sun') return
+      const hour = d.getHours(); if (hour < 8 || hour > 15) return
+      const k = `${day}-${hour}:00`; hm[k] = (hm[k] || 0) + 1
+    })
+    setHeatMapData(hm)
+
+    const pc = {}
+    passes.forEach(p => { const per = p.period || 'Unknown'; pc[per] = (pc[per] || 0) + 1 })
+    setPeriodData(Object.entries(pc).map(([label, count]) => ({ label: `Period ${label}`, count })).sort((a, b) => a.label.localeCompare(b.label)))
+
+    const cm = {}
+    const sp = [...passes].sort((a, b) => new Date(a.time_out) - new Date(b.time_out))
+    for (let i = 0; i < sp.length; i++) {
+      const p1 = sp[i]; if (!p1.time_in) continue
+      const p1o = new Date(p1.time_out); const p1i = new Date(p1.time_in)
+      for (let j = i + 1; j < sp.length; j++) {
+        const p2 = sp[j]; if (!p2.time_in || p1.student_id === p2.student_id) continue
+        const p2o = new Date(p2.time_out); const p2i = new Date(p2.time_in)
+        if (p2o < p1i && p1o < p2i) {
+          const names = [p1.students?.full_name || p1.student_id, p2.students?.full_name || p2.student_id].sort()
+          const k = names.join(' + '); cm[k] = (cm[k] || 0) + 1
+        }
+      }
+    }
+    setCorrelations(Object.entries(cm).filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([pair, count]) => ({ pair, count })))
+    setLoading(false)
+  }
+
+  const maxDaily = Math.max(...dailyData.map(d => d.count), 1)
+
+  if (authLoading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ width: 24, height: 24, border: `2px solid #e5e7eb`, borderTop: `2px solid ${RHS_GREEN}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }} /></div>
+
+  if (!session) return (
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f9fafb', gap: 16 }}>
+      <h1 style={{ color: RHS_GREEN, fontWeight: 700, fontSize: 24 }}>Analytics</h1>
+      <p style={{ color: '#6b7280' }}>Sign in to view analytics</p>
+      <a href="/teacher" style={{ color: RHS_GREEN, textDecoration: 'none', fontSize: 14 }}>← Go to Teacher Login</a>
+    </div>
+  )
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#f9fafb', fontFamily: 'system-ui, sans-serif' }}>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        .card { animation: fadeUp 0.4s ease forwards; }
+        .student-link { color: #1f2937; text-decoration: none; font-weight: 600; font-size: 13px; }
+        .student-link:hover { color: ${RHS_GREEN}; text-decoration: underline; }
+        .clickable-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); transform: translateY(-1px); cursor: pointer; }
+        .clickable-card { transition: box-shadow 0.2s, transform 0.2s; }
+      `}</style>
+
+      {/* Total Passes Modal */}
+      {showTotalModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 24, maxWidth: 380, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#1f2937' }}>🎫 Total Passes</h2>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#9ca3af' }}>Breakdown for selected period</p>
+              </div>
+              <button onClick={() => setShowTotalModal(false)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#9ca3af', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ background: '#f0fdf4', borderRadius: 12, padding: '16px 20px', marginBottom: 16, textAlign: 'center' }}>
+              <div style={{ fontSize: 48, fontWeight: 800, color: RHS_GREEN, lineHeight: 1 }}>{totalPasses}</div>
+              <div style={{ fontSize: 13, color: '#166534', marginTop: 4 }}>total passes issued</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {reasonData.slice(0, 5).map((r, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: i < Math.min(4, reasonData.length - 1) ? '1px solid #f3f4f6' : 'none' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: r.color }} />
+                    <span style={{ fontSize: 13, color: '#6b7280' }}>{r.label}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 60, height: 5, background: '#f3f4f6', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', borderRadius: 3, width: `${(r.count / totalPasses) * 100}%`, background: r.color }} />
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937', minWidth: 24, textAlign: 'right' }}>{r.count}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setShowTotalModal(false)}
+              style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: RHS_GREEN, color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Avg Duration Modal */}
+      {showAvgModal && avgDurationDetail && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 24, maxWidth: 380, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#1f2937' }}>⏱ Avg Duration</h2>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#9ca3af' }}>Duration stats for completed passes</p>
+              </div>
+              <button onClick={() => setShowAvgModal(false)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#9ca3af', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ background: '#EFF6FF', borderRadius: 12, padding: '16px 20px', marginBottom: 16, textAlign: 'center' }}>
+              <div style={{ fontSize: 48, fontWeight: 800, color: '#3B82F6', lineHeight: 1 }}>{avgDuration}m</div>
+              <div style={{ fontSize: 13, color: '#1D4ED8', marginTop: 4 }}>mean duration</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                <span style={{ fontSize: 13, color: '#6b7280' }}>Median</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{avgDurationDetail.median}m</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                <span style={{ fontSize: 13, color: '#6b7280' }}>Passes over 10 min</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: avgDurationDetail.over10 > 0 ? '#EF4444' : '#1f2937' }}>
+                  {avgDurationDetail.over10} ({avgDurationDetail.pctOver10}%)
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                <span style={{ fontSize: 13, color: '#6b7280' }}>Longest avg reason</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{avgDurationDetail.longestReason}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
+                <span style={{ fontSize: 13, color: '#6b7280' }}>Completed passes</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{avgDurationDetail.completedCount} of {totalPasses}</span>
+              </div>
+            </div>
+            <button onClick={() => setShowAvgModal(false)}
+              style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: '#3B82F6', color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Currently Out Modal */}
+      {showActiveModal && activeNow > 0 && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 24, maxWidth: 380, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', maxHeight: '80vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#1f2937' }}>🔴 Currently Out</h2>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#9ca3af' }}>Students with open passes right now</p>
+              </div>
+              <button onClick={() => setShowActiveModal(false)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#9ca3af', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ background: '#FEF2F2', borderRadius: 12, padding: '12px 20px', marginBottom: 16, textAlign: 'center' }}>
+              <div style={{ fontSize: 36, fontWeight: 800, color: '#EF4444', lineHeight: 1 }}>{activeNow}</div>
+              <div style={{ fontSize: 13, color: '#991B1B', marginTop: 2 }}>student{activeNow !== 1 ? 's' : ''} currently out</div>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {activeNowDetail.map((s, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < activeNowDetail.length - 1 ? '1px solid #f3f4f6' : 'none' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{s.name}</div>
+                    <div style={{ fontSize: 11, color: '#9ca3af' }}>Period {s.period} · {s.reason}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: s.minutesOut > 10 ? '#EF4444' : '#6b7280' }}>{s.minutesOut}m</div>
+                    <div style={{ fontSize: 11, color: '#9ca3af' }}>since {s.timeOut}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setShowActiveModal(false)}
+              style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: '#EF4444', color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Longest Pass Modal */}
+      {showLongestModal && longestPassDetail && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 24, maxWidth: 380, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#1f2937' }}>⏰ Longest Pass</h2>
+                <p style={{ margin: '2px 0 0', fontSize: 12, color: '#9ca3af' }}>Longest single pass in this period</p>
+              </div>
+              <button onClick={() => setShowLongestModal(false)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#9ca3af', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ background: '#FEF3C7', borderRadius: 12, padding: '16px 20px', marginBottom: 16, textAlign: 'center' }}>
+              <div style={{ fontSize: 48, fontWeight: 800, color: '#D97706', lineHeight: 1 }}>{longestPassDetail.duration}m</div>
+              <div style={{ fontSize: 13, color: '#92400E', marginTop: 4 }}>total time out</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                <span style={{ fontSize: 13, color: '#6b7280' }}>Student</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{longestPassDetail.student}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                <span style={{ fontSize: 13, color: '#6b7280' }}>Reason</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{longestPassDetail.reason}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                <span style={{ fontSize: 13, color: '#6b7280' }}>Date</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{longestPassDetail.date}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                <span style={{ fontSize: 13, color: '#6b7280' }}>Out</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{longestPassDetail.timeOut}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
+                <span style={{ fontSize: 13, color: '#6b7280' }}>Returned</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{longestPassDetail.timeIn}</span>
+              </div>
+            </div>
+            <button onClick={() => setShowLongestModal(false)}
+              style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: RHS_GREEN, color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ backgroundColor: RHS_GREEN, padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img src="/RHSCOWBOYlogo.png" alt="RHS" style={{ width: 32, height: 32, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+          <div>
+            <h1 style={{ color: 'white', fontWeight: 700, fontSize: 18, margin: 0 }}>Pass Analytics</h1>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, margin: 0 }}>Room 27 · RHS PassAble</p>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <a href="/teacher" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>← Dashboard</a>
+          <a href="/admin" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>Admin</a>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 16px' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2 style={{ margin: 0, fontSize: 16, color: '#1f2937', fontWeight: 600 }}>
+            {loading ? 'Loading...' : `${totalPasses} passes · ${dateRange === 'today' ? 'Today' : dateRange === 'week' ? 'Last 7 days' : dateRange === 'month' ? 'Last 30 days' : 'All time'}`}
+          </h2>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {['today', 'week', 'month', 'all'].map(r => (
+              <button key={r} onClick={() => setDateRange(r)} style={{ padding: '6px 14px', fontSize: 13, fontWeight: 500, borderRadius: 8, border: 'none', cursor: 'pointer', background: dateRange === r ? RHS_GREEN : 'white', color: dateRange === r ? 'white' : '#6b7280', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                {r === 'today' ? 'Today' : r === 'week' ? '7 Days' : r === 'month' ? '30 Days' : 'All Time'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
+
+          {/* Total Passes — clickable */}
+          <div
+            className="clickable-card"
+            onClick={() => setShowTotalModal(true)}
+            style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: 'pointer' }}>
+            <div style={{ fontSize: 28, marginBottom: 4 }}>🎫</div>
+            <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>Total Passes</div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: RHS_GREEN, lineHeight: 1 }}>{totalPasses}</div>
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>tap for breakdown</div>
+          </div>
+
+          {/* Avg Duration — clickable */}
+          <div
+            className="clickable-card"
+            onClick={() => avgDurationDetail && setShowAvgModal(true)}
+            style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: avgDurationDetail ? 'pointer' : 'default' }}>
+            <div style={{ fontSize: 28, marginBottom: 4 }}>⏱</div>
+            <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>Avg Duration</div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: '#3B82F6', lineHeight: 1 }}>{avgDuration}m</div>
+            <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>per pass</div>
+            {avgDurationDetail && <div style={{ fontSize: 11, color: '#9ca3af' }}>tap for details</div>}
+          </div>
+
+          {/* Currently Out — clickable */}
+          <div
+            className="clickable-card"
+            onClick={() => activeNow > 0 && setShowActiveModal(true)}
+            style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: activeNow > 0 ? 'pointer' : 'default' }}>
+            <div style={{ fontSize: 28, marginBottom: 4 }}>🔴</div>
+            <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>Currently Out</div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: activeNow > 0 ? '#EF4444' : RHS_GREEN, lineHeight: 1 }}>{activeNow}</div>
+            {activeNow > 0 && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>tap to see who</div>}
+          </div>
+
+          {/* Longest Pass — clickable (unchanged) */}
+          <div
+            className="clickable-card"
+            onClick={() => longestPassDetail && setShowLongestModal(true)}
+            style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: longestPassDetail ? 'pointer' : 'default' }}>
+            <div style={{ fontSize: 28, marginBottom: 4 }}>⏰</div>
+            <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>Longest Pass</div>
+            <div style={{ fontSize: 32, fontWeight: 700, color: '#F59E0B', lineHeight: 1 }}>{longestPass}m</div>
+            {longestPassDetail && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>tap for details</div>}
+          </div>
+
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+          <div className="card" style={{ background: 'white', borderRadius: 16, padding: 20, border: '1px solid #e5e7eb' }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600, color: '#1f2937' }}>📅 Passes by Day</h3>
+            <BarChart data={dailyData} maxVal={maxDaily} color={RHS_GREEN} />
+          </div>
+          <div className="card" style={{ background: 'white', borderRadius: 16, padding: 20, border: '1px solid #e5e7eb' }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600, color: '#1f2937' }}>🎯 Reason Breakdown</h3>
+            <DonutChart data={reasonData} total={totalPasses} />
+          </div>
+        </div>
+
+        <div className="card" style={{ background: 'white', borderRadius: 16, padding: 20, border: '1px solid #e5e7eb', marginBottom: 16 }}>
+          <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600, color: '#1f2937' }}>📚 Passes by Period</h3>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {periodData.map(p => (
+              <div key={p.label} style={{ flex: 1, minWidth: 120, background: '#f9fafb', borderRadius: 12, padding: '12px 16px', textAlign: 'center', border: '1px solid #e5e7eb' }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: RHS_GREEN }}>{p.count}</div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{p.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card" style={{ background: 'white', borderRadius: 16, padding: 20, border: '1px solid #e5e7eb', marginBottom: 16 }}>
+          <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600, color: '#1f2937' }}>🌡 Pass Activity Heat Map</h3>
+          <p style={{ margin: '0 0 12px', fontSize: 12, color: '#9ca3af' }}>Busiest times of the school day</p>
+          <HeatMap data={heatMapData} />
+        </div>
+
+        <div className="card" style={{ background: 'white', borderRadius: 16, padding: 20, border: '1px solid #e5e7eb', marginBottom: 16 }}>
+          <h3 style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 600, color: '#1f2937' }}>🏆 Frequent Flyers</h3>
+          <p style={{ margin: '0 0 16px', fontSize: 12, color: '#9ca3af' }}>Click a name to view their full pass history</p>
+          {topStudents.length === 0 ? (
+            <div style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center', padding: 24 }}>No data yet</div>
+          ) : topStudents.map((s, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: i < topStudents.length - 1 ? '1px solid #f3f4f6' : 'none' }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, background: i === 0 ? '#FEF3C7' : i === 1 ? '#F3F4F6' : i === 2 ? '#FEF3C7' : '#f9fafb', color: i === 0 ? '#D97706' : i === 1 ? '#6B7280' : i === 2 ? '#92400E' : '#9CA3AF' }}>
+                {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
+              </div>
+              <div style={{ flex: 1 }}>
+                <a href={`/student/${s.id}`} className="student-link">{s.name}</a>
+                <div style={{ fontSize: 11, color: '#9ca3af' }}>Top reason: {s.topReason}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: RHS_GREEN }}>{s.count}</div>
+                <div style={{ fontSize: 11, color: '#9ca3af' }}>passes</div>
+              </div>
+              <div style={{ textAlign: 'right', minWidth: 48 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: s.avgMin > 10 ? '#EF4444' : '#6b7280' }}>{s.avgMin}m</div>
+                <div style={{ fontSize: 11, color: '#9ca3af' }}>avg</div>
+              </div>
+              <div style={{ width: 60, height: 6, background: '#f3f4f6', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ height: '100%', borderRadius: 3, width: `${(s.count / topStudents[0].count) * 100}%`, background: RHS_GREEN }} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="card" style={{ background: 'white', borderRadius: 16, padding: 20, border: '1px solid #e5e7eb', marginBottom: 24 }}>
+          <h3 style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 600, color: '#1f2937' }}>🔗 Simultaneous Exit Patterns</h3>
+          <p style={{ margin: '0 0 16px', fontSize: 12, color: '#9ca3af' }}>Student pairs frequently out at the same time</p>
+          {correlations.length === 0 ? (
+            <div style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center', padding: 24 }}>No patterns detected yet</div>
+          ) : correlations.map((c, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: i < correlations.length - 1 ? '1px solid #f3f4f6' : 'none' }}>
+              <div style={{ fontSize: 18 }}>{c.count >= 5 ? '🚨' : c.count >= 3 ? '⚠️' : '👀'}</div>
+              <div style={{ flex: 1, fontSize: 13, fontWeight: 500, color: '#1f2937' }}>{c.pair}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: c.count >= 5 ? '#FEE2E2' : c.count >= 3 ? '#FEF3C7' : '#F3F4F6', color: c.count >= 5 ? '#DC2626' : c.count >= 3 ? '#D97706' : '#6B7280' }}>
+                {c.count}x together
+              </div>
+            </div>
+          ))}
+          {correlations.length > 0 && (
+            <div style={{ marginTop: 12, padding: '10px 12px', background: '#f0fdf4', borderRadius: 8, fontSize: 12, color: '#166534' }}>
+              💡 Consider adding high-frequency pairs to a Conflict Group in the Admin panel
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
