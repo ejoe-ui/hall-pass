@@ -90,30 +90,37 @@ export default function PassPage() {
     loadPass()
   }, [id])
 
-  async function loadPass() {
-    const { data: passData } = await supabase
-      .from('passes')
-      .select('*, students(full_name, id)')
-      .eq('id', id)
-      .single()
+async function loadPass() {
+  const { data: passData } = await supabase
+    .from('passes')
+    .select('*')
+    .eq('id', id)
+    .single()
 
-    if (!passData) { setLoading(false); return }
-    setPass(passData)
-    setStudent(passData.students)
-    if (passData.time_in) setReturned(true)
+  if (!passData) { setLoading(false); return }
+  setPass(passData)
 
-    // Week count
-    const weekStart = new Date()
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay())
-    weekStart.setHours(0, 0, 0, 0)
-    const { count } = await supabase
-      .from('passes')
-      .select('*', { count: 'exact', head: true })
-      .eq('student_id', passData.student_id)
-      .gte('time_out', weekStart.toISOString())
-    setWeekCount(count || 0)
-    setLoading(false)
-  }
+  const { data: studentData } = await supabase
+    .from('students')
+    .select('full_name, id')
+    .eq('id', passData.student_id)
+    .single()
+
+  if (studentData) setStudent(studentData)
+
+  if (passData.time_in) setReturned(true)
+
+  const weekStart = new Date()
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay())
+  weekStart.setHours(0, 0, 0, 0)
+  const { count } = await supabase
+    .from('passes')
+    .select('*', { count: 'exact', head: true })
+    .eq('student_id', passData.student_id)
+    .gte('time_out', weekStart.toISOString())
+  setWeekCount(count || 0)
+  setLoading(false)
+}
 
   // Live elapsed timer
   useEffect(() => {
