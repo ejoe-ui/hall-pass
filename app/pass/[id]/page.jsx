@@ -7,7 +7,7 @@ const RHS_GREEN = '#006938'
 
 const PASS_LIMITS = {
   'Restroom': 8,
-  'Water': 5,
+  'Lockers': 5,
   'Library': 10,
   'Office': 10,
   'Errand': 10,

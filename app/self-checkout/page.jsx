@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
-const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Water', 'Errand', 'On Assignment', 'School Store', 'Other']
+const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'School Store', 'Other']
 
 function TimerDisplay({ checkoutTime }) {
   const [elapsed, setElapsed] = useState(0)

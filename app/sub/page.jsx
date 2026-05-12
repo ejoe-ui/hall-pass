@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
 const TIME_LIMIT = 10
-const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Water', 'Errand', 'On Assignment', 'School Store', 'Other']
+const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'School Store', 'Other']
 const PERIODS = [
   { label: 'Periods 1 & 2', value: '1' },
   { label: 'Periods 4 & 5', value: '4' },

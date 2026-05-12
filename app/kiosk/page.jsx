@@ -6,7 +6,7 @@ import QRCode from 'qrcode'
 
 const RHS_GREEN = '#006938'
 
-const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Water', 'Errand', 'On Assignment', 'School Store', 'Other']
+const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'School Store', 'Other']
 
 const TEACHERS = [
   'Castro', 'Simpson', 'Tiller',
