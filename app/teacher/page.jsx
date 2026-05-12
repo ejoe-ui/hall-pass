@@ -412,7 +412,7 @@ function TeacherInner() {
   async function loadData() {
     let passQuery = supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod).order('time_out')
     if (currentTeacher?.id) {
-      passQuery = passQuery.eq('teacher_id', currentTeacher.id)
+      passQuery = passQuery.or(`teacher_id.eq.${currentTeacher.id},teacher_id.is.null`)
     }
     const { data: passes } = await passQuery
     const { data: studs } = await supabase.from('students').select('id, full_name, last_name').eq('period', activePeriod).order('first_name')
