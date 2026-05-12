@@ -77,14 +77,12 @@ function QRScanner({ onUnlock, unlockCode, deviceId }) {
         const detector = new BarcodeDetector({ formats: ['qr_code'] })
         const codes = await detector.detect(canvas)
         for (const code of codes) {
-          // Handle magic link QR
           if (code.rawValue.includes('magic=1')) {
             const url = new URL(code.rawValue)
             const email = url.searchParams.get('email')
             if (email) onUnlock(email)
             return
           }
-          // Handle legacy unlock code
           if (unlockCode && code.rawValue.includes(unlockCode)) {
             onUnlock(null)
           }
@@ -207,6 +205,50 @@ function printPullPass({ studentName, fromTeacher, purpose, timeIssued, issuedBy
   win.document.close()
 }
 
+// ── NEW: Hall Pass print function ─────────────────────────────────────────────
+function printHallPass({ passId, studentName, reason, timeIssued, room }) {
+  const passUrl = `https://hall-pass-lime.vercel.app/pass/${passId}`
+  const win = window.open('', '_blank', 'width=420,height=600')
+  win.document.write(`
+    <!DOCTYPE html><html><head><title>Hall Pass</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 72mm; margin: 0 auto; }
+      body { font-family: 'Courier New', monospace; font-size: 17px; padding: 8px 10px; text-align: center; }
+      .divider { border-top: 1px dashed #000; margin: 9px 0; }
+      .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 2px; }
+      .value { font-size: 20px; font-weight: bold; margin-bottom: 8px; }
+      .tag { display: inline-block; border: 2px solid #000; padding: 4px 10px; font-weight: bold; font-size: 14px; letter-spacing: 0.1em; margin-bottom: 8px; }
+      .header-title { font-size: 26px; font-weight: bold; }
+      .header-sub { font-size: 12px; margin-bottom: 4px; }
+      .footer { font-size: 11px; color: #444; margin-top: 8px; line-height: 1.5; }
+      img.qr { width: 120px; height: 120px; margin: 8px auto; display: block; }
+      @media print { html, body { margin: 0 auto; } }
+    </style></head><body>
+    <div class="header-title">RHS PassAble</div>
+    <div class="header-sub">Riverdale High School · Room ${room}</div>
+    <div class="divider"></div>
+    <div class="tag">HALL PASS</div>
+    <div class="divider"></div>
+    <div class="label">Student</div><div class="value">${studentName}</div>
+    <div class="label">Reason</div><div class="value">${reason}</div>
+    <div class="divider"></div>
+    <div class="label">Time Out</div><div class="value">${timeIssued}</div>
+    <div class="divider"></div>
+    <div class="footer">Return to Room ${room} promptly.<br/>Scan QR for live pass timer.</div>
+    <script>
+      const img = new Image();
+      img.className = 'qr';
+      img.onload = function() { document.body.appendChild(img); window.print(); }
+      img.onerror = function() { window.print(); }
+      img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=' + encodeURIComponent('${passUrl}')
+    </script>
+    </body></html>
+  `)
+  win.document.close()
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function notifyReceivingTeacher({ toTeacher, studentName, issuedBy, timeIssued, passUrl }) {
   console.log('[PassAble] Late pass notification (stub):', {
     to: `${toTeacher.toLowerCase().replace(/\s+/g, '.')}@rjusd.org`,
@@ -221,7 +263,7 @@ function TeacherInner() {
   const [authLoading, setAuthLoading] = useState(true)
   const [currentTeacher, setCurrentTeacher] = useState(null)
   const [email, setEmail] = useState('')
-  const [authMode, setAuthMode] = useState('magic') // 'magic' or 'password'
+  const [authMode, setAuthMode] = useState('magic')
   const [password, setPassword] = useState('')
   const [authError, setAuthError] = useState('')
   const [magicSent, setMagicSent] = useState(false)
@@ -276,7 +318,6 @@ function TeacherInner() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Handle magic link QR scan — send OTP to the scanned email
   useEffect(() => {
     const magic = searchParams.get('magic')
     const emailParam = searchParams.get('email')
@@ -332,12 +373,10 @@ function TeacherInner() {
     if (data) setCurrentTeacher(data)
   }
 
-  // Called when QR scanner detects a magic link QR
   async function handleQRScan(scannedEmail) {
     if (scannedEmail) {
       await handleMagicLinkFromQR(scannedEmail)
     } else {
-      // Legacy unlock code — just refresh session
       const { data: { session: s } } = await supabase.auth.getSession()
       if (s) setSession(s)
     }
@@ -471,6 +510,7 @@ function TeacherInner() {
     loadData()
   }
 
+  // ── UPDATED: now prints for applicable reasons ────────────────────────────
   async function handleTeacherCheckout() {
     if (!selected || !reason) return
     if (reason === 'On Assignment' && !assignedTeacher) return
@@ -481,15 +521,29 @@ function TeacherInner() {
       finalReason = purposeText.trim() ? `Errand — ${errandTeacher} — ${purposeText.trim()}` : `Errand — ${errandTeacher}`
     } else if (reason === 'Errand' && purposeText.trim()) {
       finalReason = `Errand — ${purposeText.trim()}`
+    } else if (reason === 'Other' && purposeText.trim()) {
+      finalReason = `Other — ${purposeText.trim()}`
     }
-    await supabase.from('passes').insert({
+
+    const { data: passData } = await supabase.from('passes').insert({
       student_id: selected, reason: finalReason,
       room: currentTeacher?.room || '27', period: activePeriod,
       teacher_id: currentTeacher?.id || null
-    })
+    }).select().single()
+
+    // Print hall pass for applicable reasons
+    const PRINT_REASONS = ['Restroom', 'Library', 'Office', 'Errand', 'On Assignment', 'Other']
+    const baseReason = finalReason.split(' — ')[0]
+    if (PRINT_REASONS.includes(baseReason) && passData?.id) {
+      const studentName = allStudents.find(s => s.id === selected)?.full_name || 'Student'
+      const timeIssued = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      printHallPass({ passId: passData.id, studentName, reason: finalReason, timeIssued, room: currentTeacher?.room || '27' })
+    }
+
     setSelected(''); setReason(''); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText('')
     loadData()
   }
+  // ─────────────────────────────────────────────────────────────────────────────
 
   async function handleIssueLatePass() {
     if (!lateStudent || !lateTeacher) return
@@ -573,7 +627,6 @@ function TeacherInner() {
   )
 
   if (!session) {
-    // Magic link sent — waiting for teacher to click email link
     if (magicSent) return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
         <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-4" />
@@ -598,7 +651,6 @@ function TeacherInner() {
         <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>RHS PassAble</h1>
         <p className="text-gray-400 text-sm mb-8">Sign in to continue</p>
         <div className="w-full max-w-xs flex flex-col gap-3">
-
           {authMode === 'magic' ? (
             <>
               <input type="email" placeholder="you@rjusd.org" value={email}
@@ -641,7 +693,6 @@ function TeacherInner() {
               </button>
             </>
           )}
-
           <div className="flex items-center gap-3 my-1">
             <div className="flex-1 h-px bg-gray-200" />
             <span className="text-xs text-gray-400">or scan teacher QR</span>
@@ -974,6 +1025,14 @@ function TeacherInner() {
                   {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 <input type="text" placeholder="Purpose (e.g. returning equipment)"
+                  value={purposeText} onChange={e => setPurposeText(e.target.value)}
+                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+              </div>
+            )}
+            {reason === 'Other' && (
+              <div className="flex flex-col gap-2">
+                <input type="text" placeholder="Describe reason..."
                   value={purposeText} onChange={e => setPurposeText(e.target.value)}
                   className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
                   style={{ borderColor: RHS_GREEN }} />
