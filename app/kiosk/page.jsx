@@ -229,6 +229,10 @@ function KioskInner() {
   const [cameras, setCameras] = useState([])
   const [selectedCamera, setSelectedCamera] = useState('')
 
+  // NFC HID buffer refs
+  const nfcBufferRef = useRef('')
+  const nfcTimerRef = useRef(null)
+
   // Lockout countdown timer
   useEffect(() => {
     if (!lockedUntil) return
@@ -301,6 +305,41 @@ function KioskInner() {
     if (code && code === unlockCode) setUnlocked(true)
   }, [unlockCode])
 
+  // ── NFC HID listener ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!unlocked || !activePeriod || students.length === 0) return
+
+    function handleNfcKey(e) {
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+      if (e.key === 'Enter') {
+        const uid = nfcBufferRef.current.trim()
+        nfcBufferRef.current = ''
+        clearTimeout(nfcTimerRef.current)
+        if (uid.length < 4) return
+        const match = students.find(s => s.nfc_uid === uid)
+        if (match) {
+          handleStudentSelect(match.id)
+        } else {
+          console.warn('NFC UID not matched:', uid)
+        }
+        return
+      }
+
+      nfcBufferRef.current += e.key
+      clearTimeout(nfcTimerRef.current)
+      nfcTimerRef.current = setTimeout(() => { nfcBufferRef.current = '' }, 300)
+    }
+
+    window.addEventListener('keydown', handleNfcKey)
+    return () => {
+      window.removeEventListener('keydown', handleNfcKey)
+      clearTimeout(nfcTimerRef.current)
+    }
+  }, [unlocked, activePeriod, students])
+  // ─────────────────────────────────────────────────────────────────────────────
+
   async function loadSettings() {
     const { data } = await supabase.from('settings').select('key, value').in('key', ['teacher_unlock_code', 'teacher_pin'])
     if (data) {
@@ -312,7 +351,8 @@ function KioskInner() {
   }
 
   async function loadStudents() {
-    const { data } = await supabase.from('students').select('id, full_name, last_name').eq('period', activePeriod).order('first_name')
+    // nfc_uid added for HID reader lookup
+    const { data } = await supabase.from('students').select('id, full_name, last_name, nfc_uid').eq('period', activePeriod).order('first_name')
     if (data) setStudents(data)
   }
 
@@ -498,7 +538,7 @@ function KioskInner() {
         </select>
       )}
       <QRScanner onUnlock={() => { setUnlocked(true); setPinAttempts(0); setLockedUntil(null) }} unlockCode={unlockCode} deviceId={selectedCamera} />
-<button onClick={() => { setPin(''); setPinError(false); setUnlocked(false); setActivePeriod(null) }} className="mt-6 text-sm text-green-200 hover:text-white">← Change period</button>
+      <button onClick={() => { setPin(''); setPinError(false); setUnlocked(false); setActivePeriod(null) }} className="mt-6 text-sm text-green-200 hover:text-white">← Change period</button>
     </div>
   )
 
@@ -658,7 +698,7 @@ function KioskInner() {
         style={{ backgroundColor: RHS_GREEN }}>
         Check Out
       </button>
-    <button onClick={() => { setPin(''); setPinError(false); setUnlocked(false); setActivePeriod(null) }}
+      <button onClick={() => { setPin(''); setPinError(false); setUnlocked(false); setActivePeriod(null) }}
         className="mt-4 text-sm hover:opacity-70" style={{ color: RHS_GREEN }}>
         ← Change period
       </button>
