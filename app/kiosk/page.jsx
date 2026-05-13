@@ -201,7 +201,7 @@ function saveQueue(q) { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)) }
 // ─── NFC UID Normalization ────────────────────────────────────────────────────
 function normalizeUid(uid) {
   const clean = uid.trim().toLowerCase().replace(/[^0-9a-f]/g, '')
-  return clean.slice(-8)
+  return clean.slice(-6)
 }
 // ─────────────────────────────────────────────────────────────────────────────
 

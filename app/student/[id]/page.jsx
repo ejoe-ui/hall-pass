@@ -45,15 +45,13 @@ function getSemesterStart() {
 }
 
 // ─── NFC UID Normalization ───────────────────────────────────────────────────
-// Strips card-type prefix bytes, keeps last 8 hex chars, lowercase
-// Handles both: 894158fdXXXXXXXX and 00000000XXXXXXXX → XXXXXXXX
+// Strips card-type prefix bytes, keeps last 6 hex chars, lowercase
+// Handles all variants: 894158fd704104, 00000000704104, fd704104, 00704104 → 704104
 function normalizeUid(uid) {
   const clean = uid.trim().toLowerCase().replace(/[^0-9a-f]/g, '')
-  return clean.slice(-8)
+  return clean.slice(-6)
 }
 // ─────────────────────────────────────────────────────────────────────────────
-
-// ─── NFC Enrollment Component ───────────────────────────────────────────────
 function NFCEnrollment({ student, onEnrolled }) {
   const [mode, setMode] = useState('idle') // idle | listening | success | error | confirm
   const [capturedUid, setCapturedUid] = useState('')
