@@ -229,6 +229,7 @@ function KioskInner() {
   const [newPassId, setNewPassId] = useState(null)
   const [weekCount, setWeekCount] = useState(0)
   const [currentPass, setCurrentPass] = useState(null)
+  const [activePasses, setActivePasses] = useState([])
   const [offlineQueue, setOfflineQueue] = useState([])
   const [isOnline, setIsOnline] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -401,6 +402,9 @@ function KioskInner() {
     // nfc_uid added for HID reader lookup
     const { data } = await supabase.from('students').select('id, full_name, last_name, nfc_uid').eq('period', activePeriod).order('first_name')
     if (data) setStudents(data)
+    // Also load active passes so NFC auto-checkin knows who's out
+    const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
+    if (passes) setActivePasses(passes)
   }
 
   function handlePin(digit) {
@@ -491,6 +495,9 @@ function KioskInner() {
       setMessage({ text: name, sub: finalReason })
       setNewPassId(data?.id || null)
       setStage('done')
+      // Refresh active passes
+      const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
+      if (passes) setActivePasses(passes)
     }
   }
 
