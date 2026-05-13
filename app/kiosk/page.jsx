@@ -307,7 +307,7 @@ function KioskInner() {
 
   // ── NFC HID listener ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!unlocked || !activePeriod || students.length === 0) return
+    if (!unlocked || !activePeriod) return
 
     function handleNfcKey(e) {
       const tag = document.activeElement?.tagName
@@ -318,12 +318,15 @@ function KioskInner() {
         nfcBufferRef.current = ''
         clearTimeout(nfcTimerRef.current)
         if (uid.length < 4) return
+        if (students.length === 0) return
         const match = students.find(s => s.nfc_uid === uid)
         if (match) {
           handleStudentSelect(match.id)
+          reset()
         } else {
           console.warn('NFC UID not matched:', uid)
         }
+        nfcBufferRef.current = ''
         return
       }
 
