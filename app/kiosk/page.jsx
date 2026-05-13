@@ -240,6 +240,13 @@ function KioskInner() {
   // NFC HID buffer refs
   const nfcBufferRef = useRef('')
   const nfcTimerRef = useRef(null)
+  // ── FIX: ref so NFC handler always reads current activePasses without stale closure ──
+  const activePassesRef = useRef([])
+
+  // Keep activePassesRef in sync with activePasses state
+  useEffect(() => {
+    activePassesRef.current = activePasses
+  }, [activePasses])
 
   // Lockout countdown timer
   useEffect(() => {
@@ -336,8 +343,8 @@ function KioskInner() {
           return stored === normalizedUid || stored === normalizedReversed
         })
         if (match) {
-          // If student has open pass, auto-checkin immediately
-          const openPass = activePasses.find(p => p.student_id === match.id)
+          // Use ref so we always have current passes — avoids stale closure crash
+          const openPass = activePassesRef.current.find(p => p.student_id === match.id)
           if (openPass) {
             setSelected(match.id)
             setCurrentPass(openPass)
@@ -385,8 +392,8 @@ function KioskInner() {
       window.removeEventListener('keydown', handleNfcKey)
       clearTimeout(nfcTimerRef.current)
     }
-  }, [unlocked, activePeriod, students, activePasses])
-  // ─────────────────────────────────────────────────────────────────────────────
+  }, [unlocked, activePeriod, students])
+  // ─── activePasses intentionally removed from deps — read via activePassesRef instead ───
 
   async function loadSettings() {
     const { data } = await supabase.from('settings').select('key, value').in('key', ['teacher_unlock_code', 'teacher_pin'])
@@ -668,7 +675,6 @@ function KioskInner() {
   }
 
   if (stage === 'checkin') {
-    // Auto-checkin handled by NFC — this screen handles manual checkin via dropdown
     const name = students.find(s => s.id === selected)?.full_name
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
@@ -689,7 +695,7 @@ function KioskInner() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 max-w-xs mx-4 text-center shadow-xl">
             <div className="text-4xl mb-3">📚</div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-2">Library Pass Required</h2>
+            <h2 className="text-lg font--semibold text-gray-800 mb-2">Library Pass Required</h2>
             <p className="text-gray-500 text-sm mb-4">You must have a signed pass from Mr. Joe to enter the library.</p>
             <button onClick={() => setShowLibraryAlert(false)}
               className="w-full py-3 text-white rounded-xl font-medium" style={{ backgroundColor: RHS_GREEN }}>
