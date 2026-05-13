@@ -198,6 +198,13 @@ function loadQueue() {
 }
 function saveQueue(q) { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)) }
 
+// ─── NFC UID Normalization ────────────────────────────────────────────────────
+function normalizeUid(uid) {
+  const clean = uid.trim().toLowerCase().replace(/[^0-9a-f]/g, '')
+  return clean.slice(-8)
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function KioskInner() {
   const searchParams = useSearchParams()
   const [activePeriod, setActivePeriod] = useState(null)
@@ -319,14 +326,19 @@ function KioskInner() {
         clearTimeout(nfcTimerRef.current)
         if (uid.length < 4) return
         if (students.length === 0) return
-        // Try both orientations — reader may reverse byte order
+        // Normalize both the scanned UID and stored UIDs before comparing
+        const normalizedUid = normalizeUid(uid)
         const reversed = uid.match(/.{2}/g)?.reverse().join('') || uid
-        const match = students.find(s => s.nfc_uid === uid || s.nfc_uid === reversed)
+        const normalizedReversed = normalizeUid(reversed)
+        const match = students.find(s => {
+          const stored = normalizeUid(s.nfc_uid || '')
+          return stored === normalizedUid || stored === normalizedReversed
+        })
         if (match) {
           handleStudentSelect(match.id)
           reset()
         } else {
-          console.warn('NFC UID not matched:', uid)
+          console.warn('NFC UID not matched:', uid, '→ normalized:', normalizedUid)
         }
         nfcBufferRef.current = ''
         return
