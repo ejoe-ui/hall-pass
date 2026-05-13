@@ -319,7 +319,9 @@ function KioskInner() {
         clearTimeout(nfcTimerRef.current)
         if (uid.length < 4) return
         if (students.length === 0) return
-        const match = students.find(s => s.nfc_uid === uid)
+        // Try both orientations — reader may reverse byte order
+        const reversed = uid.match(/.{2}/g)?.reverse().join('') || uid
+        const match = students.find(s => s.nfc_uid === uid || s.nfc_uid === reversed)
         if (match) {
           handleStudentSelect(match.id)
           reset()
