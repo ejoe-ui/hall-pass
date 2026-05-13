@@ -416,7 +416,7 @@ function KioskInner() {
       osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3)
     } catch (e) {}
     if (!id) return
-    const { data: pass } = await supabase.from('passes').select('*').eq('student_id', id).is('time_in', null).single()
+    const { data: pass } = await supabase.from('passes').select('*').eq('student_id', id).is('time_in', null).maybeSingle()
     if (pass) { setCurrentPass(pass); setStage('checkin'); return }
     const weekStart = new Date()
     weekStart.setDate(weekStart.getDate() - weekStart.getDay())
