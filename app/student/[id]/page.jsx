@@ -170,10 +170,10 @@ function NFCEnrollment({ student, onEnrolled }) {
           <>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#166534' }}>NFC Card Enrolled</p>
             <p style={{ margin: '2px 0 0', fontSize: 10, color: '#6b7280', fontFamily: 'monospace', wordBreak: 'break-all', lineHeight: 1.5 }}>
-              {`ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${student.nfc_uid}`}
+              {`https://ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${student.nfc_uid}`}
             </p>
             <button
-              onClick={() => navigator.clipboard.writeText(`ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${student.nfc_uid}`)}
+              onClick={() => navigator.clipboard.writeText(`https://ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${student.nfc_uid}`)}
               style={{
                 marginTop: 6, padding: '4px 10px', fontSize: 11, fontWeight: 500,
                 background: '#f0fdf4', color: '#166534',
@@ -222,11 +222,11 @@ function NFCEnrollment({ student, onEnrolled }) {
           <>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#166534' }}>Enrolled! Write this URL to the sticker:</p>
             <p style={{ margin: '4px 0 2px', fontSize: 10, color: '#6b7280', fontFamily: 'monospace', wordBreak: 'break-all', lineHeight: 1.5 }}>
-              {`ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${capturedUid}`}
+              {`https://ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${capturedUid}`}
             </p>
             <button
               onClick={() => {
-                navigator.clipboard.writeText(`ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${capturedUid}`)
+                navigator.clipboard.writeText(`https://ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${capturedUid}`)
               }}
               style={{
                 marginTop: 6, padding: '4px 10px', fontSize: 11, fontWeight: 500,
