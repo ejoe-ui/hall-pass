@@ -485,7 +485,7 @@ function KioskInner() {
 
     const passData = {
       student_id: selected, reason: finalReason, room: '27',
-      period: activePeriod, teacher_id: null, time_out: new Date().toISOString(),
+      period: activePeriod, teacher_id: '77b18e87-4b3b-46de-a808-c13207efb5d6', time_out: new Date().toISOString(),
     }
     const name = students.find(s => s.id === selected)?.full_name
 
