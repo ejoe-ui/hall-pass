@@ -28,7 +28,7 @@ export default function Sub() {
   const [selected, setSelected] = useState('')
   const [reason, setReason] = useState('')
   const [now, setNow] = useState(Date.now())
-  const [checkoutMode, setCheckoutMode] = useState('manual') // 'manual' or 'self'
+  const [checkoutMode, setCheckoutMode] = useState('manual')
   const [selfCheckoutCode, setSelfCheckoutCode] = useState('')
   const [kioskReturnRequired, setKioskReturnRequired] = useState(true)
   const [kioskReturnSaved, setKioskReturnSaved] = useState(false)
@@ -46,15 +46,16 @@ export default function Sub() {
 
   async function loadSettings() {
     const { data } = await supabase.from('settings').select('key, value')
-      .in('key', ['sub_code', 'kiosk_return_required'])
+      .in('key', ['sub_code', 'kiosk_return_required', 'active_checkout_code'])
     if (data) {
       const subRow = data.find(r => r.key === 'sub_code')
       const kioskRow = data.find(r => r.key === 'kiosk_return_required')
+      const checkoutRow = data.find(r => r.key === 'active_checkout_code')
       if (subRow) setSubCode(subRow.value)
       if (kioskRow) setKioskReturnRequired(kioskRow.value !== 'false')
+      if (checkoutRow) setSelfCheckoutCode(checkoutRow.value)
     }
 
-    // Load teacher info from teachers table
     const { data: teacherData } = await supabase.from('teachers')
       .select('name, room').eq('is_active', true).limit(1).maybeSingle()
     if (teacherData) {
@@ -90,12 +91,10 @@ export default function Sub() {
   }
 
   async function loadData() {
-    // Active passes
     const { data: passes } = await supabase
       .from('passes').select('*').is('time_in', null)
       .eq('period', activePeriod).order('time_out')
 
-    // Today's completed passes
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
     const { data: today } = await supabase
       .from('passes').select('*')
@@ -104,12 +103,10 @@ export default function Sub() {
       .not('time_in', 'is', null)
       .order('time_out', { ascending: false })
 
-    // Students
     const { data: studs } = await supabase
       .from('students').select('id, full_name, photo_file')
       .eq('period', activePeriod).order('first_name')
 
-    // Pass frequency for this period (last 30 days)
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
     const { data: recentPasses } = await supabase
       .from('passes').select('student_id')
@@ -125,7 +122,6 @@ export default function Sub() {
       studs.forEach(s => map[s.id] = s)
       setStudents(map)
 
-      // Load photo URLs
       const urls = {}
       for (const s of studs) {
         if (s.photo_file) {
@@ -181,7 +177,6 @@ export default function Sub() {
   const overLimit = activePasses.filter(p => elapsed(p.time_out) >= TIME_LIMIT)
   const periodLabel = PERIODS.find(p => p.value === activePeriod)?.label
 
-  // PIN Login Screen
   if (!unlocked) return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
@@ -204,7 +199,6 @@ export default function Sub() {
     </div>
   )
 
-  // Period Select
   if (!activePeriod) return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
@@ -224,7 +218,6 @@ export default function Sub() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
         <div className="flex items-center gap-3">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
@@ -235,7 +228,7 @@ export default function Sub() {
         </div>
         <div className="flex gap-4 items-center">
           <button onClick={() => setShowHistory(h => !h)} className="text-sm text-green-200 hover:text-white">
-            {showHistory ? 'Hide History' : 'Today\'s History'}
+            {showHistory ? 'Hide History' : "Today's History"}
           </button>
           <button onClick={() => setActivePeriod(null)} className="text-sm text-green-200 hover:text-white">← Period</button>
           <a href="/" className="text-sm text-green-200 hover:text-white">Home</a>
@@ -258,47 +251,22 @@ export default function Sub() {
           ))}
         </div>
 
-        {/* Alerts */}
-        {activePasses.length >= 2 && (
-          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
-            ⚠ {activePasses.length} students out simultaneously
-          </div>
-        )}
-        {overLimit.length > 0 && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm">
-            ! {overLimit.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')} {overLimit.length === 1 ? 'has' : 'have'} been out over {TIME_LIMIT} min
-          </div>
-        )}
-
         {/* Today's History */}
-        {showHistory && (
-          <div className="bg-white rounded-xl border border-gray-200 mb-6">
+        {showHistory && todayPasses.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100">
-              <span className="text-sm font-medium text-gray-700">📋 Today's Pass History</span>
+              <span className="text-sm font-medium text-gray-700">Today's Completed Passes</span>
             </div>
-            {todayPasses.length === 0 ? (
-              <div className="p-6 text-center text-gray-400 text-sm">No completed passes yet today</div>
-            ) : todayPasses.map((pass, i) => {
-              const student = students[pass.student_id]
-              return (
-                <div key={pass.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-gray-100 flex items-center justify-center">
-                    {photoUrls[pass.student_id]
-                      ? <img src={photoUrls[pass.student_id]} alt="" className="w-full h-full object-cover" />
-                      : <span className="text-xs font-medium text-gray-500">{student?.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}</span>
-                    }
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-800">{student?.full_name}</div>
-                    <div className="text-xs text-gray-400">{pass.reason}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-gray-500">{pass.duration_minutes}m</div>
-                    <div className="text-xs text-gray-400">{new Date(pass.time_out).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>
-                  </div>
+            {todayPasses.map((pass, i) => (
+              <div key={pass.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
+                <div className="flex-1">
+                  <span className="text-sm font-medium text-gray-800">{students[pass.student_id]?.full_name}</span>
+                  <span className="text-xs text-gray-400 ml-2">{pass.reason}</span>
                 </div>
-              )
-            })}
+                <div className="text-xs text-gray-400">{pass.duration_minutes}m</div>
+                <div className="text-xs text-gray-400">{new Date(pass.time_out).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -317,7 +285,6 @@ export default function Sub() {
             const badge = getFrequentFlyerBadge(pass.student_id)
             return (
               <div key={pass.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                {/* Photo */}
                 <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-gray-100 flex items-center justify-center border-2"
                   style={{ borderColor: elapsedColor(mins) }}>
                   {photoUrls[pass.student_id]
@@ -368,7 +335,6 @@ export default function Sub() {
             <div className="px-4 pb-4 bg-gray-50 rounded-b-xl">
               <div className="text-xs font-medium text-gray-500 mb-2">Check out a student</div>
 
-              {/* Student photo preview on select */}
               {selectedStudentPreview && (
                 <div className="flex items-center gap-3 mb-3 p-2 bg-white rounded-xl border border-gray-200">
                   <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-gray-100">
@@ -391,7 +357,7 @@ export default function Sub() {
                 </div>
               )}
 
-              <div className="flex gap-2">
+              <div className="flex gap-2 mb-3">
                 <select value={selected} onChange={e => handleStudentSelect(e.target.value)}
                   className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
                   style={{ borderColor: RHS_GREEN }}>
@@ -409,6 +375,20 @@ export default function Sub() {
                   style={{ backgroundColor: RHS_GREEN }}>
                   Send
                 </button>
+              </div>
+
+              {/* Kiosk return toggle — visible in manual mode too */}
+              <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
+                <span className="text-xs text-gray-600">Kiosk return required:</span>
+                <button onClick={() => saveKioskReturn(!kioskReturnRequired)}
+                  className="px-3 py-1 rounded-full text-xs font-semibold"
+                  style={{ background: kioskReturnRequired ? RHS_GREEN : '#e5e7eb', color: kioskReturnRequired ? 'white' : '#6b7280', border: 'none', cursor: 'pointer' }}>
+                  {kioskReturnRequired ? 'ON' : 'OFF'}
+                </button>
+                {kioskReturnSaved && <span className="text-xs" style={{ color: RHS_GREEN }}>✓ Saved</span>}
+                <span className="text-xs text-gray-400">
+                  {kioskReturnRequired ? '— students must scan at kiosk' : '— students see "I\'m Back" button'}
+                </span>
               </div>
             </div>
           )}

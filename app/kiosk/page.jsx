@@ -335,7 +335,38 @@ function KioskInner() {
           return stored === normalizedUid || stored === normalizedReversed
         })
         if (match) {
-          handleStudentSelect(match.id)
+          // If student has open pass, auto-checkin immediately
+          const openPass = activePasses.find(p => p.student_id === match.id)
+          if (openPass) {
+            setSelected(match.id)
+            setCurrentPass(openPass)
+            // Directly checkin without showing confirm screen
+            const mins = Math.floor((Date.now() - new Date(openPass.time_out)) / 60000)
+            supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', openPass.id)
+              .then(async () => {
+                const weekStart = new Date()
+                weekStart.setDate(weekStart.getDate() - weekStart.getDay())
+                weekStart.setHours(0, 0, 0, 0)
+                const { data: weekPasses } = await supabase.from('passes')
+                  .select('duration_minutes')
+                  .eq('student_id', match.id)
+                  .gte('time_out', weekStart.toISOString())
+                  .not('time_in', 'is', null)
+                const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+                const { count: todayCount } = await supabase.from('passes')
+                  .select('*', { count: 'exact', head: true })
+                  .eq('student_id', match.id)
+                  .gte('time_out', todayStart.toISOString())
+                const weekCount = weekPasses?.length || 0
+                const weekMins = weekPasses?.reduce((sum, p) => sum + (p.duration_minutes || 0), 0) || 0
+                setMessage({ text: match.full_name, minsOut: mins, weekCount, weekMins, todayCount: todayCount || 0 })
+                setNewPassId(null)
+                setStage('checkin-done')
+                setTimeout(() => reset(), 5000)
+              })
+          } else {
+            handleStudentSelect(match.id)
+          }
         } else {
           console.warn('NFC UID not matched:', uid, '→ normalized:', normalizedUid)
         }
@@ -353,7 +384,7 @@ function KioskInner() {
       window.removeEventListener('keydown', handleNfcKey)
       clearTimeout(nfcTimerRef.current)
     }
-  }, [unlocked, activePeriod, students])
+  }, [unlocked, activePeriod, students, activePasses])
   // ─────────────────────────────────────────────────────────────────────────────
 
   async function loadSettings() {
@@ -472,12 +503,33 @@ function KioskInner() {
     const weekStart = new Date()
     weekStart.setDate(weekStart.getDate() - weekStart.getDay())
     weekStart.setHours(0, 0, 0, 0)
-    const { count } = await supabase.from('passes').select('*', { count: 'exact', head: true })
-      .eq('student_id', selected).gte('time_out', weekStart.toISOString())
+    const { data: weekPasses } = await supabase.from('passes')
+      .select('duration_minutes')
+      .eq('student_id', selected)
+      .gte('time_out', weekStart.toISOString())
+      .not('time_in', 'is', null)
 
-    setMessage({ text: `${name} is back`, sub: `${mins} min out · ${count || 1} pass${count !== 1 ? 'es' : ''} this week` })
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+    const { count: todayCount } = await supabase.from('passes')
+      .select('*', { count: 'exact', head: true })
+      .eq('student_id', selected)
+      .gte('time_out', todayStart.toISOString())
+
+    const weekCount = weekPasses?.length || 0
+    const weekMins = weekPasses?.reduce((sum, p) => sum + (p.duration_minutes || 0), 0) || 0
+
+    setMessage({
+      text: name,
+      minsOut: mins,
+      weekCount,
+      weekMins,
+      todayCount: todayCount || 0,
+    })
     setNewPassId(null)
     setStage('checkin-done')
+
+    // Auto-reset after 5 seconds
+    setTimeout(() => reset(), 5000)
   }
 
   function reset() {
@@ -572,16 +624,44 @@ function KioskInner() {
     </div>
   )
 
-  if (stage === 'checkin-done') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
-      <div className="text-5xl mb-4">✓</div>
-      <h2 className="text-2xl font-semibold text-gray-800 mb-2">{message?.text}</h2>
-      <p className="text-gray-500 mb-8">{message?.sub}</p>
-      <button onClick={reset} className="px-6 py-3 text-white rounded-lg font-medium" style={{ backgroundColor: RHS_GREEN }}>Done</button>
-    </div>
-  )
+  if (stage === 'checkin-done') {
+    const firstName = message?.text?.split(' ')[0] || 'You'
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-6"
+        style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
+        <div className="text-6xl mb-4">✓</div>
+        <h2 className="text-3xl font-bold text-white mb-1">Welcome back, {firstName}!</h2>
+        <p className="text-green-200 text-sm mb-8">You're checked in</p>
+
+        <div className="bg-white/10 rounded-2xl p-6 w-full max-w-sm mb-6 backdrop-blur">
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div>
+              <div className="text-3xl font-bold text-white">{message?.minsOut ?? 0}m</div>
+              <div className="text-xs text-green-200 mt-1">This pass</div>
+            </div>
+            <div>
+              <div className="text-3xl font-bold text-white">{message?.todayCount ?? 0}</div>
+              <div className="text-xs text-green-200 mt-1">Today</div>
+            </div>
+            <div>
+              <div className="text-3xl font-bold text-white">{message?.weekCount ?? 0}</div>
+              <div className="text-xs text-green-200 mt-1">This week</div>
+            </div>
+          </div>
+          {message?.weekMins > 0 && (
+            <div className="mt-4 pt-4 border-t border-white/20 text-center">
+              <span className="text-sm text-green-200">{message.weekMins} min total out this week</span>
+            </div>
+          )}
+        </div>
+
+        <p className="text-green-300 text-xs">Returning to kiosk in a few seconds...</p>
+      </div>
+    )
+  }
 
   if (stage === 'checkin') {
+    // Auto-checkin handled by NFC — this screen handles manual checkin via dropdown
     const name = students.find(s => s.id === selected)?.full_name
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
