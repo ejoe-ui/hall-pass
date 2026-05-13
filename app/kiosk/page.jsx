@@ -336,7 +336,6 @@ function KioskInner() {
         })
         if (match) {
           handleStudentSelect(match.id)
-          reset()
         } else {
           console.warn('NFC UID not matched:', uid, '→ normalized:', normalizedUid)
         }
