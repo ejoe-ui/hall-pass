@@ -139,6 +139,11 @@ export default function StudentsAdmin() {
     const newId = editId.trim()
 
     if (newId && newId !== editStudent.id) {
+      // If photo was named after old ID, point reference to new ID
+      let photoFile = editStudent.photo_file || null
+      if (photoFile && photoFile.startsWith(editStudent.id)) {
+        photoFile = newId + '.jpg'
+      }
       // Step 1: Insert new student row with correct ID
       await supabase.from('students').insert({
         id: newId,
@@ -147,7 +152,7 @@ export default function StudentsAdmin() {
         full_name,
         period: editStudent.period,
         nfc_uid: editStudent.nfc_uid || null,
-        photo_file: editStudent.photo_file || null,
+        photo_file: photoFile,
       })
       // Step 2: Get all existing period assignments for old ID
       const { data: oldPeriods } = await supabase
