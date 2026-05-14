@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../../lib/supabase'
 
 const RHS_GREEN = '#006938'
@@ -16,6 +16,7 @@ export default function StudentsAdmin() {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [addPeriod, setAddPeriod] = useState('1')
+  const [addId, setAddId] = useState('')
   const [adding, setAdding] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [editStudent, setEditStudent] = useState(null)
@@ -23,12 +24,14 @@ export default function StudentsAdmin() {
   const [editLast, setEditLast] = useState('')
   const [editDisplay, setEditDisplay] = useState('')
   const [saving, setSaving] = useState(false)
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const [photoUrl, setPhotoUrl] = useState(null)
+  const photoRef = useRef()
 
   useEffect(() => { loadStudents() }, [activePeriod])
 
   async function loadStudents() {
     setLoading(true)
-    // Query via student_periods junction table to support multi-period students
     const { data: spRows } = await supabase
       .from('student_periods')
       .select('student_id')
@@ -42,44 +45,62 @@ export default function StudentsAdmin() {
     }
     const { data } = await supabase
       .from('students')
-      .select('id, first_name, last_name, full_name, period, nfc_uid')
+      .select('id, first_name, last_name, full_name, period, nfc_uid, photo_file')
       .in('id', studentIds)
       .order('first_name')
     if (data) setStudents(data)
     setLoading(false)
   }
 
+  function getPhotoUrl(photo_file) {
+    if (!photo_file) return null
+    const { data } = supabase.storage.from('student-photos').getPublicUrl(photo_file)
+    return data?.publicUrl || null
+  }
+
   async function addStudent() {
     if (!firstName.trim() || !lastName.trim()) return
     setAdding(true)
     const full_name = `${firstName.trim()} ${lastName.trim()}`
-    const id = `NEW${Date.now()}`
-    // Insert student row (period field kept for legacy compatibility)
+    const id = addId.trim() || `NEW${Date.now()}`
     const { error } = await supabase.from('students').insert({
       id, first_name: firstName.trim(), last_name: lastName.trim(),
       full_name, period: addPeriod
     })
     if (!error) {
-      // Also insert into student_periods
       await supabase.from('student_periods').insert({
         student_id: id, period: addPeriod, room: '27'
       })
-      setFirstName(''); setLastName('')
+      setFirstName(''); setLastName(''); setAddId('')
       if (addPeriod === activePeriod) loadStudents()
     }
     setAdding(false)
   }
 
-  async function removeStudent(id) {
-    // student_periods rows cascade delete via FK, so just delete student
-    await supabase.from('students').delete().eq('id', id)
+  async function removeStudent(studentId) {
+    // Remove only from current period, not from all periods
+    await supabase.from('student_periods')
+      .delete()
+      .eq('student_id', studentId)
+      .eq('period', activePeriod)
+      .eq('room', '27')
+
+    // Check if student has any remaining period assignments
+    const { data: remaining } = await supabase
+      .from('student_periods')
+      .select('id')
+      .eq('student_id', studentId)
+
+    // Only delete student record entirely if no periods remain
+    if (!remaining || remaining.length === 0) {
+      await supabase.from('students').delete().eq('id', studentId)
+    }
+
     setConfirmDelete(null)
     loadStudents()
   }
 
   async function movePeriod(studentId, newPeriod) {
-    // For multi-period students, this adds the new period assignment
-    // rather than replacing — use student_periods as source of truth
     const { data: existing } = await supabase
       .from('student_periods')
       .select('id')
@@ -89,17 +110,14 @@ export default function StudentsAdmin() {
       .maybeSingle()
 
     if (existing) {
-      // Update the existing student_periods row for this period
       await supabase.from('student_periods')
         .update({ period: newPeriod })
         .eq('id', existing.id)
     } else {
-      // Insert new period assignment
       await supabase.from('student_periods').insert({
         student_id: studentId, period: newPeriod, room: '27'
       })
     }
-    // Keep students.period in sync with primary period
     await supabase.from('students').update({ period: newPeriod }).eq('id', studentId)
     loadStudents()
   }
@@ -109,6 +127,7 @@ export default function StudentsAdmin() {
     setEditFirst(s.first_name || '')
     setEditLast(s.last_name || '')
     setEditDisplay(s.full_name || '')
+    setPhotoUrl(getPhotoUrl(s.photo_file))
   }
 
   async function saveEdit() {
@@ -125,6 +144,23 @@ export default function StudentsAdmin() {
     loadStudents()
   }
 
+  async function handlePhotoUpload(e) {
+    const file = e.target.files[0]
+    if (!file || !editStudent) return
+    setPhotoUploading(true)
+    const path = `${editStudent.id}.jpg`
+    const { error: uploadError } = await supabase.storage
+      .from('student-photos')
+      .upload(path, file, { upsert: true, contentType: 'image/jpeg' })
+    if (!uploadError) {
+      await supabase.from('students').update({ photo_file: path }).eq('id', editStudent.id)
+      const { data } = supabase.storage.from('student-photos').getPublicUrl(path)
+      setPhotoUrl(data?.publicUrl ? `${data.publicUrl}?t=${Date.now()}` : null)
+      setEditStudent(prev => ({ ...prev, photo_file: path }))
+    }
+    setPhotoUploading(false)
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
 
@@ -139,6 +175,30 @@ export default function StudentsAdmin() {
               </div>
               <button onClick={() => setEditStudent(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
+
+            {/* Photo */}
+            <div className="flex items-center gap-4 mb-4 p-3 bg-gray-50 rounded-xl">
+              <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-200 flex-shrink-0 flex items-center justify-center">
+                {photoUrl
+                  ? <img src={photoUrl} alt={editStudent.full_name} className="w-full h-full object-cover" />
+                  : <span className="text-2xl font-bold text-gray-400">
+                      {editStudent.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                    </span>
+                }
+              </div>
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => photoRef.current?.click()}
+                  disabled={photoUploading}
+                  className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-50"
+                  style={{ backgroundColor: RHS_GREEN }}>
+                  {photoUploading ? 'Uploading...' : photoUrl ? 'Replace Photo' : 'Add Photo'}
+                </button>
+                <p className="text-xs text-gray-400">JPG only</p>
+                <input ref={photoRef} type="file" accept=".jpg,.jpeg" className="hidden" onChange={handlePhotoUpload} />
+              </div>
+            </div>
+
             <div className="flex flex-col gap-3 mb-4">
               <div>
                 <label className="text-xs text-gray-500 font-medium mb-1 block">First Name</label>
@@ -158,7 +218,7 @@ export default function StudentsAdmin() {
                   placeholder={`${editFirst} ${editLast}`}
                   className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
                   style={{ borderColor: RHS_GREEN }} />
-                <p className="text-xs text-gray-400 mt-1">Leave as-is or type a preferred name like "Alex" instead of "Alejandro Martinez"</p>
+                <p className="text-xs text-gray-400 mt-1">Leave as-is or type a preferred name</p>
               </div>
             </div>
             <div className="flex gap-3">
@@ -201,6 +261,10 @@ export default function StudentsAdmin() {
               onChange={e => setLastName(e.target.value)}
               className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
               style={{ borderColor: RHS_GREEN }} />
+            <input type="text" placeholder="Student ID (optional)" value={addId}
+              onChange={e => setAddId(e.target.value)}
+              className="w-36 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+              style={{ borderColor: RHS_GREEN }} />
             <select value={addPeriod} onChange={e => setAddPeriod(e.target.value)}
               className="p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
               style={{ borderColor: RHS_GREEN }}>
@@ -212,6 +276,7 @@ export default function StudentsAdmin() {
               {adding ? 'Adding...' : 'Add'}
             </button>
           </div>
+          <p className="text-xs text-gray-400">Student ID from Aeries (6 digits). Leave blank to auto-generate.</p>
         </div>
 
         {/* Student List */}
@@ -236,52 +301,59 @@ export default function StudentsAdmin() {
           ) : students.length === 0 ? (
             <div className="p-8 text-center text-gray-400 text-sm">No students in this period</div>
           ) : (
-            students.map(s => (
-              <div key={s.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium text-white flex-shrink-0"
-                  style={{ backgroundColor: RHS_GREEN }}>
-                  {s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
-                </div>
-                <div className="flex-1">
-                  <a href={`/student/${s.id}`}
-                    className="text-sm font-medium hover:underline"
-                    style={{ color: RHS_GREEN }}>
-                    {s.full_name}
-                  </a>
-                  {s.nfc_uid && (
-                    <p className="text-xs text-gray-400 mt-0.5">📲 NFC enrolled</p>
+            students.map(s => {
+              const url = getPhotoUrl(s.photo_file)
+              return (
+                <div key={s.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+                  <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center text-xs font-medium text-white"
+                    style={{ backgroundColor: RHS_GREEN }}>
+                    {url
+                      ? <img src={url} alt={s.full_name} className="w-full h-full object-cover" />
+                      : s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')
+                    }
+                  </div>
+                  <div className="flex-1">
+                    <a href={`/student/${s.id}`}
+                      className="text-sm font-medium hover:underline"
+                      style={{ color: RHS_GREEN }}>
+                      {s.full_name}
+                    </a>
+                    <div className="flex gap-2 mt-0.5">
+                      {s.nfc_uid && <p className="text-xs text-gray-400">📲 NFC</p>}
+                      {s.photo_file && <p className="text-xs text-gray-400">📷 Photo</p>}
+                    </div>
+                  </div>
+                  <select
+                    value={activePeriod}
+                    onChange={e => movePeriod(s.id, e.target.value)}
+                    className="text-xs border rounded-lg p-1 text-gray-600 bg-white"
+                    style={{ borderColor: '#e5e7eb' }}>
+                    {PERIODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                  </select>
+                  <button onClick={() => openEdit(s)}
+                    className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
+                    Edit
+                  </button>
+                  {confirmDelete === s.id ? (
+                    <div className="flex gap-1">
+                      <button onClick={() => removeStudent(s.id)}
+                        className="text-xs px-2 py-1 bg-red-500 text-white rounded-lg">
+                        Confirm
+                      </button>
+                      <button onClick={() => setConfirmDelete(null)}
+                        className="text-xs px-2 py-1 border border-gray-200 text-gray-600 rounded-lg">
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmDelete(s.id)}
+                      className="text-xs px-3 py-1.5 border border-red-200 text-red-500 rounded-lg hover:bg-red-50">
+                      Remove
+                    </button>
                   )}
                 </div>
-                <select
-                  value={activePeriod}
-                  onChange={e => movePeriod(s.id, e.target.value)}
-                  className="text-xs border rounded-lg p-1 text-gray-600 bg-white"
-                  style={{ borderColor: '#e5e7eb' }}>
-                  {PERIODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
-                <button onClick={() => openEdit(s)}
-                  className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
-                  Edit
-                </button>
-                {confirmDelete === s.id ? (
-                  <div className="flex gap-1">
-                    <button onClick={() => removeStudent(s.id)}
-                      className="text-xs px-2 py-1 bg-red-500 text-white rounded-lg">
-                      Confirm
-                    </button>
-                    <button onClick={() => setConfirmDelete(null)}
-                      className="text-xs px-2 py-1 border border-gray-200 text-gray-600 rounded-lg">
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button onClick={() => setConfirmDelete(s.id)}
-                    className="text-xs px-3 py-1.5 border border-red-200 text-red-500 rounded-lg hover:bg-red-50">
-                    Remove
-                  </button>
-                )}
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       </div>
