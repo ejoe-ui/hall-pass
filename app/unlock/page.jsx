@@ -4,58 +4,39 @@ import { supabase } from '../../lib/supabase'
 import QRCode from 'qrcode'
 
 const RHS_GREEN = '#006938'
-const QR_TTL_MINUTES = 60 // QR refreshes every 60 minutes
 
 export default function UnlockPage() {
   const [qrCode, setQrCode] = useState('')
-  const [email, setEmail] = useState('')
+  const [unlockCode, setUnlockCode] = useState('')
   const [loading, setLoading] = useState(true)
-  const [minutesLeft, setMinutesLeft] = useState(QR_TTL_MINUTES)
-  const [generatedAt, setGeneratedAt] = useState(null)
 
   useEffect(() => {
-    loadTeacherEmail()
+    loadAndRender()
+    // Poll every 15 seconds so rotated codes show up fast
+    const interval = setInterval(loadAndRender, 15000)
+    return () => clearInterval(interval)
   }, [])
 
-  useEffect(() => {
-    if (!generatedAt) return
-    const interval = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - generatedAt) / 60000)
-      const left = QR_TTL_MINUTES - elapsed
-      if (left <= 0) {
-        generateQR(email)
-      } else {
-        setMinutesLeft(left)
-      }
-    }, 30000) // check every 30 seconds
-    return () => clearInterval(interval)
-  }, [generatedAt, email])
-
-  async function loadTeacherEmail() {
-    const { data: { session } } = await supabase.auth.getSession()
-    const teacherEmail = session?.user?.email || ''
-    setEmail(teacherEmail)
-    await generateQR(teacherEmail)
+  async function loadAndRender() {
+    const { data } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'teacher_unlock_code')
+      .maybeSingle()
+    if (data?.value) {
+      setUnlockCode(data.value)
+      const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${data.value}`
+      const qr = await QRCode.toDataURL(url, { width: 400, margin: 2 })
+      setQrCode(qr)
+    }
     setLoading(false)
-  }
-
-  async function generateQR(teacherEmail) {
-    // QR points to teacher page with magic link trigger
-    // The teacher page will catch the ?magic=1&email= param and send a magic link
-    const url = teacherEmail
-      ? `https://hall-pass-lime.vercel.app/teacher?magic=1&email=${encodeURIComponent(teacherEmail)}`
-      : `https://hall-pass-lime.vercel.app/teacher?magic=1`
-    const qr = await QRCode.toDataURL(url, { width: 400, margin: 2 })
-    setQrCode(qr)
-    setGeneratedAt(Date.now())
-    setMinutesLeft(QR_TTL_MINUTES)
   }
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center justify-center px-6">
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 mb-4 object-contain" />
       <h1 className="text-xl font-semibold text-gray-800 mb-1">Teacher Unlock</h1>
-      <p className="text-sm text-gray-400 mb-2">RHS PassAble · Scan to sign in</p>
+      <p className="text-sm text-gray-400 mb-6">RHS PassAble · Scan to unlock kiosk</p>
 
       {loading ? (
         <div className="w-72 h-72 flex items-center justify-center">
@@ -63,32 +44,13 @@ export default function UnlockPage() {
         </div>
       ) : (
         <>
-          <div className="relative mb-4">
-            {qrCode && <img src={qrCode} alt="Unlock QR" className="w-72 h-72" />}
-            <div className="absolute bottom-2 right-2 bg-white/80 rounded-lg px-2 py-1">
-              <span className="text-xs text-gray-400">Refreshes in {minutesLeft}m</span>
-            </div>
-          </div>
-
-          {email ? (
-            <p className="text-xs text-gray-400 mb-1">Signed in as <span className="font-medium text-gray-600">{email}</span></p>
-          ) : (
-            <p className="text-xs text-amber-500 mb-1">⚠ Sign in first for personalized QR</p>
-          )}
-
-          <p className="text-xs text-gray-300 mt-2 text-center max-w-xs">
-            Hold this QR up to the kiosk camera.<br />
-            A sign-in link will be sent to your email.
+          {qrCode && <img src={qrCode} alt="Unlock QR" className="w-72 h-72 mb-4" />}
+          <p className="text-xs text-gray-300 text-center max-w-xs mb-6">
+            Hold this QR up to the kiosk camera to unlock.<br />
+            Updates automatically when code is rotated.
           </p>
-
-          <button
-            onClick={() => generateQR(email)}
-            className="mt-6 text-xs px-4 py-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50">
-            🔄 Refresh QR
-          </button>
-
-          <a href="/teacher" className="mt-4 text-xs text-gray-300 hover:text-gray-500">
-            ← Back to Teacher Login
+          <a href="/teacher" className="text-xs text-gray-300 hover:text-gray-500">
+            ← Back to Dashboard
           </a>
         </>
       )}
