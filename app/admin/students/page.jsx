@@ -23,6 +23,7 @@ export default function StudentsAdmin() {
   const [editFirst, setEditFirst] = useState('')
   const [editLast, setEditLast] = useState('')
   const [editDisplay, setEditDisplay] = useState('')
+  const [editId, setEditId] = useState('')
   const [saving, setSaving] = useState(false)
   const [photoUploading, setPhotoUploading] = useState(false)
   const [photoUrl, setPhotoUrl] = useState(null)
@@ -127,6 +128,7 @@ export default function StudentsAdmin() {
     setEditFirst(s.first_name || '')
     setEditLast(s.last_name || '')
     setEditDisplay(s.full_name || '')
+    setEditId('')
     setPhotoUrl(getPhotoUrl(s.photo_file))
   }
 
@@ -134,11 +136,33 @@ export default function StudentsAdmin() {
     if (!editStudent) return
     setSaving(true)
     const full_name = editDisplay.trim() || `${editFirst.trim()} ${editLast.trim()}`
-    await supabase.from('students').update({
-      first_name: editFirst.trim(),
-      last_name: editLast.trim(),
-      full_name,
-    }).eq('id', editStudent.id)
+    const newId = editId.trim()
+
+    if (newId && newId !== editStudent.id) {
+      // Insert new student row with correct ID
+      await supabase.from('students').insert({
+        id: newId,
+        first_name: editFirst.trim(),
+        last_name: editLast.trim(),
+        full_name,
+        period: editStudent.period,
+        nfc_uid: editStudent.nfc_uid || null,
+        photo_file: editStudent.photo_file || null,
+      })
+      // Update student_periods to point to new ID
+      await supabase.from('student_periods')
+        .update({ student_id: newId })
+        .eq('student_id', editStudent.id)
+      // Delete old student row
+      await supabase.from('students').delete().eq('id', editStudent.id)
+    } else {
+      await supabase.from('students').update({
+        first_name: editFirst.trim(),
+        last_name: editLast.trim(),
+        full_name,
+      }).eq('id', editStudent.id)
+    }
+
     setSaving(false)
     setEditStudent(null)
     loadStudents()
@@ -175,6 +199,19 @@ export default function StudentsAdmin() {
               </div>
               <button onClick={() => setEditStudent(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
+
+            {/* Show Aeries ID field only for auto-generated IDs */}
+            {editStudent.id?.startsWith('NEW') && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <label className="text-xs text-amber-700 font-medium mb-1 block">⚠ Set Aeries Student ID</label>
+                <input type="text" placeholder="6-digit Aeries ID"
+                  value={editId} onChange={e => setEditId(e.target.value)}
+                  maxLength={6}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: '#f59e0b' }} />
+                <p className="text-xs text-amber-600 mt-1">This will replace the auto-generated ID. Enter the student's real Aeries ID.</p>
+              </div>
+            )}
 
             {/* Photo */}
             <div className="flex items-center gap-4 mb-4 p-3 bg-gray-50 rounded-xl">
