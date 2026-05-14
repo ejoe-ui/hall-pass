@@ -139,7 +139,7 @@ export default function StudentsAdmin() {
     const newId = editId.trim()
 
     if (newId && newId !== editStudent.id) {
-      // Insert new student row with correct ID
+      // Step 1: Insert new student row with correct ID
       await supabase.from('students').insert({
         id: newId,
         first_name: editFirst.trim(),
@@ -149,11 +149,20 @@ export default function StudentsAdmin() {
         nfc_uid: editStudent.nfc_uid || null,
         photo_file: editStudent.photo_file || null,
       })
-      // Update student_periods to point to new ID
-      await supabase.from('student_periods')
-        .update({ student_id: newId })
+      // Step 2: Get all existing period assignments for old ID
+      const { data: oldPeriods } = await supabase
+        .from('student_periods')
+        .select('period, room')
         .eq('student_id', editStudent.id)
-      // Delete old student row
+      // Step 3: Insert new student_periods rows for new ID
+      if (oldPeriods && oldPeriods.length > 0) {
+        await supabase.from('student_periods').insert(
+          oldPeriods.map(p => ({ student_id: newId, period: p.period, room: p.room }))
+        )
+      }
+      // Step 4: Delete old student_periods rows
+      await supabase.from('student_periods').delete().eq('student_id', editStudent.id)
+      // Step 5: Delete old student row
       await supabase.from('students').delete().eq('id', editStudent.id)
     } else {
       await supabase.from('students').update({
