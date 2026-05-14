@@ -6,6 +6,9 @@ import * as XLSX from 'xlsx'
 const RHS_GREEN = '#006938'
 const RHS_GRAY = '#C4BEB5'
 
+// ── Change this to pull from teacher session when multi-teacher is live ──
+const TEACHER_ROOM = '27'
+
 function parseAeriesXLSX(workbook) {
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false, blankrows: true })
@@ -96,16 +99,45 @@ export default function RosterImport() {
     let errors = 0
     const batchSize = 50
 
-    for (let i = 0; i < allStudents.length; i += batchSize) {
-      const batch = allStudents.slice(i, i + batchSize)
+    // ── Step 1: Upsert student records (one row per student, no period column) ──
+    // onConflict on 'id' only — prevents duplicate student rows for multi-period students
+    const studentRows = allStudents.map(s => ({
+      id: s.id,
+      first_name: s.first_name,
+      last_name: s.last_name,
+      full_name: s.full_name,
+      period: s.period, // kept for legacy compatibility, reflects primary period
+    }))
+
+    for (let i = 0; i < studentRows.length; i += batchSize) {
+      const batch = studentRows.slice(i, i + batchSize)
       const { error } = await supabase
         .from('students')
-        .upsert(batch, { onConflict: 'id,period' })
+        .upsert(batch, { onConflict: 'id' })
       if (error) {
-        console.error('Supabase error:', JSON.stringify(error))
+        console.error('Students upsert error:', JSON.stringify(error))
         errors += batch.length
       } else {
         imported += batch.length
+      }
+    }
+
+    // ── Step 2: Upsert student_periods rows ──
+    // Each student gets a row per period+room combo — safe to re-run, won't duplicate
+    const periodRows = allStudents.map(s => ({
+      student_id: s.id,
+      period: s.period,
+      room: TEACHER_ROOM,
+    }))
+
+    for (let i = 0; i < periodRows.length; i += batchSize) {
+      const batch = periodRows.slice(i, i + batchSize)
+      const { error } = await supabase
+        .from('student_periods')
+        .upsert(batch, { onConflict: 'student_id,period,room' })
+      if (error) {
+        console.error('student_periods upsert error:', JSON.stringify(error))
+        // Don't count as errors since students already inserted — just log
       }
     }
 
@@ -145,7 +177,7 @@ export default function RosterImport() {
           style={{ borderColor: RHS_GRAY }}
           onClick={() => fileRef.current?.click()}
           onDragOver={(e) => e.preventDefault()}
-onDrop={(e) => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file) handleFile({ target: { files: [file] } }) }}
+          onDrop={(e) => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file) handleFile({ target: { files: [file] } }) }}
         >
           <div className="text-5xl mb-4">📋</div>
           <p className="text-gray-700 font-medium mb-1">Drop your Aeries roster here</p>
