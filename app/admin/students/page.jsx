@@ -28,10 +28,22 @@ export default function StudentsAdmin() {
 
   async function loadStudents() {
     setLoading(true)
+    // Query via student_periods junction table to support multi-period students
+    const { data: spRows } = await supabase
+      .from('student_periods')
+      .select('student_id')
+      .eq('period', activePeriod)
+      .eq('room', '27')
+    const studentIds = spRows?.map(r => r.student_id) || []
+    if (studentIds.length === 0) {
+      setStudents([])
+      setLoading(false)
+      return
+    }
     const { data } = await supabase
       .from('students')
       .select('id, first_name, last_name, full_name, period, nfc_uid')
-      .eq('period', activePeriod)
+      .in('id', studentIds)
       .order('first_name')
     if (data) setStudents(data)
     setLoading(false)
@@ -42,11 +54,16 @@ export default function StudentsAdmin() {
     setAdding(true)
     const full_name = `${firstName.trim()} ${lastName.trim()}`
     const id = `NEW${Date.now()}`
+    // Insert student row (period field kept for legacy compatibility)
     const { error } = await supabase.from('students').insert({
       id, first_name: firstName.trim(), last_name: lastName.trim(),
       full_name, period: addPeriod
     })
     if (!error) {
+      // Also insert into student_periods
+      await supabase.from('student_periods').insert({
+        student_id: id, period: addPeriod, room: '27'
+      })
       setFirstName(''); setLastName('')
       if (addPeriod === activePeriod) loadStudents()
     }
@@ -54,13 +71,36 @@ export default function StudentsAdmin() {
   }
 
   async function removeStudent(id) {
+    // student_periods rows cascade delete via FK, so just delete student
     await supabase.from('students').delete().eq('id', id)
     setConfirmDelete(null)
     loadStudents()
   }
 
-  async function movePeriod(id, newPeriod) {
-    await supabase.from('students').update({ period: newPeriod }).eq('id', id)
+  async function movePeriod(studentId, newPeriod) {
+    // For multi-period students, this adds the new period assignment
+    // rather than replacing — use student_periods as source of truth
+    const { data: existing } = await supabase
+      .from('student_periods')
+      .select('id')
+      .eq('student_id', studentId)
+      .eq('period', activePeriod)
+      .eq('room', '27')
+      .maybeSingle()
+
+    if (existing) {
+      // Update the existing student_periods row for this period
+      await supabase.from('student_periods')
+        .update({ period: newPeriod })
+        .eq('id', existing.id)
+    } else {
+      // Insert new period assignment
+      await supabase.from('student_periods').insert({
+        student_id: studentId, period: newPeriod, room: '27'
+      })
+    }
+    // Keep students.period in sync with primary period
+    await supabase.from('students').update({ period: newPeriod }).eq('id', studentId)
     loadStudents()
   }
 
@@ -79,7 +119,7 @@ export default function StudentsAdmin() {
       first_name: editFirst.trim(),
       last_name: editLast.trim(),
       full_name,
-    }).eq('id', editStudent.id).eq('period', editStudent.period)
+    }).eq('id', editStudent.id)
     setSaving(false)
     setEditStudent(null)
     loadStudents()
@@ -95,7 +135,7 @@ export default function StudentsAdmin() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-lg font-semibold text-gray-800">Edit Student</h2>
-                <p className="text-xs text-gray-400">ID: {editStudent.id} · Period {editStudent.period}</p>
+                <p className="text-xs text-gray-400">ID: {editStudent.id}</p>
               </div>
               <button onClick={() => setEditStudent(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
@@ -213,7 +253,7 @@ export default function StudentsAdmin() {
                   )}
                 </div>
                 <select
-                  value={s.period}
+                  value={activePeriod}
                   onChange={e => movePeriod(s.id, e.target.value)}
                   className="text-xs border rounded-lg p-1 text-gray-600 bg-white"
                   style={{ borderColor: '#e5e7eb' }}>

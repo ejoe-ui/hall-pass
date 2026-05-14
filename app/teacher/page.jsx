@@ -454,7 +454,12 @@ function TeacherInner() {
       passQuery = passQuery.or(`teacher_id.eq.${currentTeacher.id},teacher_id.is.null`)
     }
     const { data: passes } = await passQuery
-    const { data: studs } = await supabase.from('students').select('id, full_name, last_name').eq('period', activePeriod).order('first_name')
+    // Query via student_periods junction table to support multi-period students
+    const { data: spRows } = await supabase.from('student_periods').select('student_id').eq('period', activePeriod).eq('room', '27')
+    const studentIds = spRows?.map(r => r.student_id) || []
+    const { data: studs } = studentIds.length > 0
+      ? await supabase.from('students').select('id, full_name, last_name').in('id', studentIds).order('first_name')
+      : { data: [] }
     const { data: holds } = await supabase.from('pass_holds').select('*').is('released_at', null).order('held_at')
 
     if (passes) {
