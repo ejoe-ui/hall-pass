@@ -230,6 +230,7 @@ function KioskInner() {
   const [weekCount, setWeekCount] = useState(0)
   const [currentPass, setCurrentPass] = useState(null)
   const [activePasses, setActivePasses] = useState([])
+  const [dnloList, setDnloList] = useState([])
   const [offlineQueue, setOfflineQueue] = useState([])
   const [isOnline, setIsOnline] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -308,12 +309,7 @@ function KioskInner() {
     if (synced > 0) { setSyncedCount(synced); setTimeout(() => setSyncedCount(0), 4000) }
   }
 
-  useEffect(() => {
-  if (!unlocked || !activePeriod) return
-  loadStudents()
-  const interval = setInterval(loadStudents, 60000)
-  return () => clearInterval(interval)
-}, [unlocked, activePeriod])
+  useEffect(() => { if (unlocked && activePeriod) loadStudents() }, [unlocked, activePeriod])
 
   useEffect(() => {
     const studentId = searchParams.get('student')
@@ -417,6 +413,9 @@ function KioskInner() {
     // Also load active passes so NFC auto-checkin knows who's out
     const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
     if (passes) setActivePasses(passes)
+    // Load DNLO list
+    const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
+    if (dnlo) setDnloList(dnlo.map(d => d.student_id))
   }
 
   function handlePin(digit) {
@@ -450,6 +449,13 @@ function KioskInner() {
   }
 
   async function handleStudentSelect(id) {
+    if (!id) { setSelected(''); return }
+    // Check DNLO list
+    if (dnloList.includes(id)) {
+      setSelected(id)
+      setStage('dnlo-blocked')
+      return
+    }
     setSelected(id)
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
@@ -675,6 +681,21 @@ function KioskInner() {
         </div>
 
         <p className="text-green-300 text-xs">Returning to kiosk in a few seconds...</p>
+      </div>
+    )
+  }
+
+  if (stage === 'dnlo-blocked') {
+    const name = students.find(s => s.id === selected)?.full_name || 'This student'
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
+        <div className="text-6xl mb-4">⛔</div>
+        <h2 className="text-2xl font-bold text-gray-800 mb-2">Cannot Check Out</h2>
+        <p className="text-gray-500 mb-1">{name}</p>
+        <p className="text-sm text-red-600 mb-8">This student has an admin restriction. See Mr. Joe.</p>
+        <button onClick={reset} className="px-6 py-3 text-white rounded-lg font-medium" style={{ backgroundColor: RHS_GREEN }}>
+          Back
+        </button>
       </div>
     )
   }

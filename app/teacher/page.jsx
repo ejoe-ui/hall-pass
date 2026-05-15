@@ -280,6 +280,7 @@ function TeacherInner() {
   const [activePeriod, setActivePeriod] = useState(null)
   const [activePasses, setActivePasses] = useState([])
   const [heldPasses, setHeldPasses] = useState([])
+  const [dnloList, setDnloList] = useState([])
   const [students, setStudents] = useState({})
   const [selected, setSelected] = useState('')
   const [reason, setReason] = useState('')
@@ -492,6 +493,9 @@ function TeacherInner() {
       prevHeldIds.current = newIds
       setHeldPasses(holds)
     }
+    // Load DNLO list
+    const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
+    if (dnlo) setDnloList(dnlo.map(d => d.student_id))
   }
 
   async function handleReturn(passId) {
@@ -1006,12 +1010,17 @@ function TeacherInner() {
                 {REASONS.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
               <button onClick={handleTeacherCheckout}
-                disabled={!selected || !reason || (reason === 'On Assignment' && !assignedTeacher)}
+                disabled={!selected || !reason || (reason === 'On Assignment' && !assignedTeacher) || dnloList.includes(selected)}
                 className="px-4 py-2 text-sm rounded-lg disabled:opacity-30 font-medium text-white"
                 style={{ backgroundColor: RHS_GREEN }}>
                 Send
               </button>
             </div>
+            {selected && dnloList.includes(selected) && (
+              <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs font-medium">
+                ⛔ This student has an admin Do Not Let Out restriction. Contact administration.
+              </div>
+            )}
             {reason === 'On Assignment' && (
               <div className="flex flex-col gap-2">
                 <select value={assignedTeacher} onChange={e => setAssignedTeacher(e.target.value)}
