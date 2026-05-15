@@ -11,16 +11,25 @@ export default function Log() {
   useEffect(() => { loadPasses() }, [])
 
   async function loadPasses() {
-const { data: passData } = await supabase
-  .from('passes')
-  .select('*')
-  .order('time_out', { ascending: false })
-const { data: studData } = await supabase
-  .from('students')
-  .select('id, full_name')
-const studMap = {}
-if (studData) studData.forEach(s => studMap[s.id] = s)
-const data = passData?.map(p => ({ ...p, students: studMap[p.student_id] || null }))
+    const { data: passData } = await supabase
+      .from('passes')
+      .select('*')
+      .order('time_out', { ascending: false })
+    const { data: studData } = await supabase
+      .from('students')
+      .select('id, full_name')
+    const { data: teacherData } = await supabase
+      .from('teachers')
+      .select('id, name, room')
+    const studMap = {}
+    if (studData) studData.forEach(s => studMap[s.id] = s)
+    const teacherMap = {}
+    if (teacherData) teacherData.forEach(t => teacherMap[t.id] = t)
+    const data = passData?.map(p => ({
+      ...p,
+      students: studMap[p.student_id] || null,
+      teacher: p.teacher_id ? teacherMap[p.teacher_id] || null : null,
+    }))
     if (data) setPasses(data)
     setLoading(false)
   }
@@ -44,7 +53,7 @@ const data = passData?.map(p => ({ ...p, students: studMap[p.student_id] || null
   }
 
   function exportCSV() {
-    const headers = ['Student', 'Date', 'Reason', 'Time Out', 'Time In', 'Duration (min)', 'Room', 'Period', 'Type']
+    const headers = ['Student', 'Date', 'Reason', 'Time Out', 'Time In', 'Duration (min)', 'Room', 'Teacher', 'Period', 'Type']
     const rows = passes.map(p => [
       p.students?.full_name || p.student_id,
       fmtDate(p.time_out),
@@ -53,6 +62,7 @@ const data = passData?.map(p => ({ ...p, students: studMap[p.student_id] || null
       fmt(p.time_in),
       p.duration_minutes || '',
       p.room,
+      p.teacher ? `${p.teacher.name} (Rm ${p.teacher.room})` : p.teacher_id ? 'Teacher' : 'Kiosk',
       p.period,
       p.pass_type === 'late_pass' ? 'Late Pass' : 'Hall Pass'
     ])
@@ -70,7 +80,7 @@ const data = passData?.map(p => ({ ...p, students: studMap[p.student_id] || null
         @media print {
           .no-print { display: none !important; }
           body { margin: 0; font-size: 11px; }
-          @page { margin: 10mm; size: letter; }
+          @page { margin: 10mm; size: letter landscape; }
           .print-header { margin-bottom: 12px; }
           table { width: 100%; border-collapse: collapse; font-size: 10px; }
           th { border-bottom: 2px solid #000; padding: 4px 6px; text-align: left; font-weight: 600; }
@@ -103,7 +113,7 @@ const data = passData?.map(p => ({ ...p, students: studMap[p.student_id] || null
         </div>
       )}
 
-      <div className="min-h-screen bg-gray-50 p-6 max-w-4xl mx-auto">
+      <div className="min-h-screen bg-gray-50 p-6 max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6 no-print">
           <div>
             <h1 className="text-2xl font-semibold text-gray-800">Pass Log</h1>
@@ -129,7 +139,7 @@ const data = passData?.map(p => ({ ...p, students: studMap[p.student_id] || null
           <p className="text-xs text-gray-500">Printed {new Date().toLocaleDateString()} · {passes.length} total passes</p>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
           {loading ? (
             <div className="p-8 text-center text-gray-400">Loading...</div>
           ) : passes.length === 0 ? (
@@ -138,30 +148,36 @@ const data = passData?.map(p => ({ ...p, students: studMap[p.student_id] || null
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {['Student', 'Date', 'Reason', 'Out', 'In', 'Duration', 'Status', ''].map((h, i) => (
-                    <th key={i} className="text-left text-xs font-medium text-gray-500 px-4 py-3">{h}</th>
+                  {['Student', 'Date', 'Reason', 'Out', 'In', 'Duration', 'From', 'Status', ''].map((h, i) => (
+                    <th key={i} className="text-left text-xs font-medium text-gray-500 px-4 py-3 whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {passes.map(p => {
                   const isLatePass = p.pass_type === 'late_pass'
+                  const fromLabel = p.teacher
+                    ? `${p.teacher.name} · Rm ${p.teacher.room}`
+                    : p.teacher_id ? 'Teacher' : 'Kiosk'
                   return (
                     <tr key={p.id}
                       className={`border-b border-gray-50 last:border-0 hover:bg-gray-50 group ${isLatePass ? 'bg-blue-50 hover:bg-blue-100' : ''}`}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <a href={`/student/${p.student_id}`} className="font-medium text-gray-800 hover:text-green-700 hover:underline underline-offset-2">{p.students?.full_name || '—'}</a>
+                          <a href={`/student/${p.student_id}`} className="font-medium text-gray-800 hover:text-green-700 hover:underline underline-offset-2 whitespace-nowrap">
+                            {p.students?.full_name || '—'}
+                          </a>
                           {isLatePass && (
-                            <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium no-print">Late Pass</span>
+                            <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium no-print">Late</span>
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-500">{fmtDate(p.time_out)}</td>
-                      <td className="px-4 py-3 text-gray-600">{p.reason}</td>
-                      <td className="px-4 py-3 text-gray-500">{fmt(p.time_out)}</td>
-                      <td className="px-4 py-3 text-gray-500">{fmt(p.time_in)}</td>
-                      <td className="px-4 py-3 text-gray-500">{p.duration_minutes ? `${p.duration_minutes}m` : '—'}</td>
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(p.time_out)}</td>
+                      <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{p.reason}</td>
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(p.time_out)}</td>
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(p.time_in)}</td>
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{p.duration_minutes ? `${p.duration_minutes}m` : '—'}</td>
+                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{fromLabel}</td>
                       <td className="px-4 py-3">
                         {isLatePass ? (
                           <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-md text-xs font-medium">Late Pass</span>

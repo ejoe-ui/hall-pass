@@ -1029,10 +1029,12 @@ function TeacherInner() {
                   <option value="">— Select a teacher (optional) —</option>
                   {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
-                <input type="text" placeholder="Purpose (e.g. returning equipment)"
-                  value={purposeText} onChange={e => setPurposeText(e.target.value)}
+                <select value={purposeText} onChange={e => setPurposeText(e.target.value)}
                   className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }} />
+                  style={{ borderColor: RHS_GREEN }}>
+                  <option value="">— Select location (optional) —</option>
+                  {ERRAND_LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
               </div>
             )}
             {reason === 'Other' && (
@@ -1164,7 +1166,6 @@ function TeacherInner() {
           <a href="/admin/students" className="text-sm text-gray-400 hover:text-gray-600">Manage Students →</a>
           <a href="/admin/roster" className="text-sm text-gray-400 hover:text-gray-600">Import Roster →</a>
           <a href="/qr" className="text-sm text-gray-400 hover:text-gray-600">Print QR Badges →</a>
-          <a href="/admin/photos" className="text-sm text-gray-400 hover:text-gray-600">Photo Upload →</a>
           <a href="/log" className="text-sm text-gray-400 hover:text-gray-600">Pass Log →</a>
           {currentTeacher?.is_admin && (
             <a href="/admin/teachers" className="text-sm text-gray-400 hover:text-gray-600">Teacher Admin →</a>

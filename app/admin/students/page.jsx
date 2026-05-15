@@ -295,7 +295,10 @@ export default function StudentsAdmin() {
             <p className="text-green-200 text-xs">Room 27 · Mr. Joe</p>
           </div>
         </div>
-        <a href="/teacher" className="text-sm text-green-200 hover:text-white">← Dashboard</a>
+        <div className="flex items-center gap-4">
+          <a href="/admin/photos" className="text-sm text-green-200 hover:text-white">📷 Photo Upload</a>
+          <a href="/teacher" className="text-sm text-green-200 hover:text-white">← Dashboard</a>
+        </div>
       </div>
 
       <div className="p-6 max-w-3xl mx-auto">

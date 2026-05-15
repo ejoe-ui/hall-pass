@@ -3,6 +3,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import QRCode from 'qrcode'
 
+const RHS_GREEN = '#006938'
+
 const PERIODS = [
   { label: 'Periods 1 & 2', value: '1' },
   { label: 'Periods 4 & 5', value: '4' },
@@ -20,10 +22,18 @@ export default function QRPage() {
   }, [activePeriod])
 
   async function loadStudents() {
+    // Use student_periods junction table
+    const { data: spRows } = await supabase
+      .from('student_periods')
+      .select('student_id')
+      .eq('period', activePeriod)
+      .eq('room', '27')
+    const studentIds = spRows?.map(r => r.student_id) || []
+    if (studentIds.length === 0) { setStudents([]); return }
     const { data } = await supabase
       .from('students')
       .select('id, full_name, photo_file')
-      .eq('period', activePeriod)
+      .in('id', studentIds)
       .order('first_name')
     if (data) {
       setStudents(data)
@@ -45,10 +55,8 @@ export default function QRPage() {
     const urls = {}
     for (const s of students) {
       if (s.photo_file) {
-        const { data } = await supabase.storage
-          .from('student-photos')
-          .createSignedUrl(s.photo_file, 31536000)
-        if (data?.signedUrl) urls[s.id] = data.signedUrl
+        const { data } = supabase.storage.from('student-photos').getPublicUrl(s.photo_file)
+        if (data?.publicUrl) urls[s.id] = data.publicUrl
       }
     }
     setPhotoUrls(urls)
@@ -127,7 +135,10 @@ export default function QRPage() {
           </div>
 
           <div className="mt-8 flex justify-between items-center no-print">
-            <a href="/teacher" className="text-sm text-gray-400 hover:text-gray-600">← Dashboard</a>
+            <a href="/teacher"
+              className="px-5 py-2.5 text-sm font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
+              ← Back to Dashboard
+            </a>
             <button onClick={() => window.print()}
               className="px-6 py-3 bg-gray-900 text-white rounded-lg text-sm font-medium">
               Print This Page
