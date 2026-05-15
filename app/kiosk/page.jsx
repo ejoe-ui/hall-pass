@@ -247,6 +247,7 @@ function KioskInner() {
   const [syncedCount, setSyncedCount] = useState(0)
   const [cameras, setCameras] = useState([])
   const [teacherPeriods, setTeacherPeriods] = useState(DEFAULT_PERIODS)
+  const [periodLabels, setPeriodLabels] = useState({})
   const [selectedCamera, setSelectedCamera] = useState('')
 
   // NFC HID buffer refs
@@ -418,13 +419,18 @@ function KioskInner() {
     // Load teacher's periods from teachers table
     const { data: teacher } = await supabase
       .from('teachers')
-      .select('periods')
+      .select('periods, period_labels')
       .eq('is_active', true)
       .limit(1)
       .maybeSingle()
     if (teacher?.periods && teacher.periods.length > 0) {
+      const labels = teacher.period_labels || {}
+      setPeriodLabels(labels)
       setTeacherPeriods(
-        teacher.periods.sort().map(p => ({ label: buildPeriodLabel(p), value: p }))
+        teacher.periods.sort().map(p => ({
+          label: labels[p] || buildPeriodLabel(p),
+          value: p
+        }))
       )
     }
   }

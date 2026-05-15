@@ -22,7 +22,7 @@ export default function TeacherAdmin() {
   const [importing, setImporting] = useState(false)
   const fileRef = useRef(null)
 
-  const emptyForm = { name: '', email: '', room: '', department: '', pin: '', is_admin: false, is_active: true, periods: ['1','4','6'] }
+  const emptyForm = { name: '', email: '', room: '', department: '', pin: '', is_admin: false, is_active: true, periods: ['1','4','6'], period_labels: {} }
   const [form, setForm] = useState(emptyForm)
 
   useEffect(() => {
@@ -53,13 +53,13 @@ export default function TeacherAdmin() {
     setSaving(true)
     if (editingTeacher) {
       const { error } = await supabase.from('teachers')
-        .update({ name: form.name, email: form.email, room: form.room, department: form.department, pin: form.pin, is_admin: form.is_admin, is_active: form.is_active, periods: form.periods })
+        .update({ name: form.name, email: form.email, room: form.room, department: form.department, pin: form.pin, is_admin: form.is_admin, is_active: form.is_active, periods: form.periods, period_labels: form.period_labels })
         .eq('id', editingTeacher.id)
       if (error) { setError(error.message); setSaving(false); return }
       setSuccess(`${form.name} updated.`)
     } else {
       const { error } = await supabase.from('teachers')
-        .insert({ name: form.name, email: form.email, room: form.room, department: form.department, pin: form.pin, is_admin: form.is_admin, is_active: form.is_active, periods: form.periods })
+        .insert({ name: form.name, email: form.email, room: form.room, department: form.department, pin: form.pin, is_admin: form.is_admin, is_active: form.is_active, periods: form.periods, period_labels: form.period_labels })
       if (error) { setError(error.message); setSaving(false); return }
       setSuccess(`${form.name} added. Use Send Invite to send them a sign-in link.`)
     }
@@ -69,7 +69,7 @@ export default function TeacherAdmin() {
 
   function handleEdit(teacher) {
     setEditingTeacher(teacher)
-    setForm({ name: teacher.name, email: teacher.email, room: teacher.room || '', department: teacher.department || '', pin: teacher.pin || '', is_admin: teacher.is_admin, is_active: teacher.is_active })
+    setForm({ name: teacher.name, email: teacher.email, room: teacher.room || '', department: teacher.department || '', pin: teacher.pin || '', is_admin: teacher.is_admin, is_active: teacher.is_active, periods: teacher.periods || ['1','4','6'], period_labels: teacher.period_labels || {} })
     setShowForm(true); setError(null); setSuccess(null)
   }
 
@@ -326,6 +326,31 @@ export default function TeacherAdmin() {
                       </label>
                     ))}
                   </div>
+                  {/* Custom display labels for each selected period */}
+                  {(form.periods || []).length > 0 && (
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-gray-600 mb-2">
+                        Kiosk Display Labels <span className="font-normal text-gray-400">(optional — e.g. "Periods 1 & 2")</span>
+                      </label>
+                      <div className="space-y-1.5">
+                        {(form.periods || []).sort().map(p => (
+                          <div key={p} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500 w-6">P{p}</span>
+                            <input
+                              type="text"
+                              placeholder={`Period ${p}`}
+                              value={(form.period_labels || {})[p] || ''}
+                              onChange={e => setForm(prev => ({
+                                ...prev,
+                                period_labels: { ...(prev.period_labels || {}), [p]: e.target.value }
+                              }))}
+                              className="flex-1 p-1.5 text-xs border rounded-lg bg-white text-gray-800 border-gray-200"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <label className="flex items-center gap-2 text-xs text-gray-600 hidden">
                   Active
