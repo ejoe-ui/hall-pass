@@ -6,58 +6,83 @@ import * as XLSX from 'xlsx'
 const RHS_GREEN = '#006938'
 const RHS_GRAY = '#C4BEB5'
 
-// ── Change this to pull from teacher session when multi-teacher is live ──
 const TEACHER_ROOM = '27'
 
-function parseAeriesXLSX(workbook) {
+const PERIODS = [
+  { label: 'Periods 1 & 2', value: '1' },
+  { label: 'Periods 4 & 5', value: '4' },
+  { label: 'Periods 6 & 7', value: '6' },
+]
+
+// ── Simplified parser — one period at a time ──────────────────────────────
+// No longer needs to detect course sections or ROP keywords.
+// Teacher selects the period before uploading, parser just finds the students.
+function parseAeriesXLSX(workbook, period) {
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false, blankrows: true })
 
-  const classes = []
+  const students = []
   let inStudents = false
+  let courseName = ''
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
     const cells = row.map(c => String(c || '').trim())
     const nonEmpty = cells.filter(c => c !== '')
     if (nonEmpty.length === 0) continue
-    const vals = nonEmpty
 
-    if (vals.some(v => v.includes('Riverdale'))) { inStudents = false; continue }
+    // Capture course name — any row with a course/section identifier before student list
+    if (!inStudents && nonEmpty.length >= 2 && !courseName) {
+      const possibleCourse = nonEmpty.find(v =>
+        v.length > 4 && !/^\d{6}$/.test(v) && !v.includes(',') && v !== 'Student ID'
+      )
+      if (possibleCourse && nonEmpty.some(v => /^[146]$/.test(v))) {
+        courseName = possibleCourse
+      }
+    }
 
-    const periodVal = vals.find(v => /^[146]$/.test(v))
-    const courseVal = vals.find(v => v.includes('ROP'))
-    if (periodVal && courseVal && !inStudents) {
-      classes.push({ period: periodVal, course: courseVal, students: [] })
-      inStudents = false
+    // Start reading students after "Student ID" header row
+    if (nonEmpty.some(v => v === 'Student ID')) {
+      inStudents = true
       continue
     }
 
-    if (vals.some(v => v === 'Student ID')) { inStudents = true; continue }
+    if (!inStudents) continue
 
-    if (inStudents && classes.length > 0) {
-      const idVal = vals.find(v => /^\d{6}$/.test(v))
-      const nameVal = vals.find(v => v.includes(',') && v.length > 3 && !/^\d/.test(v))
-      if (idVal && nameVal) {
-        classes[classes.length - 1].students.push({
-          id: idVal,
-          full_name: nameVal.includes(',') ? `${nameVal.split(',')[1].trim()} ${nameVal.split(',')[0].trim()}` : nameVal,
-          first_name: nameVal.split(',')[1]?.trim().split(' ')[0] || nameVal,
-          last_name: nameVal.split(',')[0]?.trim() || nameVal,
-          grade: (() => { const nameIdx = vals.indexOf(nameVal); return vals.slice(nameIdx + 1).find(v => v === '11' || v === '12' || v === '10' || v === '09') || '' })(),
-          period: classes[classes.length - 1].period,
-        })
-      }
+    // Each student row has a 6-digit ID and a "Last, First" name
+    const idVal = nonEmpty.find(v => /^\d{6}$/.test(v))
+    const nameVal = nonEmpty.find(v => v.includes(',') && v.length > 3 && !/^\d/.test(v))
+
+    if (idVal && nameVal) {
+      const parts = nameVal.split(',')
+      const lastName = parts[0]?.trim() || ''
+      const firstFull = parts[1]?.trim() || ''
+      const firstName = firstFull.split(' ')[0] || firstFull
+      const full_name = `${firstFull} ${lastName}`.trim()
+
+      const nameIdx = nonEmpty.indexOf(nameVal)
+      const grade = nonEmpty.slice(nameIdx + 1).find(v => ['09','10','11','12'].includes(v)) || ''
+
+      students.push({
+        id: idVal,
+        full_name,
+        first_name: firstName,
+        last_name: lastName,
+        grade,
+        period,
+      })
     }
   }
 
-  return classes.filter(c => c.students.length > 0)
+  return students
 }
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function RosterImport() {
   const [stage, setStage] = useState('upload')
-  const [classes, setClasses] = useState([])
-  const [expanded, setExpanded] = useState({})
+  const [selectedPeriod, setSelectedPeriod] = useState('1')
+  const [students, setStudents] = useState([])
+  const [expanded, setExpanded] = useState(false)
   const [importResult, setImportResult] = useState(null)
   const [errorMsg, setErrorMsg] = useState('')
   const [fileName, setFileName] = useState('')
@@ -72,13 +97,13 @@ export default function RosterImport() {
       try {
         const data = new Uint8Array(evt.target.result)
         const workbook = XLSX.read(data, { type: 'array' })
-        const parsed = parseAeriesXLSX(workbook)
+        const parsed = parseAeriesXLSX(workbook, selectedPeriod)
         if (parsed.length === 0) {
-          setErrorMsg('No student data found. Make sure this is an Aeries Attendance Class Roster exported as XLSX.')
+          setErrorMsg('No student data found. Make sure this is an Aeries Class Roster exported as XLSX and that it contains a "Student ID" column.')
           setStage('error')
           return
         }
-        setClasses(parsed)
+        setStudents(parsed)
         setStage('preview')
       } catch (err) {
         setErrorMsg('Could not read file: ' + err.message)
@@ -88,25 +113,19 @@ export default function RosterImport() {
     reader.readAsArrayBuffer(file)
   }
 
-  function toggleExpand(period) {
-    setExpanded(prev => ({ ...prev, [period]: !prev[period] }))
-  }
-
   async function handleImport() {
     setStage('importing')
-    const allStudents = classes.flatMap(c => c.students)
     let imported = 0
     let errors = 0
     const batchSize = 50
 
-    // ── Step 1: Upsert student records (one row per student, no period column) ──
-    // onConflict on 'id' only — prevents duplicate student rows for multi-period students
-    const studentRows = allStudents.map(s => ({
+    // Step 1: Upsert students
+    const studentRows = students.map(s => ({
       id: s.id,
       first_name: s.first_name,
       last_name: s.last_name,
       full_name: s.full_name,
-      period: s.period, // kept for legacy compatibility, reflects primary period
+      period: s.period,
     }))
 
     for (let i = 0; i < studentRows.length; i += batchSize) {
@@ -122,11 +141,10 @@ export default function RosterImport() {
       }
     }
 
-    // ── Step 2: Upsert student_periods rows ──
-    // Each student gets a row per period+room combo — safe to re-run, won't duplicate
-    const periodRows = allStudents.map(s => ({
+    // Step 2: Upsert student_periods
+    const periodRows = students.map(s => ({
       student_id: s.id,
-      period: s.period,
+      period: selectedPeriod,
       room: TEACHER_ROOM,
     }))
 
@@ -137,30 +155,24 @@ export default function RosterImport() {
         .upsert(batch, { onConflict: 'student_id,period,room' })
       if (error) {
         console.error('student_periods upsert error:', JSON.stringify(error))
-        // Don't count as errors since students already inserted — just log
       }
     }
 
-    setImportResult({
-      total: allStudents.length,
-      imported,
-      errors,
-      periods: classes.map(c => ({ period: c.period, course: c.course, count: c.students.length })),
-    })
+    setImportResult({ total: students.length, imported, errors, period: selectedPeriod })
     setStage('success')
   }
 
   function reset() {
     setStage('upload')
-    setClasses([])
-    setExpanded({})
+    setStudents([])
+    setExpanded(false)
     setImportResult(null)
     setErrorMsg('')
     setFileName('')
     if (fileRef.current) fileRef.current.value = ''
   }
 
-  const totalStudents = classes.reduce((sum, c) => sum + c.students.length, 0)
+  const periodLabel = PERIODS.find(p => p.value === selectedPeriod)?.label
 
   if (stage === 'upload') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
@@ -169,9 +181,26 @@ export default function RosterImport() {
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-10 h-10 object-contain" />
           <div>
             <h1 className="text-xl font-bold" style={{ color: RHS_GREEN }}>Roster Import</h1>
-            <p className="text-xs text-gray-400">RHS PassAble · Room 27</p>
+            <p className="text-xs text-gray-400">RHS PassAble · Room {TEACHER_ROOM}</p>
           </div>
         </div>
+
+        {/* Period selector — pick before uploading */}
+        <div className="mb-4">
+          <p className="text-sm font-medium text-gray-700 mb-2">Which period is this roster for?</p>
+          <div className="grid grid-cols-3 gap-2">
+            {PERIODS.map(p => (
+              <button key={p.value} onClick={() => setSelectedPeriod(p.value)}
+                className="py-3 text-sm font-medium rounded-xl border-2 transition-colors"
+                style={selectedPeriod === p.value
+                  ? { backgroundColor: RHS_GREEN, color: 'white', borderColor: RHS_GREEN }
+                  : { backgroundColor: 'white', color: '#374151', borderColor: '#e5e7eb' }}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div
           className="border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer hover:bg-green-50 transition-colors"
           style={{ borderColor: RHS_GRAY }}
@@ -181,18 +210,21 @@ export default function RosterImport() {
         >
           <div className="text-5xl mb-4">📋</div>
           <p className="text-gray-700 font-medium mb-1">Drop your Aeries roster here</p>
-          <p className="text-gray-400 text-sm mb-4">or click to browse</p>
+          <p className="text-gray-400 text-sm mb-1">or click to browse</p>
+          <p className="text-xs mb-4" style={{ color: RHS_GREEN }}>Importing for: <strong>{periodLabel}</strong></p>
           <span className="text-xs px-3 py-1 rounded-full font-medium" style={{ backgroundColor: '#f0f7f3', color: RHS_GREEN }}>
             XLSX files only
           </span>
           <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={handleFile} />
         </div>
+
         <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
           <p className="font-medium mb-1">How to export from Aeries:</p>
           <ol className="list-decimal list-inside space-y-1 text-xs">
             <li>Go to Attendance → Class Roster</li>
-            <li>Select your classes</li>
+            <li>Select one class at a time</li>
             <li>Export → Download as XLSX</li>
+            <li>Repeat for each period</li>
           </ol>
         </div>
         <a href="/teacher" className="block text-center text-sm text-gray-400 hover:text-gray-600 mt-6">← Back to Dashboard</a>
@@ -207,61 +239,57 @@ export default function RosterImport() {
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" />
           <div>
             <h1 className="text-xl font-bold" style={{ color: RHS_GREEN }}>Review Before Importing</h1>
-            <p className="text-xs text-gray-400">{fileName}</p>
+            <p className="text-xs text-gray-400">{fileName} · {periodLabel}</p>
           </div>
         </div>
+
         <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 flex items-center justify-between">
           <div>
-            <p className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{totalStudents}</p>
-            <p className="text-xs text-gray-500">total students across {classes.length} class{classes.length !== 1 ? 'es' : ''}</p>
+            <p className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{students.length}</p>
+            <p className="text-xs text-gray-500">students found for {periodLabel}</p>
           </div>
           <div className="text-right">
-            <p className="text-sm font-medium text-gray-700">{classes.length} period{classes.length !== 1 ? 's' : ''} found</p>
             <p className="text-xs text-gray-400">Existing records will be updated</p>
+            <p className="text-xs text-gray-400">New students will be added</p>
           </div>
         </div>
-        <div className="space-y-3 mb-6">
-          {classes.map(cls => (
-            <div key={cls.period} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <button
-                className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
-                onClick={() => toggleExpand(cls.period)}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
-                    {cls.period}
-                  </span>
-                  <div className="text-left">
-                    <p className="text-sm font-medium text-gray-800">{cls.course}</p>
-                    <p className="text-xs text-gray-400">Period {cls.period}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold" style={{ color: RHS_GREEN }}>{cls.students.length} students</span>
-                  <span className="text-gray-400 text-xs">{expanded[cls.period] ? '▲' : '▼'}</span>
-                </div>
-              </button>
-              {expanded[cls.period] && (
-                <div className="border-t border-gray-100 max-h-48 overflow-y-auto">
-                  {cls.students.map((s, i) => (
-                    <div key={s.id + s.period} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
-                      <span className="text-xs text-gray-400 w-6">{i + 1}</span>
-                      <span className="text-xs font-mono text-gray-500 w-16">{s.id}</span>
-                      <span className="text-sm text-gray-800 flex-1">{s.full_name}</span>
-                      <span className="text-xs text-gray-400">Gr {s.grade}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+          <button
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
+            onClick={() => setExpanded(e => !e)}
+          >
+            <div className="flex items-center gap-3">
+              <span className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
+                {selectedPeriod}
+              </span>
+              <span className="text-sm font-medium text-gray-800">{periodLabel}</span>
             </div>
-          ))}
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold" style={{ color: RHS_GREEN }}>{students.length} students</span>
+              <span className="text-gray-400 text-xs">{expanded ? '▲' : '▼'}</span>
+            </div>
+          </button>
+          {expanded && (
+            <div className="border-t border-gray-100 max-h-64 overflow-y-auto">
+              {students.map((s, i) => (
+                <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
+                  <span className="text-xs text-gray-400 w-6">{i + 1}</span>
+                  <span className="text-xs font-mono text-gray-500 w-16">{s.id}</span>
+                  <span className="text-sm text-gray-800 flex-1">{s.full_name}</span>
+                  <span className="text-xs text-gray-400">Gr {s.grade}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+
         <div className="flex gap-3">
           <button onClick={reset} className="flex-1 py-3 rounded-xl border-2 text-sm font-medium text-gray-600 hover:bg-gray-50" style={{ borderColor: RHS_GRAY }}>
             Cancel
           </button>
           <button onClick={handleImport} className="flex-1 py-3 rounded-xl text-sm font-bold text-white hover:opacity-90" style={{ backgroundColor: RHS_GREEN }}>
-            Import {totalStudents} Students →
+            Import {students.length} Students →
           </button>
         </div>
       </div>
@@ -273,7 +301,7 @@ export default function RosterImport() {
       <div className="text-center">
         <div className="w-16 h-16 border-4 border-gray-200 rounded-full mx-auto mb-6 animate-spin" style={{ borderTopColor: RHS_GREEN }} />
         <p className="text-lg font-semibold text-gray-800">Importing roster...</p>
-        <p className="text-sm text-gray-400 mt-1">Adding {totalStudents} students to Supabase</p>
+        <p className="text-sm text-gray-400 mt-1">Adding {students.length} students for {periodLabel}</p>
       </div>
     </div>
   )
@@ -284,23 +312,19 @@ export default function RosterImport() {
         <div className="text-center mb-8">
           <div className="w-16 h-16 rounded-full flex items-center justify-center text-3xl mx-auto mb-4" style={{ backgroundColor: '#f0f7f3' }}>✅</div>
           <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>Import Complete</h1>
-          <p className="text-gray-500 text-sm">Your roster has been loaded into RHS PassAble</p>
+          <p className="text-gray-500 text-sm">{periodLabel} roster loaded into RHS PassAble</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
           <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100">
-            <span className="text-gray-600 text-sm">Total students imported</span>
+            <span className="text-gray-600 text-sm">Students imported</span>
             <span className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{importResult.total}</span>
           </div>
-          <div className="space-y-2">
-            {importResult.periods.map(p => (
-              <div key={p.period} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded text-xs font-bold text-white flex items-center justify-center" style={{ backgroundColor: RHS_GREEN }}>{p.period}</span>
-                  <span className="text-sm text-gray-600">{p.course}</span>
-                </div>
-                <span className="text-sm font-medium text-gray-800">{p.count} students</span>
-              </div>
-            ))}
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded text-xs font-bold text-white flex items-center justify-center" style={{ backgroundColor: RHS_GREEN }}>
+              {importResult.period}
+            </span>
+            <span className="text-sm text-gray-600">{periodLabel}</span>
+            <span className="ml-auto text-sm font-medium text-gray-800">{importResult.total} students</span>
           </div>
           {importResult.errors > 0 && (
             <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs">
@@ -310,7 +334,7 @@ export default function RosterImport() {
         </div>
         <div className="flex gap-3">
           <button onClick={reset} className="flex-1 py-3 rounded-xl border-2 text-sm font-medium text-gray-600 hover:bg-gray-50" style={{ borderColor: RHS_GRAY }}>
-            Import Another
+            Import Another Period
           </button>
           <a href="/teacher" className="flex-1 py-3 rounded-xl text-sm font-bold text-white text-center hover:opacity-90" style={{ backgroundColor: RHS_GREEN }}>
             Back to Dashboard
