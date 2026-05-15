@@ -88,6 +88,19 @@ export default function Log() {
           .status-returned { color: green; }
           .status-out { color: red; }
         }
+        .delete-col {
+          position: sticky;
+          right: 0;
+          background: white;
+          width: 40px;
+          min-width: 40px;
+        }
+        tr:hover .delete-col {
+          background: #f9fafb;
+        }
+        tr.late-row:hover .delete-col {
+          background: #eff6ff;
+        }
       `}</style>
 
       {/* Delete confirmation modal */}
@@ -148,9 +161,11 @@ export default function Log() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {['Student', 'Date', 'Reason', 'Out', 'In', 'Duration', 'From', 'Status', ''].map((h, i) => (
+                  {['Student', 'Date', 'Reason', 'Out', 'In', 'Duration', 'From', 'Status'].map((h, i) => (
                     <th key={i} className="text-left text-xs font-medium text-gray-500 px-4 py-3 whitespace-nowrap">{h}</th>
                   ))}
+                  {/* Sticky delete header — empty, no-print */}
+                  <th className="delete-col no-print" />
                 </tr>
               </thead>
               <tbody>
@@ -161,7 +176,7 @@ export default function Log() {
                     : p.teacher_id ? 'Teacher' : 'Kiosk'
                   return (
                     <tr key={p.id}
-                      className={`border-b border-gray-50 last:border-0 hover:bg-gray-50 group ${isLatePass ? 'bg-blue-50 hover:bg-blue-100' : ''}`}>
+                      className={`border-b border-gray-50 last:border-0 hover:bg-gray-50 group ${isLatePass ? 'late-row bg-blue-50 hover:bg-blue-100' : ''}`}>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <a href={`/student/${p.student_id}`} className="font-medium text-gray-800 hover:text-green-700 hover:underline underline-offset-2 whitespace-nowrap">
@@ -187,7 +202,8 @@ export default function Log() {
                           <span className="status-out px-2 py-1 bg-red-50 text-red-600 rounded-md text-xs font-medium">Out</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 no-print">
+                      {/* Sticky delete button — always in view, hidden on print */}
+                      <td className="delete-col no-print px-2 py-3">
                         <button onClick={() => setDeleteTarget(p)}
                           className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-500 p-1 rounded"
                           title="Delete pass">
