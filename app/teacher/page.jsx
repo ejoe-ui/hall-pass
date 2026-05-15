@@ -15,6 +15,11 @@ const TEACHERS = [
   'Hughes', 'Jessup', 'Kang', 'Kellogg', 'Mendoza Sanchez', 'Mullane',
   'Nemeth', 'Reyes', 'Sunamoto', 'Warden', 'Weibert', 'Welch', 'Yehl',
 ]
+const ERRAND_LOCATIONS = [
+  'Car', 'Farm', 'Leadership Room', 'Cafeteria', 'Outpost', 'Quad',
+  'Corral', 'North Gym', 'South Gym', 'Football Field', 'Tennis Courts', 'Office',
+]
+
 const PERIODS = [
   { label: 'Periods 1 & 2', value: '1' },
   { label: 'Periods 4 & 5', value: '4' },
