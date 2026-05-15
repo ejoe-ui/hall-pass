@@ -21,11 +21,21 @@ const PASS_LIMIT = 3
 const MAX_PIN_ATTEMPTS = 3
 const LOCKOUT_SECONDS = 60
 
-const PERIODS = [
-  { label: 'Periods 1 & 2', value: '1' },
-  { label: 'Periods 4 & 5', value: '4' },
-  { label: 'Periods 6 & 7', value: '6' },
+// Periods are loaded dynamically from teacher settings
+// Fallback used only if teacher record not found
+const DEFAULT_PERIODS = [
+  { label: 'Period 1', value: '1' },
+  { label: 'Period 2', value: '2' },
+  { label: 'Period 3', value: '3' },
+  { label: 'Period 4', value: '4' },
+  { label: 'Period 5', value: '5' },
+  { label: 'Period 6', value: '6' },
+  { label: 'Period 7', value: '7' },
 ]
+
+function buildPeriodLabel(value) {
+  return `Period ${value}`
+}
 
 function StudentScanner({ onScan, deviceId }) {
   const videoRef = useRef(null)
@@ -236,6 +246,7 @@ function KioskInner() {
   const [syncing, setSyncing] = useState(false)
   const [syncedCount, setSyncedCount] = useState(0)
   const [cameras, setCameras] = useState([])
+  const [teacherPeriods, setTeacherPeriods] = useState(DEFAULT_PERIODS)
   const [selectedCamera, setSelectedCamera] = useState('')
 
   // NFC HID buffer refs
@@ -403,6 +414,18 @@ function KioskInner() {
       const pinRow = data.find(r => r.key === 'teacher_pin')
       if (unlockRow) setUnlockCode(unlockRow.value)
       if (pinRow) setPinCode(pinRow.value)
+    }
+    // Load teacher's periods from teachers table
+    const { data: teacher } = await supabase
+      .from('teachers')
+      .select('periods')
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle()
+    if (teacher?.periods && teacher.periods.length > 0) {
+      setTeacherPeriods(
+        teacher.periods.sort().map(p => ({ label: buildPeriodLabel(p), value: p }))
+      )
     }
   }
 
@@ -584,7 +607,7 @@ function KioskInner() {
     (reason === 'Errand' && !errandTeacher && !purposeText.trim()) ||
     (reason === 'Other' && !otherText.trim())
 
-  const periodLabel = PERIODS.find(p => p.value === activePeriod)?.label
+  const periodLabel = teacherPeriods.find(p => p.value === activePeriod)?.label
   const studentName = students.find(s => s.id === selected)?.full_name
 
   if (!activePeriod) return (
@@ -593,7 +616,7 @@ function KioskInner() {
       <h1 className="text-2xl font-bold text-white mb-1">Room 27</h1>
       <p className="text-green-200 text-sm mb-8 uppercase tracking-widest">Select the current period</p>
       <div className="flex flex-col gap-3 w-full max-w-xs">
-        {PERIODS.map(p => (
+        {teacherPeriods.map(p => (
           <button key={p.value} onClick={() => setActivePeriod(p.value)}
             className="py-4 text-lg font-bold bg-white rounded-xl shadow-md hover:bg-green-50"
             style={{ color: RHS_GREEN }}>{p.label}</button>
@@ -606,7 +629,7 @@ function KioskInner() {
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-4" style={{ filter: 'brightness(0) invert(1)' }} />
       <h1 className="text-2xl font-bold text-white mb-1">RHS PassAble</h1>
-      <p className="text-green-200 text-sm mb-2">{PERIODS.find(p => p.value === activePeriod)?.label}</p>
+      <p className="text-green-200 text-sm mb-2">{teacherPeriods.find(p => p.value === activePeriod)?.label}</p>
       <p className="text-green-100 mb-4 text-sm">Enter teacher PIN to unlock</p>
 
       {lockedUntil ? (

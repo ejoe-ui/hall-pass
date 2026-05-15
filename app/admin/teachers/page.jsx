@@ -22,7 +22,7 @@ export default function TeacherAdmin() {
   const [importing, setImporting] = useState(false)
   const fileRef = useRef(null)
 
-  const emptyForm = { name: '', email: '', room: '', department: '', pin: '', is_admin: false, is_active: true }
+  const emptyForm = { name: '', email: '', room: '', department: '', pin: '', is_admin: false, is_active: true, periods: ['1','4','6'] }
   const [form, setForm] = useState(emptyForm)
 
   useEffect(() => {
@@ -53,13 +53,13 @@ export default function TeacherAdmin() {
     setSaving(true)
     if (editingTeacher) {
       const { error } = await supabase.from('teachers')
-        .update({ name: form.name, email: form.email, room: form.room, department: form.department, pin: form.pin, is_admin: form.is_admin, is_active: form.is_active })
+        .update({ name: form.name, email: form.email, room: form.room, department: form.department, pin: form.pin, is_admin: form.is_admin, is_active: form.is_active, periods: form.periods })
         .eq('id', editingTeacher.id)
       if (error) { setError(error.message); setSaving(false); return }
       setSuccess(`${form.name} updated.`)
     } else {
       const { error } = await supabase.from('teachers')
-        .insert({ name: form.name, email: form.email, room: form.room, department: form.department, pin: form.pin, is_admin: form.is_admin, is_active: form.is_active })
+        .insert({ name: form.name, email: form.email, room: form.room, department: form.department, pin: form.pin, is_admin: form.is_admin, is_active: form.is_active, periods: form.periods })
       if (error) { setError(error.message); setSaving(false); return }
       setSuccess(`${form.name} added. Use Send Invite to send them a sign-in link.`)
     }
@@ -305,6 +305,29 @@ export default function TeacherAdmin() {
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
                   <input type="checkbox" checked={form.is_active} onChange={e => setForm(prev => ({ ...prev, is_active: e.target.checked }))} />
+                </label>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-2">Periods Taught</label>
+                  <div className="grid grid-cols-7 gap-1">
+                    {['1','2','3','4','5','6','7'].map(p => (
+                      <label key={p} className="flex flex-col items-center gap-1 cursor-pointer">
+                        <input type="checkbox"
+                          checked={(form.periods || []).includes(p)}
+                          onChange={e => {
+                            const periods = form.periods || []
+                            setForm(prev => ({
+                              ...prev,
+                              periods: e.target.checked
+                                ? [...periods, p].sort()
+                                : periods.filter(x => x !== p)
+                            }))
+                          }} />
+                        <span className="text-xs text-gray-600">P{p}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-gray-600 hidden">
                   Active
                 </label>
               </div>

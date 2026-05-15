@@ -299,6 +299,8 @@ function TeacherInner() {
   const [newSubCode, setNewSubCode] = useState('')
   const [subCodeSaved, setSubCodeSaved] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [printPasses, setPrintPasses] = useState(false)
+  const [printPassesSaved, setPrintPassesSaved] = useState(false)
   const prevHeldIds = useRef([])
   const prevActiveIds = useRef([])
   const [showLatePass, setShowLatePass] = useState(false)
@@ -477,7 +479,7 @@ function TeacherInner() {
       const newPasses = passes.filter(p => !prevIds.includes(p.student_id))
       newPasses.forEach(p => {
         const baseReason = p.reason?.split(' — ')[0]
-        if (LABEL_REASONS.includes(baseReason)) window.open(`/pass/${p.id}/label`, '_blank')
+        if (printPasses && LABEL_REASONS.includes(baseReason)) window.open(`/pass/${p.id}/label`, '_blank')
       })
       prevActiveIds.current = newIds
       setActivePasses(passes)
@@ -1174,6 +1176,26 @@ function TeacherInner() {
                   {subCodeSaved ? '✓ Saved' : 'Save Code'}
                 </button>
               </div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Printable Passes</p>
+                  <p className="text-xs text-gray-400">Auto-open a printable pass label when a student is checked out to Library, Office, Errand, or On Assignment</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    const newVal = !printPasses
+                    setPrintPasses(newVal)
+                    await supabase.from('settings').upsert({ key: 'print_passes', value: String(newVal) }, { onConflict: 'key' })
+                    setPrintPassesSaved(true)
+                    setTimeout(() => setPrintPassesSaved(false), 2000)
+                  }}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${printPasses ? 'bg-green-600' : 'bg-gray-200'}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${printPasses ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+              {printPassesSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
             </div>
             <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
               <div className="mb-3">
