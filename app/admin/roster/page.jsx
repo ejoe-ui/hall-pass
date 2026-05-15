@@ -1,29 +1,30 @@
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import * as XLSX from 'xlsx'
 
 const RHS_GREEN = '#006938'
 const RHS_GRAY = '#C4BEB5'
 
-const TEACHER_ROOM = '27'
-
-const PERIODS = [
-  { label: 'Periods 1 & 2', value: '1' },
-  { label: 'Periods 4 & 5', value: '4' },
-  { label: 'Periods 6 & 7', value: '6' },
+const ALL_PERIODS = [
+  { label: 'Period 1', value: '1' },
+  { label: 'Period 2', value: '2' },
+  { label: 'Period 3', value: '3' },
+  { label: 'Period 4', value: '4' },
+  { label: 'Period 5', value: '5' },
+  { label: 'Period 6', value: '6' },
+  { label: 'Period 7', value: '7' },
 ]
 
 // ── Simplified parser — one period at a time ──────────────────────────────
-// No longer needs to detect course sections or ROP keywords.
-// Teacher selects the period before uploading, parser just finds the students.
+// Looks for "Student ID" header row — works for any course name, any teacher.
 function parseAeriesXLSX(workbook, period) {
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false, blankrows: true })
 
   const students = []
   let inStudents = false
-  let courseName = ''
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
@@ -31,25 +32,9 @@ function parseAeriesXLSX(workbook, period) {
     const nonEmpty = cells.filter(c => c !== '')
     if (nonEmpty.length === 0) continue
 
-    // Capture course name — any row with a course/section identifier before student list
-    if (!inStudents && nonEmpty.length >= 2 && !courseName) {
-      const possibleCourse = nonEmpty.find(v =>
-        v.length > 4 && !/^\d{6}$/.test(v) && !v.includes(',') && v !== 'Student ID'
-      )
-      if (possibleCourse && nonEmpty.some(v => /^[146]$/.test(v))) {
-        courseName = possibleCourse
-      }
-    }
-
-    // Start reading students after "Student ID" header row
-    if (nonEmpty.some(v => v === 'Student ID')) {
-      inStudents = true
-      continue
-    }
-
+    if (nonEmpty.some(v => v === 'Student ID')) { inStudents = true; continue }
     if (!inStudents) continue
 
-    // Each student row has a 6-digit ID and a "Last, First" name
     const idVal = nonEmpty.find(v => /^\d{6}$/.test(v))
     const nameVal = nonEmpty.find(v => v.includes(',') && v.length > 3 && !/^\d/.test(v))
 
@@ -59,26 +44,20 @@ function parseAeriesXLSX(workbook, period) {
       const firstFull = parts[1]?.trim() || ''
       const firstName = firstFull.split(' ')[0] || firstFull
       const full_name = `${firstFull} ${lastName}`.trim()
-
       const nameIdx = nonEmpty.indexOf(nameVal)
       const grade = nonEmpty.slice(nameIdx + 1).find(v => ['09','10','11','12'].includes(v)) || ''
-
-      students.push({
-        id: idVal,
-        full_name,
-        first_name: firstName,
-        last_name: lastName,
-        grade,
-        period,
-      })
+      students.push({ id: idVal, full_name, first_name: firstName, last_name: lastName, grade, period })
     }
   }
 
   return students
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
-export default function RosterImport() {
+function RosterImportInner() {
+  const searchParams = useSearchParams()
+  const teacherRoom = searchParams.get('room') || '27'
+  const teacherId = searchParams.get('teacher_id') || null
+
   const [stage, setStage] = useState('upload')
   const [selectedPeriod, setSelectedPeriod] = useState('1')
   const [students, setStudents] = useState([])
@@ -87,6 +66,8 @@ export default function RosterImport() {
   const [errorMsg, setErrorMsg] = useState('')
   const [fileName, setFileName] = useState('')
   const fileRef = useRef()
+
+  const periodLabel = ALL_PERIODS.find(p => p.value === selectedPeriod)?.label
 
   function handleFile(e) {
     const file = e.target.files[0]
@@ -130,32 +111,22 @@ export default function RosterImport() {
 
     for (let i = 0; i < studentRows.length; i += batchSize) {
       const batch = studentRows.slice(i, i + batchSize)
-      const { error } = await supabase
-        .from('students')
-        .upsert(batch, { onConflict: 'id' })
-      if (error) {
-        console.error('Students upsert error:', JSON.stringify(error))
-        errors += batch.length
-      } else {
-        imported += batch.length
-      }
+      const { error } = await supabase.from('students').upsert(batch, { onConflict: 'id' })
+      if (error) { console.error('Students upsert error:', JSON.stringify(error)); errors += batch.length }
+      else imported += batch.length
     }
 
-    // Step 2: Upsert student_periods
+    // Step 2: Upsert student_periods — scoped to this teacher's room
     const periodRows = students.map(s => ({
       student_id: s.id,
       period: selectedPeriod,
-      room: TEACHER_ROOM,
+      room: teacherRoom,
     }))
 
     for (let i = 0; i < periodRows.length; i += batchSize) {
       const batch = periodRows.slice(i, i + batchSize)
-      const { error } = await supabase
-        .from('student_periods')
-        .upsert(batch, { onConflict: 'student_id,period,room' })
-      if (error) {
-        console.error('student_periods upsert error:', JSON.stringify(error))
-      }
+      const { error } = await supabase.from('student_periods').upsert(batch, { onConflict: 'student_id,period,room' })
+      if (error) console.error('student_periods upsert error:', JSON.stringify(error))
     }
 
     setImportResult({ total: students.length, imported, errors, period: selectedPeriod })
@@ -172,8 +143,6 @@ export default function RosterImport() {
     if (fileRef.current) fileRef.current.value = ''
   }
 
-  const periodLabel = PERIODS.find(p => p.value === selectedPeriod)?.label
-
   if (stage === 'upload') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-md">
@@ -181,24 +150,25 @@ export default function RosterImport() {
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-10 h-10 object-contain" />
           <div>
             <h1 className="text-xl font-bold" style={{ color: RHS_GREEN }}>Roster Import</h1>
-            <p className="text-xs text-gray-400">RHS PassAble · Room {TEACHER_ROOM}</p>
+            <p className="text-xs text-gray-400">RHS PassAble · Room {teacherRoom}</p>
           </div>
         </div>
 
-        {/* Period selector — pick before uploading */}
+        {/* Period selector */}
         <div className="mb-4">
           <p className="text-sm font-medium text-gray-700 mb-2">Which period is this roster for?</p>
-          <div className="grid grid-cols-3 gap-2">
-            {PERIODS.map(p => (
+          <div className="grid grid-cols-4 gap-2">
+            {ALL_PERIODS.map(p => (
               <button key={p.value} onClick={() => setSelectedPeriod(p.value)}
-                className="py-3 text-sm font-medium rounded-xl border-2 transition-colors"
+                className="py-2.5 text-sm font-medium rounded-xl border-2 transition-colors"
                 style={selectedPeriod === p.value
                   ? { backgroundColor: RHS_GREEN, color: 'white', borderColor: RHS_GREEN }
                   : { backgroundColor: 'white', color: '#374151', borderColor: '#e5e7eb' }}>
-                {p.label}
+                P{p.value}
               </button>
             ))}
           </div>
+          <p className="text-xs text-gray-400 mt-2">Import one period at a time. Repeat for each class.</p>
         </div>
 
         <div
@@ -211,7 +181,9 @@ export default function RosterImport() {
           <div className="text-5xl mb-4">📋</div>
           <p className="text-gray-700 font-medium mb-1">Drop your Aeries roster here</p>
           <p className="text-gray-400 text-sm mb-1">or click to browse</p>
-          <p className="text-xs mb-4" style={{ color: RHS_GREEN }}>Importing for: <strong>{periodLabel}</strong></p>
+          <p className="text-xs mb-4" style={{ color: RHS_GREEN }}>
+            Importing: <strong>{periodLabel}</strong> · Room {teacherRoom}
+          </p>
           <span className="text-xs px-3 py-1 rounded-full font-medium" style={{ backgroundColor: '#f0f7f3', color: RHS_GREEN }}>
             XLSX files only
           </span>
@@ -224,7 +196,7 @@ export default function RosterImport() {
             <li>Go to Attendance → Class Roster</li>
             <li>Select one class at a time</li>
             <li>Export → Download as XLSX</li>
-            <li>Repeat for each period</li>
+            <li>Come back here and repeat for each period</li>
           </ol>
         </div>
         <a href="/teacher" className="block text-center text-sm text-gray-400 hover:text-gray-600 mt-6">← Back to Dashboard</a>
@@ -239,7 +211,7 @@ export default function RosterImport() {
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" />
           <div>
             <h1 className="text-xl font-bold" style={{ color: RHS_GREEN }}>Review Before Importing</h1>
-            <p className="text-xs text-gray-400">{fileName} · {periodLabel}</p>
+            <p className="text-xs text-gray-400">{fileName} · {periodLabel} · Room {teacherRoom}</p>
           </div>
         </div>
 
@@ -301,7 +273,7 @@ export default function RosterImport() {
       <div className="text-center">
         <div className="w-16 h-16 border-4 border-gray-200 rounded-full mx-auto mb-6 animate-spin" style={{ borderTopColor: RHS_GREEN }} />
         <p className="text-lg font-semibold text-gray-800">Importing roster...</p>
-        <p className="text-sm text-gray-400 mt-1">Adding {students.length} students for {periodLabel}</p>
+        <p className="text-sm text-gray-400 mt-1">Adding {students.length} students for {periodLabel} · Room {teacherRoom}</p>
       </div>
     </div>
   )
@@ -312,7 +284,7 @@ export default function RosterImport() {
         <div className="text-center mb-8">
           <div className="w-16 h-16 rounded-full flex items-center justify-center text-3xl mx-auto mb-4" style={{ backgroundColor: '#f0f7f3' }}>✅</div>
           <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>Import Complete</h1>
-          <p className="text-gray-500 text-sm">{periodLabel} roster loaded into RHS PassAble</p>
+          <p className="text-gray-500 text-sm">{periodLabel} · Room {teacherRoom} loaded into RHS PassAble</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
           <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100">
@@ -323,7 +295,7 @@ export default function RosterImport() {
             <span className="w-6 h-6 rounded text-xs font-bold text-white flex items-center justify-center" style={{ backgroundColor: RHS_GREEN }}>
               {importResult.period}
             </span>
-            <span className="text-sm text-gray-600">{periodLabel}</span>
+            <span className="text-sm text-gray-600">{periodLabel} · Room {teacherRoom}</span>
             <span className="ml-auto text-sm font-medium text-gray-800">{importResult.total} students</span>
           </div>
           {importResult.errors > 0 && (
@@ -353,5 +325,13 @@ export default function RosterImport() {
         <button onClick={reset} className="px-6 py-3 rounded-xl text-sm font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>Try Again</button>
       </div>
     </div>
+  )
+}
+
+export default function RosterImport() {
+  return (
+    <Suspense>
+      <RosterImportInner />
+    </Suspense>
   )
 }
