@@ -453,6 +453,21 @@ function KioskInner() {
     // Check DNLO list
     if (dnloList.includes(id)) {
       setSelected(id)
+      // Play warning sound
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)()
+        for (let i = 0; i < 3; i++) {
+          const osc = ctx.createOscillator()
+          const gain = ctx.createGain()
+          osc.connect(gain); gain.connect(ctx.destination)
+          osc.type = 'square'
+          osc.frequency.setValueAtTime(880, ctx.currentTime + i * 0.25)
+          gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.25)
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.25 + 0.2)
+          osc.start(ctx.currentTime + i * 0.25)
+          osc.stop(ctx.currentTime + i * 0.25 + 0.2)
+        }
+      } catch(e) {}
       setStage('dnlo-blocked')
       return
     }
@@ -687,15 +702,47 @@ function KioskInner() {
 
   if (stage === 'dnlo-blocked') {
     const name = students.find(s => s.id === selected)?.full_name || 'This student'
+    const dnloEntry = null // reason pulled from list if needed
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
-        <div className="text-6xl mb-4">⛔</div>
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">Cannot Check Out</h2>
-        <p className="text-gray-500 mb-1">{name}</p>
-        <p className="text-sm text-red-600 mb-8">This student has an admin restriction. See Mr. Joe.</p>
-        <button onClick={reset} className="px-6 py-3 text-white rounded-lg font-medium" style={{ backgroundColor: RHS_GREEN }}>
-          Back
-        </button>
+      <div className="min-h-screen flex flex-col items-center justify-center px-6"
+        style={{ background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)' }}>
+        <div className="text-6xl mb-4 animate-bounce">⛔</div>
+        <h2 className="text-3xl font-bold text-white mb-2">Do Not Let Out</h2>
+        <p className="text-red-200 text-lg mb-1">{name}</p>
+        <p className="text-red-300 text-sm mb-8 text-center">This student has an admin restriction.<br/>Teacher must approve before checking out.</p>
+        <div className="flex flex-col gap-3 w-full max-w-xs">
+          <button
+            onClick={async () => {
+              // Log override
+              await supabase.from('do_not_let_out').insert({
+                student_id: selected,
+                reason: 'Kiosk override by teacher',
+                scope: 'override_log',
+                created_by: 'kiosk',
+                active: false,
+              }).catch(() => {})
+              // Play alert sound
+              try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)()
+                const osc = ctx.createOscillator()
+                const gain = ctx.createGain()
+                osc.connect(gain); gain.connect(ctx.destination)
+                osc.type = 'square'
+                osc.frequency.setValueAtTime(440, ctx.currentTime)
+                gain.gain.setValueAtTime(0.3, ctx.currentTime)
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
+                osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5)
+              } catch(e) {}
+              setStage('select')
+            }}
+            className="py-4 text-white text-lg font-bold rounded-xl border-2 border-white/50 bg-white/10 hover:bg-white/20">
+            Override — Check Out Anyway
+          </button>
+          <button onClick={reset}
+            className="py-4 text-red-200 text-sm font-medium rounded-xl border border-red-400/30 hover:bg-red-900/30">
+            Cancel — Send Back to Seat
+          </button>
+        </div>
       </div>
     )
   }

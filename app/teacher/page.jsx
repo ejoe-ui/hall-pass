@@ -526,6 +526,28 @@ function TeacherInner() {
 
   // ── UPDATED: now prints for applicable reasons ────────────────────────────
   async function handleTeacherCheckout() {
+    // Log DNLO override if applicable
+    if (selected && dnloList.includes(selected)) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)()
+        for (let i = 0; i < 3; i++) {
+          const osc = ctx.createOscillator(); const gain = ctx.createGain()
+          osc.connect(gain); gain.connect(ctx.destination)
+          osc.type = 'square'
+          osc.frequency.setValueAtTime(880, ctx.currentTime + i * 0.25)
+          gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.25)
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.25 + 0.2)
+          osc.start(ctx.currentTime + i * 0.25); osc.stop(ctx.currentTime + i * 0.25 + 0.2)
+        }
+      } catch(e) {}
+      await supabase.from('do_not_let_out').insert({
+        student_id: selected,
+        reason: 'Teacher override on teacher page',
+        scope: 'override_log',
+        created_by: currentTeacher?.email || session?.user?.email || 'teacher',
+        active: false,
+      }).catch(() => {})
+    }
     if (!selected || !reason) return
     if (reason === 'On Assignment' && !assignedTeacher) return
     let finalReason = reason
@@ -1010,15 +1032,19 @@ function TeacherInner() {
                 {REASONS.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
               <button onClick={handleTeacherCheckout}
-                disabled={!selected || !reason || (reason === 'On Assignment' && !assignedTeacher) || dnloList.includes(selected)}
+                disabled={!selected || !reason || (reason === 'On Assignment' && !assignedTeacher)}
                 className="px-4 py-2 text-sm rounded-lg disabled:opacity-30 font-medium text-white"
-                style={{ backgroundColor: RHS_GREEN }}>
-                Send
+                style={{ backgroundColor: selected && dnloList.includes(selected) ? '#dc2626' : RHS_GREEN }}>
+                {selected && dnloList.includes(selected) ? '⚠ Override & Send' : 'Send'}
               </button>
             </div>
             {selected && dnloList.includes(selected) && (
-              <div className="mb-2 p-2 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs font-medium">
-                ⛔ This student has an admin Do Not Let Out restriction. Contact administration.
+              <div className="mb-2 p-3 bg-red-600 border border-red-700 rounded-lg text-white text-sm font-bold flex items-center gap-2">
+                <span className="text-lg">⛔</span>
+                <div>
+                  <div>Do Not Let Out — Admin Restriction</div>
+                  <div className="text-xs font-normal text-red-200 mt-0.5">Clicking Send will log an override. Confirm with student before proceeding.</div>
+                </div>
               </div>
             )}
             {reason === 'On Assignment' && (
