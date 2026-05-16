@@ -510,7 +510,7 @@ function TeacherInner() {
     if (currentPeriodNum <= 1) { setMissedPasses([]); return }
 
     // Works for any schedule — past periods are simply any period number less than current
-    const pastPeriods = Array.from({ length: currentPeriodNum - 1 }, (_, i) => String(i + 1))
+    const pastPeriods = Array.from({ length: currentPeriodNum - 1 }, (_, i) => i + 1)
 
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
     const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999)
