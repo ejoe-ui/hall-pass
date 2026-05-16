@@ -1317,7 +1317,7 @@ function TeacherInner() {
 
         <div className="flex justify-between items-center flex-wrap gap-2">
           <a href="/admin/students" className="text-sm text-gray-400 hover:text-gray-600">Manage Students →</a>
-          <a href={`/admin/roster?room=${currentTeacher?.room || '27'}&teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-gray-400 hover:text-gray-600">Import Roster →</a>
+          <a href={`/roster?room=${currentTeacher?.room || '27'}&teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-gray-400 hover:text-gray-600">Import Roster →</a>
           <a href="/qr" className="text-sm text-gray-400 hover:text-gray-600">Print QR Badges →</a>
           <a href="/log" className="text-sm text-gray-400 hover:text-gray-600">Pass Log →</a>
           {currentTeacher?.is_admin && (
