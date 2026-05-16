@@ -506,26 +506,37 @@ function TeacherInner() {
   }
 
   async function loadMissedPasses(currentPeriod) {
-    const currentPeriodNum = parseInt(currentPeriod)
-    if (currentPeriodNum <= 1) { setMissedPasses([]); return }
+  const currentPeriodNum = parseInt(currentPeriod)
+  if (currentPeriodNum <= 1) { setMissedPasses([]); return }
 
-    // Works for any schedule — past periods are simply any period number less than current
-    const pastPeriods = Array.from({ length: currentPeriodNum - 1 }, (_, i) => i + 1)
+  const pastPeriods = Array.from({ length: currentPeriodNum - 1 }, (_, i) => i + 1)
 
-    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
-    const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999)
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+  const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999)
 
-    const { data: missed } = await supabase
-      .from('passes')
-      .select('*, students(id, full_name)')
-      .is('time_in', null)
-      .in('period', pastPeriods)
-      .gte('time_out', todayStart.toISOString())
-      .lte('time_out', todayEnd.toISOString())
-      .order('time_out')
+  const { data: missed } = await supabase
+    .from('passes')
+    .select('*')
+    .is('time_in', null)
+    .in('period', pastPeriods)
+    .gte('time_out', todayStart.toISOString())
+    .lte('time_out', todayEnd.toISOString())
+    .order('time_out')
 
-    if (missed) setMissedPasses(missed)
-  }
+  if (!missed) return
+
+  // Fetch student names separately
+  const studentIds = [...new Set(missed.map(p => p.student_id))]
+  const { data: studs } = await supabase
+    .from('students')
+    .select('id, full_name')
+    .in('id', studentIds)
+
+  const studMap = {}
+  if (studs) studs.forEach(s => studMap[s.id] = s)
+
+  setMissedPasses(missed.map(p => ({ ...p, students: studMap[p.student_id] || null })))
+}
 
   async function handleReturn(passId) {
     const pass = activePasses.find(p => p.id === passId)
