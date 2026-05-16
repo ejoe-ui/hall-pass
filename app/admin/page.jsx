@@ -75,14 +75,23 @@ export default function AdminPanel() {
     return []
   }
 
-  async function loadPasses() {
-    let query = supabase.from('passes').select('*, students(full_name)').order('time_out', { ascending: false })
-    if (logFilter === 'today') {
+  async function loadPasses(filter) {
+    const f = filter || logFilter
+    let query = supabase.from('passes').select('*').order('time_out', { ascending: false })
+    if (f === 'today') {
       const today = new Date(); today.setHours(0,0,0,0)
       query = query.gte('time_out', today.toISOString())
     }
-    const { data } = await query.limit(100)
-    if (data) setPasses(data)
+    const { data: passData } = await query.limit(100)
+    if (!passData) return
+
+    // Fetch student names separately — no FK join available
+    const studentIds = [...new Set(passData.map(p => p.student_id))]
+    const { data: studs } = await supabase.from('students').select('id, full_name').in('id', studentIds)
+    const studMap = {}
+    if (studs) studs.forEach(s => studMap[s.id] = s.full_name)
+
+    setPasses(passData.map(p => ({ ...p, students: { full_name: studMap[p.student_id] || 'Unknown' } })))
   }
 
   async function loadGroups(studentsList) {
@@ -344,53 +353,35 @@ export default function AdminPanel() {
           <>
             <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
               <p className="text-sm font-medium mb-3" style={{ color: RHS_GREEN }}>Add Teacher</p>
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <input placeholder="Full name" value={newName} onChange={e => setNewName(e.target.value)}
-                  className="p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
-                <input placeholder="email@rjusd.org" value={newEmail} onChange={e => setNewEmail(e.target.value)}
-                  className="p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
-                <input placeholder="Room number" value={newRoom} onChange={e => setNewRoom(e.target.value)}
-                  className="p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
-                <div className="flex items-center gap-2 px-2">
-                  <input type="checkbox" id="isAdmin" checked={newIsAdmin} onChange={e => setNewIsAdmin(e.target.checked)} />
-                  <label htmlFor="isAdmin" className="text-sm text-gray-600">Admin</label>
+            <div className="bg-white rounded-xl border border-gray-200 p-6 text-center">
+            <p className="text-sm text-gray-500 mb-4">Teacher management has moved to a dedicated page with invite links, period setup, and Excel import.</p>
+            <a href="/admin/teachers"
+              className="inline-block px-6 py-3 rounded-xl text-sm font-bold text-white"
+              style={{ backgroundColor: RHS_GREEN }}>
+              Go to Teacher Management →
+            </a>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 mt-4">
+            <div className="px-4 py-3 border-b border-gray-100">
+              <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Teachers ({teachers.length})</p>
+            </div>
+            {teachers.map(t => (
+              <div key={t.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+                  style={{ backgroundColor: t.is_admin ? '#f59e0b' : RHS_GREEN }}>
+                  {t.is_admin ? '⭐' : t.name?.[0]}
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-gray-800 flex items-center gap-2">
+                    {t.name}
+                    {t.is_admin && <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full">Admin</span>}
+                    {!t.auth_id && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full">No Auth</span>}
+                  </div>
+                  <div className="text-xs text-gray-400">{t.email} · Room {t.room}</div>
                 </div>
               </div>
-              <button onClick={addTeacher} disabled={savingTeacher || !newName || !newEmail || !newRoom}
-                className="px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-40" style={{ backgroundColor: RHS_GREEN }}>
-                {savingTeacher ? 'Adding...' : 'Add Teacher'}
-              </button>
-              {teacherMsg && <p className="text-xs text-green-600 mt-2">{teacherMsg}</p>}
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Teachers ({teachers.length})</p>
-              </div>
-              {teachers.map(t => (
-                <div key={t.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                    style={{ backgroundColor: t.is_admin ? '#f59e0b' : RHS_GREEN }}>
-                    {t.is_admin ? '⭐' : t.name?.[0]}
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-800 flex items-center gap-2">
-                      {t.name}
-                      {t.is_admin && <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full">Admin</span>}
-                      {!t.auth_id && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full">No Auth</span>}
-                    </div>
-                    <div className="text-xs text-gray-400">{t.email} · Room {t.room}</div>
-                  </div>
-                  <button onClick={() => toggleAdmin(t.id, t.is_admin)}
-                    className="text-xs px-2.5 py-1 border rounded-lg text-gray-500 hover:bg-gray-50">
-                    {t.is_admin ? 'Remove Admin' : 'Make Admin'}
-                  </button>
-                  <button onClick={() => removeTeacher(t.id, t.name)}
-                    className="text-xs px-2.5 py-1 border border-red-200 rounded-lg text-red-400 hover:bg-red-50">
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
+            ))}
+          </div>
           </>
         )}
 
@@ -627,7 +618,7 @@ export default function AdminPanel() {
           <>
             <div className="flex gap-2 mb-4">
               {['today', 'all'].map(f => (
-                <button key={f} onClick={() => { setLogFilter(f); loadPasses() }}
+                <button key={f} onClick={() => { setLogFilter(f); loadPasses(f) }}
                   className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${logFilter === f ? 'text-white border-transparent' : 'text-gray-500 bg-white border-gray-200'}`}
                   style={logFilter === f ? { backgroundColor: RHS_GREEN } : {}}>
                   {f === 'today' ? 'Today' : 'All Time'}
