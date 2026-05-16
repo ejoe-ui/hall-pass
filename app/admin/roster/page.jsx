@@ -7,22 +7,14 @@ import * as XLSX from 'xlsx'
 const RHS_GREEN = '#006938'
 const RHS_GRAY = '#C4BEB5'
 
-const ALL_PERIODS = [
-  { label: 'Period 1', value: '1' },
-  { label: 'Period 2', value: '2' },
-  { label: 'Period 3', value: '3' },
-  { label: 'Period 4', value: '4' },
-  { label: 'Period 5', value: '5' },
-  { label: 'Period 6', value: '6' },
-  { label: 'Period 7', value: '7' },
-]
-
-// ── Simplified parser — one period at a time ──────────────────────────────
-// Looks for "Student ID" header row — works for any course name, any teacher.
-function parseAeriesXLSX(workbook, period) {
+// ── Parser — auto-detects period and term from Aeries header ──────────────
+function parseAeriesXLSX(workbook, fileName) {
   const sheet = workbook.Sheets[workbook.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false, blankrows: true })
 
+  let period = null
+  let term = null
+  let courseTitle = ''
   const students = []
   let inStudents = false
 
@@ -31,6 +23,15 @@ function parseAeriesXLSX(workbook, period) {
     const cells = row.map(c => String(c || '').trim())
     const nonEmpty = cells.filter(c => c !== '')
     if (nonEmpty.length === 0) continue
+
+    // Period header row — first non-empty cell is 1-7, second is course title
+    if (!period && /^[1-7]$/.test(nonEmpty[0])) {
+      period = nonEmpty[0]
+      courseTitle = nonEmpty[1] || ''
+      const termVal = nonEmpty.find(v => v === 'F' || v === 'S')
+      term = termVal === 'F' ? 'Fall' : termVal === 'S' ? 'Spring' : ''
+      continue
+    }
 
     if (nonEmpty.some(v => v === 'Student ID')) { inStudents = true; continue }
     if (!inStudents) continue
@@ -50,99 +51,138 @@ function parseAeriesXLSX(workbook, period) {
     }
   }
 
-  return students
+  return { period, term, courseTitle, students, fileName }
 }
 
 function RosterImportInner() {
   const searchParams = useSearchParams()
   const teacherRoom = searchParams.get('room') || '27'
-  const teacherId = searchParams.get('teacher_id') || null
 
   const [stage, setStage] = useState('upload')
-  const [selectedPeriod, setSelectedPeriod] = useState('1')
-  const [students, setStudents] = useState([])
-  const [expanded, setExpanded] = useState(false)
+  const [parsedFiles, setParsedFiles] = useState([])
   const [importResult, setImportResult] = useState(null)
   const [errorMsg, setErrorMsg] = useState('')
-  const [fileName, setFileName] = useState('')
+  const [expandedIdx, setExpandedIdx] = useState(null)
+  const [isDragging, setIsDragging] = useState(false)
   const fileRef = useRef()
 
-  const periodLabel = ALL_PERIODS.find(p => p.value === selectedPeriod)?.label
+  function processFiles(files) {
+    const results = []
+    const errors = []
+    let pending = files.length
 
-  function handleFile(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    setFileName(file.name)
-    const reader = new FileReader()
-    reader.onload = (evt) => {
-      try {
-        const data = new Uint8Array(evt.target.result)
-        const workbook = XLSX.read(data, { type: 'array' })
-        const parsed = parseAeriesXLSX(workbook, selectedPeriod)
-        if (parsed.length === 0) {
-          setErrorMsg('No student data found. Make sure this is an Aeries Class Roster exported as XLSX and that it contains a "Student ID" column.')
-          setStage('error')
-          return
-        }
-        setStudents(parsed)
-        setStage('preview')
-      } catch (err) {
-        setErrorMsg('Could not read file: ' + err.message)
-        setStage('error')
+    Array.from(files).forEach(file => {
+      if (!file.name.endsWith('.xlsx')) {
+        errors.push(`${file.name} is not an XLSX file`)
+        pending--
+        if (pending === 0) finalize(results, errors)
+        return
       }
-    }
-    reader.readAsArrayBuffer(file)
+      const reader = new FileReader()
+      reader.onload = (evt) => {
+        try {
+          const data = new Uint8Array(evt.target.result)
+          const workbook = XLSX.read(data, { type: 'array' })
+          const parsed = parseAeriesXLSX(workbook, file.name)
+          if (!parsed.period || parsed.students.length === 0) {
+            errors.push(`${file.name}: No student data found`)
+          } else {
+            results.push(parsed)
+          }
+        } catch (err) {
+          errors.push(`${file.name}: ${err.message}`)
+        }
+        pending--
+        if (pending === 0) finalize(results, errors)
+      }
+      reader.readAsArrayBuffer(file)
+    })
   }
 
-  async function handleImport() {
+  function finalize(results, errors) {
+    if (results.length === 0) {
+      setErrorMsg(errors.join('\n') || 'No valid roster files found.')
+      setStage('error')
+      return
+    }
+    results.sort((a, b) => parseInt(a.period) - parseInt(b.period))
+    setParsedFiles(results)
+    if (errors.length > 0) setErrorMsg(errors.join('\n'))
+    setStage('preview')
+  }
+
+  function handleFileInput(e) {
+    if (e.target.files?.length) processFiles(e.target.files)
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    setIsDragging(false)
+    if (e.dataTransfer.files?.length) processFiles(e.dataTransfer.files)
+  }
+
+  async function handleImportAll() {
     setStage('importing')
-    let imported = 0
-    let errors = 0
+    let totalImported = 0
+    let totalErrors = 0
     const batchSize = 50
 
-    // Step 1: Upsert students
-    const studentRows = students.map(s => ({
-      id: s.id,
-      first_name: s.first_name,
-      last_name: s.last_name,
-      full_name: s.full_name,
-      period: s.period,
-    }))
+    for (const file of parsedFiles) {
+      const studentRows = file.students.map(s => ({
+        id: s.id,
+        first_name: s.first_name,
+        last_name: s.last_name,
+        full_name: s.full_name,
+        grade: s.grade,
+        period: s.period,
+      }))
 
-    for (let i = 0; i < studentRows.length; i += batchSize) {
-      const batch = studentRows.slice(i, i + batchSize)
-      const { error } = await supabase.from('students').upsert(batch, { onConflict: 'id' })
-      if (error) { console.error('Students upsert error:', JSON.stringify(error)); errors += batch.length }
-      else imported += batch.length
+      for (let i = 0; i < studentRows.length; i += batchSize) {
+        const batch = studentRows.slice(i, i + batchSize)
+        const { error } = await supabase
+          .from('students')
+          .upsert(batch, { onConflict: 'id,period' })
+        if (error) {
+          console.error('Students upsert error:', JSON.stringify(error))
+          totalErrors += batch.length
+        } else {
+          totalImported += batch.length
+        }
+      }
+
+      // Also upsert student_periods for room-scoped lookups
+      const periodRows = file.students.map(s => ({
+        student_id: s.id,
+        period: s.period,
+        room: teacherRoom,
+      }))
+
+      for (let i = 0; i < periodRows.length; i += batchSize) {
+        const batch = periodRows.slice(i, i + batchSize)
+        const { error } = await supabase
+          .from('student_periods')
+          .upsert(batch, { onConflict: 'student_id,period,room' })
+        if (error) console.error('student_periods upsert error:', JSON.stringify(error))
+      }
     }
 
-    // Step 2: Upsert student_periods — scoped to this teacher's room
-    const periodRows = students.map(s => ({
-      student_id: s.id,
-      period: selectedPeriod,
-      room: teacherRoom,
-    }))
-
-    for (let i = 0; i < periodRows.length; i += batchSize) {
-      const batch = periodRows.slice(i, i + batchSize)
-      const { error } = await supabase.from('student_periods').upsert(batch, { onConflict: 'student_id,period,room' })
-      if (error) console.error('student_periods upsert error:', JSON.stringify(error))
-    }
-
-    setImportResult({ total: students.length, imported, errors, period: selectedPeriod })
+    const totalStudents = parsedFiles.reduce((sum, f) => sum + f.students.length, 0)
+    setImportResult({ total: totalStudents, imported: totalImported, errors: totalErrors, files: parsedFiles })
     setStage('success')
   }
 
   function reset() {
     setStage('upload')
-    setStudents([])
-    setExpanded(false)
+    setParsedFiles([])
     setImportResult(null)
     setErrorMsg('')
-    setFileName('')
+    setExpandedIdx(null)
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  const totalStudents = parsedFiles.reduce((sum, f) => sum + f.students.length, 0)
+
+  // ── UPLOAD ──
   if (stage === 'upload') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-md">
@@ -154,49 +194,30 @@ function RosterImportInner() {
           </div>
         </div>
 
-        {/* Period selector */}
-        <div className="mb-4">
-          <p className="text-sm font-medium text-gray-700 mb-2">Which period is this roster for?</p>
-          <div className="grid grid-cols-4 gap-2">
-            {ALL_PERIODS.map(p => (
-              <button key={p.value} onClick={() => setSelectedPeriod(p.value)}
-                className="py-2.5 text-sm font-medium rounded-xl border-2 transition-colors"
-                style={selectedPeriod === p.value
-                  ? { backgroundColor: RHS_GREEN, color: 'white', borderColor: RHS_GREEN }
-                  : { backgroundColor: 'white', color: '#374151', borderColor: '#e5e7eb' }}>
-                P{p.value}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-gray-400 mt-2">Import one period at a time. Repeat for each class.</p>
-        </div>
-
         <div
-          className="border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer hover:bg-green-50 transition-colors"
-          style={{ borderColor: RHS_GRAY }}
+          className="border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors"
+          style={{ borderColor: isDragging ? RHS_GREEN : RHS_GRAY, backgroundColor: isDragging ? '#f0f7f3' : 'white' }}
           onClick={() => fileRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file) handleFile({ target: { files: [file] } }) }}
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
         >
           <div className="text-5xl mb-4">📋</div>
-          <p className="text-gray-700 font-medium mb-1">Drop your Aeries roster here</p>
-          <p className="text-gray-400 text-sm mb-1">or click to browse</p>
-          <p className="text-xs mb-4" style={{ color: RHS_GREEN }}>
-            Importing: <strong>{periodLabel}</strong> · Room {teacherRoom}
-          </p>
+          <p className="text-gray-700 font-medium mb-1">Drop your Aeries rosters here</p>
+          <p className="text-gray-400 text-sm mb-3">or click to browse</p>
+          <p className="text-xs text-gray-400 mb-4">Select multiple files at once — one per class period</p>
           <span className="text-xs px-3 py-1 rounded-full font-medium" style={{ backgroundColor: '#f0f7f3', color: RHS_GREEN }}>
-            XLSX files only
+            XLSX files only · Period auto-detected
           </span>
-          <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={handleFile} />
+          <input ref={fileRef} type="file" accept=".xlsx" multiple className="hidden" onChange={handleFileInput} />
         </div>
 
         <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
           <p className="font-medium mb-1">How to export from Aeries:</p>
           <ol className="list-decimal list-inside space-y-1 text-xs">
             <li>Go to Attendance → Class Roster</li>
-            <li>Select one class at a time</li>
-            <li>Export → Download as XLSX</li>
-            <li>Come back here and repeat for each period</li>
+            <li>Export each class as a separate XLSX</li>
+            <li>Select all files here at once — period is read automatically</li>
           </ol>
         </div>
         <a href="/teacher" className="block text-center text-sm text-gray-400 hover:text-gray-600 mt-6">← Back to Dashboard</a>
@@ -204,6 +225,7 @@ function RosterImportInner() {
     </div>
   )
 
+  // ── PREVIEW ──
   if (stage === 'preview') return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-2xl mx-auto">
@@ -211,92 +233,118 @@ function RosterImportInner() {
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" />
           <div>
             <h1 className="text-xl font-bold" style={{ color: RHS_GREEN }}>Review Before Importing</h1>
-            <p className="text-xs text-gray-400">{fileName} · {periodLabel} · Room {teacherRoom}</p>
+            <p className="text-xs text-gray-400">{parsedFiles.length} roster{parsedFiles.length !== 1 ? 's' : ''} · Room {teacherRoom}</p>
           </div>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 flex items-center justify-between">
           <div>
-            <p className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{students.length}</p>
-            <p className="text-xs text-gray-500">students found for {periodLabel}</p>
+            <p className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{totalStudents}</p>
+            <p className="text-xs text-gray-500">total students across {parsedFiles.length} period{parsedFiles.length !== 1 ? 's' : ''}</p>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-gray-400">Existing records will be updated</p>
-            <p className="text-xs text-gray-400">New students will be added</p>
+          <div className="flex gap-2 flex-wrap justify-end">
+            {parsedFiles.map(f => (
+              <span key={f.period + f.term} className="text-xs px-2 py-1 rounded-full font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
+                P{f.period} {f.term ? `· ${f.term}` : ''}
+              </span>
+            ))}
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
-          <button
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
-            onClick={() => setExpanded(e => !e)}
-          >
-            <div className="flex items-center gap-3">
-              <span className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
-                {selectedPeriod}
-              </span>
-              <span className="text-sm font-medium text-gray-800">{periodLabel}</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-semibold" style={{ color: RHS_GREEN }}>{students.length} students</span>
-              <span className="text-gray-400 text-xs">{expanded ? '▲' : '▼'}</span>
-            </div>
-          </button>
-          {expanded && (
-            <div className="border-t border-gray-100 max-h-64 overflow-y-auto">
-              {students.map((s, i) => (
-                <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
-                  <span className="text-xs text-gray-400 w-6">{i + 1}</span>
-                  <span className="text-xs font-mono text-gray-500 w-16">{s.id}</span>
-                  <span className="text-sm text-gray-800 flex-1">{s.full_name}</span>
-                  <span className="text-xs text-gray-400">Gr {s.grade}</span>
+        {errorMsg && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs whitespace-pre-line">
+            ⚠ Some files were skipped:<br />{errorMsg}
+          </div>
+        )}
+
+        <div className="space-y-3 mb-6">
+          {parsedFiles.map((f, idx) => (
+            <div key={idx} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
+                onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
+                    {f.period}
+                  </span>
+                  <div className="text-left">
+                    <p className="text-sm font-medium text-gray-800">Period {f.period} · {f.term}</p>
+                    <p className="text-xs text-gray-400">{f.courseTitle}</p>
+                  </div>
                 </div>
-              ))}
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold" style={{ color: RHS_GREEN }}>{f.students.length} students</span>
+                  <span className="text-gray-400 text-xs">{expandedIdx === idx ? '▲' : '▼'}</span>
+                </div>
+              </button>
+              {expandedIdx === idx && (
+                <div className="border-t border-gray-100 max-h-56 overflow-y-auto">
+                  {f.students.map((s, i) => (
+                    <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
+                      <span className="text-xs text-gray-400 w-6">{i + 1}</span>
+                      <span className="text-xs font-mono text-gray-500 w-16">{s.id}</span>
+                      <span className="text-sm text-gray-800 flex-1">{s.full_name}</span>
+                      <span className="text-xs text-gray-400">Gr {s.grade}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+          ))}
         </div>
 
         <div className="flex gap-3">
-          <button onClick={reset} className="flex-1 py-3 rounded-xl border-2 text-sm font-medium text-gray-600 hover:bg-gray-50" style={{ borderColor: RHS_GRAY }}>
+          <button onClick={reset}
+            className="flex-1 py-3 rounded-xl border-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+            style={{ borderColor: RHS_GRAY }}>
             Cancel
           </button>
-          <button onClick={handleImport} className="flex-1 py-3 rounded-xl text-sm font-bold text-white hover:opacity-90" style={{ backgroundColor: RHS_GREEN }}>
-            Import {students.length} Students →
+          <button onClick={handleImportAll}
+            className="flex-1 py-3 rounded-xl text-sm font-bold text-white hover:opacity-90"
+            style={{ backgroundColor: RHS_GREEN }}>
+            Import All {totalStudents} Students →
           </button>
         </div>
       </div>
     </div>
   )
 
+  // ── IMPORTING ──
   if (stage === 'importing') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
       <div className="text-center">
         <div className="w-16 h-16 border-4 border-gray-200 rounded-full mx-auto mb-6 animate-spin" style={{ borderTopColor: RHS_GREEN }} />
-        <p className="text-lg font-semibold text-gray-800">Importing roster...</p>
-        <p className="text-sm text-gray-400 mt-1">Adding {students.length} students for {periodLabel} · Room {teacherRoom}</p>
+        <p className="text-lg font-semibold text-gray-800">Importing rosters...</p>
+        <p className="text-sm text-gray-400 mt-1">{parsedFiles.length} periods · {totalStudents} students · Room {teacherRoom}</p>
       </div>
     </div>
   )
 
+  // ── SUCCESS ──
   if (stage === 'success') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="w-16 h-16 rounded-full flex items-center justify-center text-3xl mx-auto mb-4" style={{ backgroundColor: '#f0f7f3' }}>✅</div>
           <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>Import Complete</h1>
-          <p className="text-gray-500 text-sm">{periodLabel} · Room {teacherRoom} loaded into RHS PassAble</p>
+          <p className="text-gray-500 text-sm">Room {teacherRoom} · {importResult.files.length} periods loaded</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
           <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100">
-            <span className="text-gray-600 text-sm">Students imported</span>
-            <span className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{importResult.total}</span>
+            <span className="text-gray-600 text-sm">Total students imported</span>
+            <span className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{importResult.imported}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded text-xs font-bold text-white flex items-center justify-center" style={{ backgroundColor: RHS_GREEN }}>
-              {importResult.period}
-            </span>
-            <span className="text-sm text-gray-600">{periodLabel} · Room {teacherRoom}</span>
-            <span className="ml-auto text-sm font-medium text-gray-800">{importResult.total} students</span>
+          <div className="space-y-2">
+            {importResult.files.map(f => (
+              <div key={f.period + f.term} className="flex items-center gap-2">
+                <span className="w-6 h-6 rounded text-xs font-bold text-white flex items-center justify-center flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
+                  {f.period}
+                </span>
+                <span className="text-sm text-gray-600">Period {f.period} · {f.term} · {f.courseTitle}</span>
+                <span className="ml-auto text-sm font-medium text-gray-800">{f.students.length}</span>
+              </div>
+            ))}
           </div>
           {importResult.errors > 0 && (
             <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs">
@@ -305,10 +353,14 @@ function RosterImportInner() {
           )}
         </div>
         <div className="flex gap-3">
-          <button onClick={reset} className="flex-1 py-3 rounded-xl border-2 text-sm font-medium text-gray-600 hover:bg-gray-50" style={{ borderColor: RHS_GRAY }}>
-            Import Another Period
+          <button onClick={reset}
+            className="flex-1 py-3 rounded-xl border-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+            style={{ borderColor: RHS_GRAY }}>
+            Import More
           </button>
-          <a href="/teacher" className="flex-1 py-3 rounded-xl text-sm font-bold text-white text-center hover:opacity-90" style={{ backgroundColor: RHS_GREEN }}>
+          <a href="/teacher"
+            className="flex-1 py-3 rounded-xl text-sm font-bold text-white text-center hover:opacity-90"
+            style={{ backgroundColor: RHS_GREEN }}>
             Back to Dashboard
           </a>
         </div>
@@ -316,13 +368,16 @@ function RosterImportInner() {
     </div>
   )
 
+  // ── ERROR ──
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-md text-center">
         <div className="text-5xl mb-4">⚠️</div>
         <h1 className="text-xl font-bold text-gray-800 mb-2">Could not read file</h1>
-        <p className="text-gray-500 text-sm mb-6">{errorMsg}</p>
-        <button onClick={reset} className="px-6 py-3 rounded-xl text-sm font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>Try Again</button>
+        <p className="text-gray-500 text-sm mb-6 whitespace-pre-line">{errorMsg}</p>
+        <button onClick={reset} className="px-6 py-3 rounded-xl text-sm font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
+          Try Again
+        </button>
       </div>
     </div>
   )
