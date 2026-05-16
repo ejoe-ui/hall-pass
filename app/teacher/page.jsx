@@ -280,6 +280,8 @@ function TeacherInner() {
   const [activePeriod, setActivePeriod] = useState(null)
   const [activePasses, setActivePasses] = useState([])
   const [heldPasses, setHeldPasses] = useState([])
+  const [missedPasses, setMissedPasses] = useState([])
+  const [checkingInMissed, setCheckingInMissed] = useState(null)
   const [dnloList, setDnloList] = useState([])
   const [students, setStudents] = useState({})
   const [selected, setSelected] = useState('')
@@ -498,6 +500,31 @@ function TeacherInner() {
     // Load DNLO list
     const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
     if (dnlo) setDnloList(dnlo.map(d => d.student_id))
+
+    // Load missed check-ins from past periods today
+    await loadMissedPasses(activePeriod)
+  }
+
+  async function loadMissedPasses(currentPeriod) {
+    const currentPeriodNum = parseInt(currentPeriod)
+    if (currentPeriodNum <= 1) { setMissedPasses([]); return }
+
+    // Works for any schedule — past periods are simply any period number less than current
+    const pastPeriods = Array.from({ length: currentPeriodNum - 1 }, (_, i) => String(i + 1))
+
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+    const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999)
+
+    const { data: missed } = await supabase
+      .from('passes')
+      .select('*, students(id, full_name)')
+      .is('time_in', null)
+      .in('period', pastPeriods)
+      .gte('time_out', todayStart.toISOString())
+      .lte('time_out', todayEnd.toISOString())
+      .order('time_out')
+
+    if (missed) setMissedPasses(missed)
   }
 
   async function handleReturn(passId) {
@@ -505,6 +532,15 @@ function TeacherInner() {
     const mins = Math.floor((new Date() - new Date(pass.time_out)) / 60000)
     await supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', passId)
     loadData()
+  }
+
+  async function handleMissedReturn(passId) {
+    setCheckingInMissed(passId)
+    const pass = missedPasses.find(p => p.id === passId)
+    const mins = Math.floor((new Date() - new Date(pass.time_out)) / 60000)
+    await supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', passId)
+    setMissedPasses(prev => prev.filter(p => p.id !== passId))
+    setCheckingInMissed(null)
   }
 
   async function handleOverride(hold) {
@@ -1134,6 +1170,50 @@ function TeacherInner() {
             </div>
           </div>
         </div>
+
+        {/* ── DIDN'T RETURN ── */}
+        {missedPasses.length > 0 && (
+          <div className="bg-white rounded-xl border border-orange-200 mb-6 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-orange-100 bg-orange-50">
+              <div>
+                <span className="text-sm font-medium text-orange-700">⚠ Didn't Return — Previous Periods</span>
+                <p className="text-xs text-orange-500 mt-0.5">These students checked out earlier today and never scanned back in.</p>
+              </div>
+              <span className="text-xs font-semibold text-orange-600 bg-orange-100 px-2 py-1 rounded-full">{missedPasses.length}</span>
+            </div>
+            {missedPasses.map(pass => {
+              const name = pass.students?.full_name || 'Unknown'
+              const initials = name.split(' ').map(n => n[0]).slice(0,2).join('')
+              const mins = Math.floor((Date.now() - new Date(pass.time_out)) / 60000)
+              const timeOut = new Date(pass.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              return (
+                <div key={pass.id} className="flex items-center gap-3 px-4 py-3 border-b border-orange-50 last:border-0">
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white bg-orange-400">
+                    {initials}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-800">{name}</span>
+                      <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded font-medium">
+                        P{pass.period}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {pass.reason} · out at {timeOut} · {mins}m ago
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleMissedReturn(pass.id)}
+                    disabled={checkingInMissed === pass.id}
+                    className="text-xs px-3 py-1.5 rounded-lg text-white font-medium disabled:opacity-50"
+                    style={{ backgroundColor: RHS_GREEN }}>
+                    {checkingInMissed === pass.id ? '...' : 'Check In'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         {showSettings && (
           <>
