@@ -1,7 +1,7 @@
 'use client'
 import { useState, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { supabase } from '../../../lib/supabase'
+import { supabase } from '../../lib/supabase'
 import * as XLSX from 'xlsx'
 
 const RHS_GREEN = '#006938'
