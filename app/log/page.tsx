@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx'
 const RHS_GREEN = '#006938'
 
 export default function AdminPanel() {
-  const [session, setSession] = useState(null)
+  const [session, setSession] = useState<any>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState('teachers')
