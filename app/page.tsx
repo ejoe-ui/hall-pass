@@ -28,13 +28,17 @@ export default function Home() {
           <Link href="/teacher"
             className="px-8 py-4 rounded-xl font-bold text-lg border-2"
             style={{ borderColor: '#006938', color: '#006938' }}>
-            Teacher View
+            Teacher
           </Link>
         </div>
-        <Link href="/sub"
-          className="text-sm text-gray-400 hover:text-gray-600 mt-1">
-          Substitute Login →
-        </Link>
+        <div className="flex gap-6 mt-2">
+          <Link href="/sub" className="text-sm text-gray-400 hover:text-gray-600">
+            Substitute →
+          </Link>
+          <Link href="/admin" className="text-sm text-gray-400 hover:text-gray-600">
+            Admin →
+          </Link>
+        </div>
       </div>
     </main>
   )

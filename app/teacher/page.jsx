@@ -4,9 +4,15 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import QRCode from 'qrcode'
 
+// ── Constants ─────────────────────────────────────────────────────────────────
 const RHS_GREEN = '#006938'
 const TIME_LIMIT = 10
-const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'School Store', 'Other']
+
+const REASONS = [
+  'Restroom', 'Library', 'Office', 'Counselor', 'Lockers',
+  'Errand', 'On Assignment', 'School Store', 'Other',
+]
+
 const TEACHERS = [
   'Castro', 'Simpson', 'Tiller',
   'Aguiniga', 'Anders', 'Banuelos', 'Bettencourt', 'Bianchi', 'Bishop',
@@ -15,48 +21,49 @@ const TEACHERS = [
   'Hughes', 'Jessup', 'Kang', 'Kellogg', 'Mendoza Sanchez', 'Mullane',
   'Nemeth', 'Reyes', 'Sunamoto', 'Warden', 'Weibert', 'Welch', 'Yehl',
 ]
+
 const ERRAND_LOCATIONS = [
   'Car', 'Farm', 'Leadership Room', 'Cafeteria', 'Outpost', 'Quad',
   'Corral', 'North Gym', 'South Gym', 'Football Field', 'Tennis Courts', 'Office',
 ]
 
-const PERIODS = [
-  { label: 'Periods 1 & 2', value: '1' },
-  { label: 'Periods 4 & 5', value: '4' },
-  { label: 'Periods 6 & 7', value: '6' },
-]
-
-function playAlert() {
+// ── Audio helpers ─────────────────────────────────────────────────────────────
+function playTone(freqA, freqB) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     osc.connect(gain); gain.connect(ctx.destination)
-    osc.frequency.setValueAtTime(880, ctx.currentTime)
-    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15)
+    osc.frequency.setValueAtTime(freqA, ctx.currentTime)
+    osc.frequency.setValueAtTime(freqB, ctx.currentTime + 0.15)
     gain.gain.setValueAtTime(0.3, ctx.currentTime)
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
     osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4)
   } catch (e) {}
 }
+const playAlert = () => playTone(880, 660)
+const playClearAlert = () => playTone(660, 880)
 
-function playClearAlert() {
+function playDnloAlert() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain); gain.connect(ctx.destination)
-    osc.frequency.setValueAtTime(660, ctx.currentTime)
-    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15)
-    gain.gain.setValueAtTime(0.3, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
-    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4)
+    for (let i = 0; i < 3; i++) {
+      const osc = ctx.createOscillator(); const gain = ctx.createGain()
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.type = 'square'
+      osc.frequency.setValueAtTime(880, ctx.currentTime + i * 0.25)
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.25)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.25 + 0.2)
+      osc.start(ctx.currentTime + i * 0.25); osc.stop(ctx.currentTime + i * 0.25 + 0.2)
+    }
   } catch (e) {}
 }
 
+// ── QR Scanner component ──────────────────────────────────────────────────────
 function QRScanner({ onUnlock, unlockCode, deviceId }) {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
+
   useEffect(() => {
     let stream, interval
     async function start() {
@@ -88,9 +95,7 @@ function QRScanner({ onUnlock, unlockCode, deviceId }) {
             if (email) onUnlock(email)
             return
           }
-          if (unlockCode && code.rawValue.includes(unlockCode)) {
-            onUnlock(null)
-          }
+          if (unlockCode && code.rawValue.includes(unlockCode)) onUnlock(null)
         }
       } catch (e) {}
     }
@@ -100,6 +105,7 @@ function QRScanner({ onUnlock, unlockCode, deviceId }) {
       if (interval) clearInterval(interval)
     }
   }, [unlockCode, deviceId])
+
   return (
     <div className="relative w-48 h-36 rounded-xl overflow-hidden shadow-lg" style={{ border: `2px solid ${RHS_GREEN}` }}>
       <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
@@ -115,120 +121,30 @@ function QRScanner({ onUnlock, unlockCode, deviceId }) {
   )
 }
 
-async function printLatePass({ studentName, toTeacher, timeIssued, lateReason, issuedBy, room }) {
-  const win = window.open('', '_blank', 'width=420,height=650')
-  win.document.write(`
-    <!DOCTYPE html><html><head><title>Late Pass</title>
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 72mm; margin: 0 auto; }
-      body { font-family: 'Courier New', monospace; font-size: 17px; padding: 8px 10px; text-align: center; }
-      .divider { border-top: 1px dashed #000; margin: 9px 0; }
-      .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 2px; }
-      .value { font-size: 20px; font-weight: bold; margin-bottom: 8px; }
-      .tag { display: inline-block; border: 2px solid #000; padding: 4px 10px; font-weight: bold; font-size: 14px; letter-spacing: 0.1em; margin-bottom: 8px; }
-      .header-title { font-size: 26px; font-weight: bold; }
-      .header-sub { font-size: 12px; margin-bottom: 4px; }
-      .sig-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 4px; }
-      .sig-line { border-bottom: 1px solid #000; width: 80%; margin: 0 auto 4px auto; height: 28px; }
-      .sig-name { font-size: 13px; color: #555; }
-      .footer { font-size: 12px; color: #444; margin-top: 10px; line-height: 1.6; }
-      @media print { html, body { margin: 0 auto; } }
-    </style></head><body>
-      <div class="header-title">RHS PassAble</div>
-      <div class="header-sub">Riverdale High School · Room ${room}</div>
-      <div class="divider"></div>
-      <div class="tag">LATE PASS TO CLASS</div>
-      <div class="divider"></div>
-      <div class="label">Student</div><div class="value">${studentName}</div>
-      <div class="label">Reporting To</div><div class="value">${toTeacher}</div>
-      <div class="label">Issued By</div><div class="value">${issuedBy}</div>
-      ${lateReason ? `<div class="label">Reason for Lateness</div><div class="value">${lateReason}</div>` : ''}
-      <div class="divider"></div>
-      <div class="label">Date & Time Issued</div><div class="value">${timeIssued}</div>
-      <div class="divider"></div>
-      <div class="sig-label">Signature / Initials</div>
-      <div class="sig-line"></div>
-      <div class="sig-name">${issuedBy} · Room ${room}</div>
-      <div class="divider"></div>
-      <div class="footer">Student is not expected to return to Room ${room}.<br/>Please mark student appropriately upon arrival.</div>
-      <script>window.onload = function() { window.print(); }</script>
-    </body></html>
-  `)
-  win.document.close()
-}
+// ── Print helpers ─────────────────────────────────────────────────────────────
+const RECEIPT_STYLES = `
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 72mm; margin: 0 auto; }
+  body { font-family: 'Courier New', monospace; font-size: 17px; padding: 8px 10px; text-align: center; }
+  .divider { border-top: 1px dashed #000; margin: 9px 0; }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 2px; }
+  .value { font-size: 20px; font-weight: bold; margin-bottom: 8px; }
+  .tag { display: inline-block; border: 2px solid #000; padding: 4px 10px; font-weight: bold; font-size: 14px; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .header-title { font-size: 26px; font-weight: bold; }
+  .header-sub { font-size: 12px; margin-bottom: 4px; }
+  .sig-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 4px; }
+  .sig-line { border-bottom: 1px solid #000; width: 80%; margin: 0 auto 4px auto; height: 28px; }
+  .sig-name { font-size: 13px; color: #555; }
+  .footer { font-size: 12px; color: #444; margin-top: 10px; line-height: 1.6; }
+  @media print { html, body { margin: 0 auto; } }
+`
 
-function printPullPass({ studentName, fromTeacher, purpose, timeIssued, issuedBy, room }) {
-  const win = window.open('', '_blank', 'width=420,height=550')
-  win.document.write(`
-    <!DOCTYPE html><html><head><title>Pull Pass</title>
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 72mm; margin: 0 auto; }
-      body { font-family: 'Courier New', monospace; font-size: 17px; padding: 8px 10px; text-align: center; }
-      .divider { border-top: 1px dashed #000; margin: 9px 0; }
-      .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 2px; }
-      .value { font-size: 20px; font-weight: bold; margin-bottom: 8px; }
-      .tag { display: inline-block; border: 2px solid #000; padding: 4px 10px; font-weight: bold; font-size: 14px; letter-spacing: 0.1em; margin-bottom: 8px; }
-      .header-title { font-size: 26px; font-weight: bold; }
-      .header-sub { font-size: 12px; margin-bottom: 4px; }
-      .sig-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 4px; }
-      .sig-line { border-bottom: 1px solid #000; width: 80%; margin: 0 auto 4px auto; height: 28px; }
-      .sig-name { font-size: 13px; color: #555; }
-      .footer { font-size: 12px; color: #444; margin-top: 10px; line-height: 1.6; }
-      @media print { html, body { margin: 0 auto; } }
-    </style></head><body>
-      <div class="header-title">RHS PassAble</div>
-      <div class="header-sub">Riverdale High School · Room ${room}</div>
-      <div class="divider"></div>
-      <div class="tag">REQUEST TO RELEASE STUDENT</div>
-      <div class="divider"></div>
-      <div class="label">Student</div><div class="value">${studentName}</div>
-      <div class="label">Currently In</div><div class="value">${fromTeacher}</div>
-      <div class="label">Requested By</div><div class="value">${issuedBy} · Room ${room}</div>
-      ${purpose ? `<div class="label">Purpose</div><div class="value">${purpose}</div>` : ''}
-      <div class="divider"></div>
-      <div class="label">Date & Time</div><div class="value">${timeIssued}</div>
-      <div class="divider"></div>
-      <div style="display: flex; justify-content: space-between; gap: 10px;">
-        <div style="flex: 1; text-align: center;">
-          <div class="sig-label">Authorized By</div>
-          <div class="sig-line"></div>
-          <div class="sig-name">${issuedBy} · Rm ${room}</div>
-        </div>
-        <div style="flex: 1; text-align: center;">
-          <div class="sig-label">Released By</div>
-          <div class="sig-line"></div>
-          <div class="sig-name">${fromTeacher}</div>
-        </div>
-      </div>
-      <div class="divider"></div>
-      <div class="footer">Please send student to Room ${room}.<br/>Thank you!</div>
-      <script>window.onload = function() { window.print(); }</script>
-    </body></html>
-  `)
-  win.document.close()
-}
-
-// ── NEW: Hall Pass print function ─────────────────────────────────────────────
 function printHallPass({ passId, studentName, reason, timeIssued, room }) {
   const passUrl = `https://hall-pass-lime.vercel.app/pass/${passId}`
   const win = window.open('', '_blank', 'width=420,height=600')
-  win.document.write(`
-    <!DOCTYPE html><html><head><title>Hall Pass</title>
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 72mm; margin: 0 auto; }
-      body { font-family: 'Courier New', monospace; font-size: 17px; padding: 8px 10px; text-align: center; }
-      .divider { border-top: 1px dashed #000; margin: 9px 0; }
-      .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 2px; }
-      .value { font-size: 20px; font-weight: bold; margin-bottom: 8px; }
-      .tag { display: inline-block; border: 2px solid #000; padding: 4px 10px; font-weight: bold; font-size: 14px; letter-spacing: 0.1em; margin-bottom: 8px; }
-      .header-title { font-size: 26px; font-weight: bold; }
-      .header-sub { font-size: 12px; margin-bottom: 4px; }
-      .footer { font-size: 11px; color: #444; margin-top: 8px; line-height: 1.5; }
+  win.document.write(`<!DOCTYPE html><html><head><title>Hall Pass</title>
+    <style>${RECEIPT_STYLES}
       img.qr { width: 120px; height: 120px; margin: 8px auto; display: block; }
-      @media print { html, body { margin: 0 auto; } }
     </style></head><body>
     <div class="header-title">RHS PassAble</div>
     <div class="header-sub">Riverdale High School · Room ${room}</div>
@@ -247,23 +163,85 @@ function printHallPass({ passId, studentName, reason, timeIssued, room }) {
       img.onload = function() { document.body.appendChild(img); window.print(); }
       img.onerror = function() { window.print(); }
       img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=' + encodeURIComponent('${passUrl}')
-    </script>
-    </body></html>
-  `)
+    </script></body></html>`)
   win.document.close()
 }
-// ─────────────────────────────────────────────────────────────────────────────
+
+function printLatePass({ studentName, toTeacher, timeIssued, lateReason, issuedBy, room }) {
+  const win = window.open('', '_blank', 'width=420,height=650')
+  win.document.write(`<!DOCTYPE html><html><head><title>Late Pass</title>
+    <style>${RECEIPT_STYLES}</style></head><body>
+    <div class="header-title">RHS PassAble</div>
+    <div class="header-sub">Riverdale High School · Room ${room}</div>
+    <div class="divider"></div>
+    <div class="tag">LATE PASS TO CLASS</div>
+    <div class="divider"></div>
+    <div class="label">Student</div><div class="value">${studentName}</div>
+    <div class="label">Reporting To</div><div class="value">${toTeacher}</div>
+    <div class="label">Issued By</div><div class="value">${issuedBy}</div>
+    ${lateReason ? `<div class="label">Reason for Lateness</div><div class="value">${lateReason}</div>` : ''}
+    <div class="divider"></div>
+    <div class="label">Date & Time Issued</div><div class="value">${timeIssued}</div>
+    <div class="divider"></div>
+    <div class="sig-label">Signature / Initials</div>
+    <div class="sig-line"></div>
+    <div class="sig-name">${issuedBy} · Room ${room}</div>
+    <div class="divider"></div>
+    <div class="footer">Student is not expected to return to Room ${room}.<br/>Please mark student appropriately upon arrival.</div>
+    <script>window.onload = function() { window.print(); }</script>
+    </body></html>`)
+  win.document.close()
+}
+
+function printPullPass({ studentName, fromTeacher, purpose, timeIssued, issuedBy, room }) {
+  const win = window.open('', '_blank', 'width=420,height=550')
+  win.document.write(`<!DOCTYPE html><html><head><title>Pull Pass</title>
+    <style>${RECEIPT_STYLES}</style></head><body>
+    <div class="header-title">RHS PassAble</div>
+    <div class="header-sub">Riverdale High School · Room ${room}</div>
+    <div class="divider"></div>
+    <div class="tag">REQUEST TO RELEASE STUDENT</div>
+    <div class="divider"></div>
+    <div class="label">Student</div><div class="value">${studentName}</div>
+    <div class="label">Currently In</div><div class="value">${fromTeacher}</div>
+    <div class="label">Requested By</div><div class="value">${issuedBy} · Room ${room}</div>
+    ${purpose ? `<div class="label">Purpose</div><div class="value">${purpose}</div>` : ''}
+    <div class="divider"></div>
+    <div class="label">Date & Time</div><div class="value">${timeIssued}</div>
+    <div class="divider"></div>
+    <div style="display:flex;justify-content:space-between;gap:10px;">
+      <div style="flex:1;text-align:center;">
+        <div class="sig-label">Authorized By</div>
+        <div class="sig-line"></div>
+        <div class="sig-name">${issuedBy} · Rm ${room}</div>
+      </div>
+      <div style="flex:1;text-align:center;">
+        <div class="sig-label">Released By</div>
+        <div class="sig-line"></div>
+        <div class="sig-name">${fromTeacher}</div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="footer">Please send student to Room ${room}.<br/>Thank you!</div>
+    <script>window.onload = function() { window.print(); }</script>
+    </body></html>`)
+  win.document.close()
+}
 
 async function notifyReceivingTeacher({ toTeacher, studentName, issuedBy, timeIssued, passUrl }) {
-  console.log('[PassAble] Late pass notification (stub):', {
+  // Stub — wire up email notifications in fall build
+  console.log('[PassAble] Late pass notification:', {
     to: `${toTeacher.toLowerCase().replace(/\s+/g, '.')}@rjusd.org`,
     subject: `Late Pass — ${studentName} heading your way`,
-    body: `${studentName} has been issued a late pass to your class by ${issuedBy} at ${timeIssued}. Pass: ${passUrl}`
+    body: `${studentName} issued a late pass to your class by ${issuedBy} at ${timeIssued}. Pass: ${passUrl}`,
   })
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
 function TeacherInner() {
   const searchParams = useSearchParams()
+
+  // Auth
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [currentTeacher, setCurrentTeacher] = useState(null)
@@ -274,37 +252,32 @@ function TeacherInner() {
   const [magicSent, setMagicSent] = useState(false)
   const [magicEmail, setMagicEmail] = useState('')
   const [signingIn, setSigningIn] = useState(false)
+
+  // Camera
   const [cameras, setCameras] = useState([])
   const [selectedCamera, setSelectedCamera] = useState('')
   const [unlockCode, setUnlockCode] = useState('')
+  const [unlockQR, setUnlockQR] = useState('')
+
+  // Period & data
   const [activePeriod, setActivePeriod] = useState(null)
   const [activePasses, setActivePasses] = useState([])
   const [heldPasses, setHeldPasses] = useState([])
   const [missedPasses, setMissedPasses] = useState([])
   const [checkingInMissed, setCheckingInMissed] = useState(null)
   const [dnloList, setDnloList] = useState([])
-  const [students, setStudents] = useState({})
+  const [students, setStudents] = useState({})       // map by id
+  const [allStudents, setAllStudents] = useState([]) // sorted array
+  const [now, setNow] = useState(Date.now())
+
+  // Checkout form
   const [selected, setSelected] = useState('')
   const [reason, setReason] = useState('')
   const [assignedTeacher, setAssignedTeacher] = useState('')
-  const [purposeText, setPurposeText] = useState('')
   const [errandTeacher, setErrandTeacher] = useState('')
-  const [allStudents, setAllStudents] = useState([])
-  const [now, setNow] = useState(Date.now())
-  const [unlockQR, setUnlockQR] = useState('')
-  const [rotating, setRotating] = useState(false)
-  const [rotated, setRotated] = useState(false)
-  const [currentPin, setCurrentPin] = useState('')
-  const [newPin, setNewPin] = useState('')
-  const [pinSaved, setPinSaved] = useState(false)
-  const [subCode, setSubCode] = useState('')
-  const [newSubCode, setNewSubCode] = useState('')
-  const [subCodeSaved, setSubCodeSaved] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [printPasses, setPrintPasses] = useState(false)
-  const [printPassesSaved, setPrintPassesSaved] = useState(false)
-  const prevHeldIds = useRef([])
-  const prevActiveIds = useRef([])
+  const [purposeText, setPurposeText] = useState('')
+
+  // Modals
   const [showLatePass, setShowLatePass] = useState(false)
   const [lateStudent, setLateStudent] = useState('')
   const [lateTeacher, setLateTeacher] = useState('')
@@ -315,53 +288,60 @@ function TeacherInner() {
   const [pullStudentName, setPullStudentName] = useState('')
   const [pullFromTeacher, setPullFromTeacher] = useState('')
   const [pullPurpose, setPullPurpose] = useState('')
+
+  // Self-checkout
   const [selfCheckoutMode, setSelfCheckoutMode] = useState(false)
   const [selfCheckoutCode, setSelfCheckoutCode] = useState('')
   const [kioskReturnRequired, setKioskReturnRequired] = useState(true)
   const [kioskReturnSaved, setKioskReturnSaved] = useState(false)
 
+  // Settings
+  const [showSettings, setShowSettings] = useState(false)
+  const [currentPin, setCurrentPin] = useState('')
+  const [newPin, setNewPin] = useState('')
+  const [pinSaved, setPinSaved] = useState(false)
+  const [subCode, setSubCode] = useState('')
+  const [newSubCode, setNewSubCode] = useState('')
+  const [subCodeSaved, setSubCodeSaved] = useState(false)
+  const [printPasses, setPrintPasses] = useState(false)
+  const [printPassesSaved, setPrintPassesSaved] = useState(false)
+  const [rotating, setRotating] = useState(false)
+  const [rotated, setRotated] = useState(false)
+
+  const prevHeldIds = useRef([])
+  const prevActiveIds = useRef([])
+
+  // ── Auth effects ────────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session); setAuthLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
     return () => subscription.unsubscribe()
   }, [])
 
   useEffect(() => {
     const magic = searchParams.get('magic')
     const emailParam = searchParams.get('email')
-    if (magic === '1' && emailParam && !session) {
-      handleMagicLinkFromQR(emailParam)
-    }
+    if (magic === '1' && emailParam && !session) handleMagicLinkFromQR(emailParam)
   }, [searchParams])
 
   useEffect(() => {
     const saved = localStorage.getItem('teacher_camera')
     if (saved) setSelectedCamera(saved)
-    async function getCameras() {
-      try {
-        await navigator.mediaDevices.getUserMedia({ video: true })
-        const devices = await navigator.mediaDevices.enumerateDevices()
-        setCameras(devices.filter(d => d.kind === 'videoinput'))
-      } catch (e) {}
-    }
-    getCameras()
+    navigator.mediaDevices?.getUserMedia({ video: true })
+      .then(() => navigator.mediaDevices.enumerateDevices())
+      .then(devices => setCameras(devices.filter(d => d.kind === 'videoinput')))
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
-    if (session) {
-      loadSettings()
-      loadCurrentTeacher()
-    }
+    if (session) { loadSettings(); loadCurrentTeacher() }
   }, [session])
 
   useEffect(() => {
-    async function fetchUnlockCode() {
-      const { data } = await supabase.from('settings').select('value').eq('key', 'teacher_unlock_code').maybeSingle()
-      if (data) setUnlockCode(data.value)
-    }
-    fetchUnlockCode()
+    supabase.from('settings').select('value').eq('key', 'teacher_unlock_code').maybeSingle()
+      .then(({ data }) => { if (data) setUnlockCode(data.value) })
   }, [])
 
   useEffect(() => {
@@ -371,15 +351,11 @@ function TeacherInner() {
     return () => clearInterval(timer)
   }, [activePeriod, currentTeacher])
 
+  // ── Auth functions ──────────────────────────────────────────────────────────
   async function loadCurrentTeacher() {
     const { data: { session: s } } = await supabase.auth.getSession()
     if (!s) return
-    const { data } = await supabase
-      .from('teachers')
-      .select('*')
-      .eq('auth_id', s.user.id)
-      .eq('is_active', true)
-      .maybeSingle()
+    const { data } = await supabase.from('teachers').select('*').eq('auth_id', s.user.id).eq('is_active', true).maybeSingle()
     if (data) setCurrentTeacher(data)
   }
 
@@ -396,36 +372,23 @@ function TeacherInner() {
     setMagicEmail(scannedEmail)
     const { error } = await supabase.auth.signInWithOtp({
       email: scannedEmail,
-      options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' }
+      options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' },
     })
     if (!error) setMagicSent(true)
   }
 
   async function handleSendMagicLink() {
     setSigningIn(true); setAuthError('')
-    if (!email.endsWith('@rjusd.org')) {
-      setAuthError('Only @rjusd.org accounts are allowed.')
-      setSigningIn(false); return
-    }
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' }
-    })
-    if (error) {
-      setAuthError('Could not send link. Try again.')
-    } else {
-      setMagicSent(true)
-      setMagicEmail(email)
-    }
+    if (!email.endsWith('@rjusd.org')) { setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return }
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' } })
+    if (error) setAuthError('Could not send link. Try again.')
+    else { setMagicSent(true); setMagicEmail(email) }
     setSigningIn(false)
   }
 
   async function handlePasswordSignIn() {
     setSigningIn(true); setAuthError('')
-    if (!email.endsWith('@rjusd.org')) {
-      setAuthError('Only @rjusd.org accounts are allowed.')
-      setSigningIn(false); return
-    }
+    if (!email.endsWith('@rjusd.org')) { setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return }
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) setAuthError('Invalid email or password.')
     setSigningIn(false)
@@ -437,51 +400,84 @@ function TeacherInner() {
     setMagicSent(false); setMagicEmail('')
   }
 
+  // ── Settings ────────────────────────────────────────────────────────────────
   async function loadSettings() {
-    const { data } = await supabase.from('settings').select('key, value').in('key', ['teacher_unlock_code', 'teacher_pin', 'sub_code', 'teacher_checkout_code', 'kiosk_return_required'])
-    if (data) {
-      const unlockRow = data.find(r => r.key === 'teacher_unlock_code')
-      const pinRow = data.find(r => r.key === 'teacher_pin')
-      const subRow = data.find(r => r.key === 'sub_code')
-      const selfRow = data.find(r => r.key === 'teacher_checkout_code')
-      const kioskRow = data.find(r => r.key === 'kiosk_return_required')
-      if (unlockRow) {
-        setUnlockCode(unlockRow.value)
-        const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${unlockRow.value}`
-        const qr = await QRCode.toDataURL(url, { width: 160, margin: 1 })
-        setUnlockQR(qr)
-      }
-      if (pinRow) setCurrentPin(pinRow.value)
-      if (subRow) setSubCode(subRow.value)
-      if (selfRow) setSelfCheckoutCode(selfRow.value)
-      if (kioskRow) setKioskReturnRequired(kioskRow.value !== 'false')
+    const { data } = await supabase.from('settings').select('key, value')
+      .in('key', ['teacher_unlock_code', 'teacher_pin', 'sub_code', 'teacher_checkout_code', 'kiosk_return_required', 'print_passes'])
+    if (!data) return
+    const get = (key) => data.find(r => r.key === key)?.value
+    const unlockVal = get('teacher_unlock_code')
+    if (unlockVal) {
+      setUnlockCode(unlockVal)
+      const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${unlockVal}`
+      QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
     }
+    if (get('teacher_pin')) setCurrentPin(get('teacher_pin'))
+    if (get('sub_code')) setSubCode(get('sub_code'))
+    if (get('teacher_checkout_code')) setSelfCheckoutCode(get('teacher_checkout_code'))
+    if (get('kiosk_return_required')) setKioskReturnRequired(get('kiosk_return_required') !== 'false')
+    if (get('print_passes')) setPrintPasses(get('print_passes') === 'true')
   }
 
+  async function rotateUnlockCode() {
+    setRotating(true)
+    const newCode = Math.random().toString(36).substring(2, 12)
+    await supabase.from('settings').update({ value: newCode }).eq('key', 'teacher_unlock_code')
+    setUnlockCode(newCode)
+    const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${newCode}`
+    QRCode.toDataURL(url, { width: 160, margin: 1 }).then(qr => { setUnlockQR(qr); setRotating(false); setRotated(true); setTimeout(() => setRotated(false), 3000) })
+  }
+
+  async function savePin() {
+    if (newPin.length !== 4 || isNaN(newPin)) return
+    await supabase.from('settings').update({ value: newPin }).eq('key', 'teacher_pin')
+    setCurrentPin(newPin); setNewPin(''); setPinSaved(true)
+    setTimeout(() => setPinSaved(false), 3000)
+  }
+
+  async function saveSubCode() {
+    if (newSubCode.length !== 4 || isNaN(newSubCode)) return
+    await supabase.from('settings').update({ value: newSubCode }).eq('key', 'sub_code')
+    setSubCode(newSubCode); setNewSubCode(''); setSubCodeSaved(true)
+    setTimeout(() => setSubCodeSaved(false), 3000)
+  }
+
+  async function saveKioskReturn(val) {
+    await supabase.from('settings').upsert({ key: 'kiosk_return_required', value: val ? 'true' : 'false' })
+    setKioskReturnRequired(val); setKioskReturnSaved(true)
+    setTimeout(() => setKioskReturnSaved(false), 2000)
+  }
+
+  async function generateCheckoutCode() {
+    const code = Math.floor(1000 + Math.random() * 9000).toString()
+    setSelfCheckoutCode(code)
+    await supabase.from('settings').update({ value: code }).eq('key', 'active_checkout_code')
+  }
+
+  // ── Data loading ────────────────────────────────────────────────────────────
   async function loadData() {
     let passQuery = supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod).order('time_out')
-    if (currentTeacher?.id) {
-      passQuery = passQuery.or(`teacher_id.eq.${currentTeacher.id},teacher_id.is.null`)
-    }
+    if (currentTeacher?.id) passQuery = passQuery.or(`teacher_id.eq.${currentTeacher.id},teacher_id.is.null`)
     const { data: passes } = await passQuery
-    // Query via student_periods junction table to support multi-period students
-    const { data: spRows } = await supabase.from('student_periods').select('student_id').eq('period', activePeriod).eq('room', '27')
+
+    const room = currentTeacher?.room || '27'
+    const { data: spRows } = await supabase.from('student_periods').select('student_id').eq('period', activePeriod).eq('room', room)
     const studentIds = spRows?.map(r => r.student_id) || []
     const { data: studs } = studentIds.length > 0
       ? await supabase.from('students').select('id, full_name, last_name').in('id', studentIds).order('first_name')
       : { data: [] }
+
     const { data: holds } = await supabase.from('pass_holds').select('*').is('released_at', null).order('held_at')
+    const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
 
     if (passes) {
       const newIds = passes.map(p => p.student_id)
       const returned = prevActiveIds.current.filter(id => !newIds.includes(id))
-      if (returned.length > 0 && holds && holds.length > 0) playClearAlert()
+      if (returned.length > 0 && holds?.length > 0) playClearAlert()
       const LABEL_REASONS = ['Library', 'Office', 'Errand', 'On Assignment']
-      const prevIds = prevActiveIds.current
-      const newPasses = passes.filter(p => !prevIds.includes(p.student_id))
-      newPasses.forEach(p => {
-        const baseReason = p.reason?.split(' — ')[0]
-        if (printPasses && LABEL_REASONS.includes(baseReason)) window.open(`/pass/${p.id}/label`, '_blank')
+      passes.filter(p => !prevActiveIds.current.includes(p.student_id)).forEach(p => {
+        const base = p.reason?.split(' — ')[0]
+        if (printPasses && LABEL_REASONS.includes(base)) window.open(`/pass/${p.id}/label`, '_blank')
       })
       prevActiveIds.current = newIds
       setActivePasses(passes)
@@ -492,52 +488,32 @@ function TeacherInner() {
     }
     if (holds) {
       const newIds = holds.map(h => h.id)
-      const hasNew = newIds.some(id => !prevHeldIds.current.includes(id))
-      if (hasNew && holds.length > 0) playAlert()
+      if (newIds.some(id => !prevHeldIds.current.includes(id)) && holds.length > 0) playAlert()
       prevHeldIds.current = newIds
       setHeldPasses(holds)
     }
-    // Load DNLO list
-    const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
     if (dnlo) setDnloList(dnlo.map(d => d.student_id))
 
-    // Load missed check-ins from past periods today
     await loadMissedPasses(activePeriod)
   }
 
   async function loadMissedPasses(currentPeriod) {
-  const currentPeriodNum = parseInt(currentPeriod)
-  if (currentPeriodNum <= 1) { setMissedPasses([]); return }
+    const currentPeriodNum = parseInt(currentPeriod)
+    if (currentPeriodNum <= 1) { setMissedPasses([]); return }
+    const pastPeriods = Array.from({ length: currentPeriodNum - 1 }, (_, i) => i + 1)
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+    const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999)
+    const { data: missed } = await supabase.from('passes').select('*').is('time_in', null)
+      .in('period', pastPeriods).gte('time_out', todayStart.toISOString()).lte('time_out', todayEnd.toISOString()).order('time_out')
+    if (!missed) return
+    const ids = [...new Set(missed.map(p => p.student_id))]
+    const { data: studs } = await supabase.from('students').select('id, full_name').in('id', ids)
+    const studMap = {}
+    if (studs) studs.forEach(s => studMap[s.id] = s)
+    setMissedPasses(missed.map(p => ({ ...p, students: studMap[p.student_id] || null })))
+  }
 
-  const pastPeriods = Array.from({ length: currentPeriodNum - 1 }, (_, i) => i + 1)
-
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
-  const todayEnd   = new Date(); todayEnd.setHours(23, 59, 59, 999)
-
-  const { data: missed } = await supabase
-    .from('passes')
-    .select('*')
-    .is('time_in', null)
-    .in('period', pastPeriods)
-    .gte('time_out', todayStart.toISOString())
-    .lte('time_out', todayEnd.toISOString())
-    .order('time_out')
-
-  if (!missed) return
-
-  // Fetch student names separately
-  const studentIds = [...new Set(missed.map(p => p.student_id))]
-  const { data: studs } = await supabase
-    .from('students')
-    .select('id, full_name')
-    .in('id', studentIds)
-
-  const studMap = {}
-  if (studs) studs.forEach(s => studMap[s.id] = s)
-
-  setMissedPasses(missed.map(p => ({ ...p, students: studMap[p.student_id] || null })))
-}
-
+  // ── Pass actions ────────────────────────────────────────────────────────────
   async function handleReturn(passId) {
     const pass = activePasses.find(p => p.id === passId)
     const mins = Math.floor((new Date() - new Date(pass.time_out)) / 60000)
@@ -556,14 +532,13 @@ function TeacherInner() {
 
   async function handleOverride(hold) {
     await supabase.from('pass_holds').update({
-      released_at: new Date().toISOString(),
-      override: true,
-      override_by: currentTeacher?.email || session?.user?.email || 'unknown'
+      released_at: new Date().toISOString(), override: true,
+      override_by: currentTeacher?.email || session?.user?.email || 'unknown',
     }).eq('id', hold.id)
     await supabase.from('passes').insert({
       student_id: hold.student_id, reason: hold.reason,
       room: currentTeacher?.room || '27', period: hold.period,
-      teacher_id: currentTeacher?.id || null, time_out: new Date().toISOString()
+      teacher_id: currentTeacher?.id || null, time_out: new Date().toISOString(),
     })
     loadData()
   }
@@ -573,53 +548,36 @@ function TeacherInner() {
     loadData()
   }
 
-  // ── UPDATED: now prints for applicable reasons ────────────────────────────
   async function handleTeacherCheckout() {
-    // Log DNLO override if applicable
-    if (selected && dnloList.includes(selected)) {
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)()
-        for (let i = 0; i < 3; i++) {
-          const osc = ctx.createOscillator(); const gain = ctx.createGain()
-          osc.connect(gain); gain.connect(ctx.destination)
-          osc.type = 'square'
-          osc.frequency.setValueAtTime(880, ctx.currentTime + i * 0.25)
-          gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.25)
-          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.25 + 0.2)
-          osc.start(ctx.currentTime + i * 0.25); osc.stop(ctx.currentTime + i * 0.25 + 0.2)
-        }
-      } catch(e) {}
-      await supabase.from('do_not_let_out').insert({
-        student_id: selected,
-        reason: 'Teacher override on teacher page',
-        scope: 'override_log',
-        created_by: currentTeacher?.email || session?.user?.email || 'teacher',
-        active: false,
-      }).catch(() => {})
-    }
     if (!selected || !reason) return
     if (reason === 'On Assignment' && !assignedTeacher) return
-    let finalReason = reason
-    if (reason === 'On Assignment' && assignedTeacher) {
-      finalReason = purposeText.trim() ? `On Assignment — ${assignedTeacher} — ${purposeText.trim()}` : `On Assignment — ${assignedTeacher}`
-    } else if (reason === 'Errand' && errandTeacher) {
-      finalReason = purposeText.trim() ? `Errand — ${errandTeacher} — ${purposeText.trim()}` : `Errand — ${errandTeacher}`
-    } else if (reason === 'Errand' && purposeText.trim()) {
-      finalReason = `Errand — ${purposeText.trim()}`
-    } else if (reason === 'Other' && purposeText.trim()) {
-      finalReason = `Other — ${purposeText.trim()}`
+
+    if (dnloList.includes(selected)) {
+      playDnloAlert()
+      await supabase.from('do_not_let_out').insert({
+        student_id: selected, reason: 'Teacher override on teacher page',
+        scope: 'override_log', created_by: currentTeacher?.email || session?.user?.email || 'teacher', active: false,
+      }).catch(() => {})
     }
+
+    let finalReason = reason
+    if (reason === 'On Assignment' && assignedTeacher)
+      finalReason = purposeText.trim() ? `On Assignment — ${assignedTeacher} — ${purposeText.trim()}` : `On Assignment — ${assignedTeacher}`
+    else if (reason === 'Errand' && errandTeacher)
+      finalReason = purposeText.trim() ? `Errand — ${errandTeacher} — ${purposeText.trim()}` : `Errand — ${errandTeacher}`
+    else if (reason === 'Errand' && purposeText.trim())
+      finalReason = `Errand — ${purposeText.trim()}`
+    else if (reason === 'Other' && purposeText.trim())
+      finalReason = `Other — ${purposeText.trim()}`
 
     const { data: passData } = await supabase.from('passes').insert({
       student_id: selected, reason: finalReason,
       room: currentTeacher?.room || '27', period: activePeriod,
-      teacher_id: currentTeacher?.id || null
+      teacher_id: currentTeacher?.id || null,
     }).select().single()
 
-    // Print hall pass for applicable reasons
     const PRINT_REASONS = ['Restroom', 'Library', 'Office', 'Errand', 'On Assignment', 'Other']
-    const baseReason = finalReason.split(' — ')[0]
-    if (PRINT_REASONS.includes(baseReason) && passData?.id) {
+    if (PRINT_REASONS.includes(finalReason.split(' — ')[0]) && passData?.id) {
       const studentName = allStudents.find(s => s.id === selected)?.full_name || 'Student'
       const timeIssued = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       printHallPass({ passId: passData.id, studentName, reason: finalReason, timeIssued, room: currentTeacher?.room || '27' })
@@ -628,7 +586,6 @@ function TeacherInner() {
     setSelected(''); setReason(''); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText('')
     loadData()
   }
-  // ─────────────────────────────────────────────────────────────────────────────
 
   async function handleIssueLatePass() {
     if (!lateStudent || !lateTeacher) return
@@ -654,63 +611,35 @@ function TeacherInner() {
     setTimeout(() => { setLatePassSuccess(null); setShowLatePass(false) }, 4000)
   }
 
-  async function rotateUnlockCode() {
-    setRotating(true)
-    const newCode = Math.random().toString(36).substring(2, 12)
-    await supabase.from('settings').update({ value: newCode }).eq('key', 'teacher_unlock_code')
-    setUnlockCode(newCode)
-    const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${newCode}`
-    const qr = await QRCode.toDataURL(url, { width: 160, margin: 1 })
-    setUnlockQR(qr)
-    setRotating(false); setRotated(true)
-    setTimeout(() => setRotated(false), 3000)
-  }
-
-  async function savePin() {
-    if (newPin.length !== 4 || isNaN(newPin)) return
-    await supabase.from('settings').update({ value: newPin }).eq('key', 'teacher_pin')
-    setCurrentPin(newPin); setNewPin(''); setPinSaved(true)
-    setTimeout(() => setPinSaved(false), 3000)
-  }
-
-  async function saveSubCode() {
-    if (newSubCode.length !== 4 || isNaN(newSubCode)) return
-    await supabase.from('settings').update({ value: newSubCode }).eq('key', 'sub_code')
-    setSubCode(newSubCode); setNewSubCode(''); setSubCodeSaved(true)
-    setTimeout(() => setSubCodeSaved(false), 3000)
-  }
-
-  async function saveKioskReturn(val) {
-    await supabase.from('settings').upsert({ key: 'kiosk_return_required', value: val ? 'true' : 'false' })
-    setKioskReturnRequired(val)
-    setKioskReturnSaved(true)
-    setTimeout(() => setKioskReturnSaved(false), 2000)
-  }
-
-  async function generateCheckoutCode() {
-    const code = Math.floor(1000 + Math.random() * 9000).toString()
-    setSelfCheckoutCode(code)
-    await supabase.from('settings').update({ value: code }).eq('key', 'active_checkout_code')
-  }
-
-  function elapsed(timeOut) { return Math.floor((now - new Date(timeOut)) / 60000) }
-  function elapsedColor(mins) {
-    if (mins >= TIME_LIMIT) return 'text-red-500'
-    if (mins >= TIME_LIMIT * 0.7) return 'text-amber-500'
-    return 'text-green-600'
-  }
-
-  const overLimit = activePasses.filter(p => elapsed(p.time_out) >= TIME_LIMIT)
-  const periodLabel = PERIODS.find(p => p.value === activePeriod)?.label
+  // ── Derived ─────────────────────────────────────────────────────────────────
+  const overLimit = activePasses.filter(p => Math.floor((now - new Date(p.time_out)) / 60000) >= TIME_LIMIT)
+  const elapsed = (timeOut) => Math.floor((now - new Date(timeOut)) / 60000)
+  const elapsedColor = (mins) => mins >= TIME_LIMIT ? 'text-red-500' : mins >= TIME_LIMIT * 0.7 ? 'text-amber-500' : 'text-green-600'
   const teacherDisplayName = currentTeacher?.name || session?.user?.email?.split('@')[0] || 'Teacher'
   const teacherRoom = currentTeacher?.room || '27'
 
+  // Period selector — use teacher's configured periods if available, else default block schedule
+  const periods = currentTeacher?.periods?.length
+    ? currentTeacher.periods.sort().map(p => ({
+        value: p,
+        label: currentTeacher.period_labels?.[p] || `Period ${p}`,
+      }))
+    : [
+        { value: '1', label: 'Periods 1 & 2' },
+        { value: '4', label: 'Periods 4 & 5' },
+        { value: '6', label: 'Periods 6 & 7' },
+      ]
+
+  const periodLabel = periods.find(p => p.value === activePeriod)?.label || `Period ${activePeriod}`
+
+  // ── Render: loading ─────────────────────────────────────────────────────────
   if (authLoading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="w-6 h-6 border-2 border-gray-300 rounded-full animate-spin" style={{ borderTopColor: RHS_GREEN }} />
     </div>
   )
 
+  // ── Render: sign in ─────────────────────────────────────────────────────────
   if (!session) {
     if (magicSent) return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
@@ -721,10 +650,7 @@ function TeacherInner() {
           A sign-in link was sent to<br />
           <span className="font-medium text-gray-700">{magicEmail}</span>
         </p>
-        <p className="text-gray-400 text-xs text-center mb-8">
-          Tap the link in your email to sign in.<br />
-          You can close this tab on the kiosk.
-        </p>
+        <p className="text-gray-400 text-xs text-center mb-8">Tap the link in your email to sign in.</p>
         <button onClick={() => { setMagicSent(false); setMagicEmail('') }}
           className="text-sm text-gray-400 hover:text-gray-600">← Try again</button>
       </div>
@@ -739,8 +665,7 @@ function TeacherInner() {
           {authMode === 'magic' ? (
             <>
               <input type="email" placeholder="you@rjusd.org" value={email}
-                onChange={e => setEmail(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSendMagicLink()}
+                onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendMagicLink()}
                 className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
                 style={{ borderColor: RHS_GREEN }} />
               {authError && <p className="text-red-500 text-xs text-center">{authError}</p>}
@@ -749,21 +674,18 @@ function TeacherInner() {
                 style={{ backgroundColor: RHS_GREEN }}>
                 {signingIn ? 'Sending...' : '✉️ Send Sign-In Link'}
               </button>
-              <button onClick={() => setAuthMode('password')}
-                className="text-xs text-center text-gray-400 hover:text-gray-600">
+              <button onClick={() => setAuthMode('password')} className="text-xs text-center text-gray-400 hover:text-gray-600">
                 Use password instead
               </button>
             </>
           ) : (
             <>
               <input type="email" placeholder="you@rjusd.org" value={email}
-                onChange={e => setEmail(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handlePasswordSignIn()}
+                onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && handlePasswordSignIn()}
                 className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
                 style={{ borderColor: RHS_GREEN }} />
               <input type="password" placeholder="Password" value={password}
-                onChange={e => setPassword(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handlePasswordSignIn()}
+                onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handlePasswordSignIn()}
                 className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
                 style={{ borderColor: RHS_GREEN }} />
               {authError && <p className="text-red-500 text-xs text-center">{authError}</p>}
@@ -772,8 +694,7 @@ function TeacherInner() {
                 style={{ backgroundColor: RHS_GREEN }}>
                 {signingIn ? 'Signing in...' : 'Sign In'}
               </button>
-              <button onClick={() => setAuthMode('magic')}
-                className="text-xs text-center text-gray-400 hover:text-gray-600">
+              <button onClick={() => setAuthMode('magic')} className="text-xs text-center text-gray-400 hover:text-gray-600">
                 ← Send magic link instead
               </button>
             </>
@@ -800,6 +721,7 @@ function TeacherInner() {
     )
   }
 
+  // ── Render: period select ───────────────────────────────────────────────────
   if (!activePeriod) return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
@@ -807,19 +729,23 @@ function TeacherInner() {
       <p className="text-gray-400 text-sm mb-1">Welcome, {teacherDisplayName}</p>
       <p className="text-gray-400 text-sm mb-8">Select the current period</p>
       <div className="flex flex-col gap-3 w-full max-w-xs">
-        {PERIODS.map(p => (
+        {periods.map(p => (
           <button key={p.value} onClick={() => { setActivePeriod(p.value); generateCheckoutCode() }}
             className="py-4 text-lg font-bold bg-white border-2 rounded-xl shadow-sm hover:bg-green-50"
-            style={{ borderColor: RHS_GREEN, color: RHS_GREEN }}>{p.label}</button>
+            style={{ borderColor: RHS_GREEN, color: RHS_GREEN }}>
+            {p.label}
+          </button>
         ))}
       </div>
       <button onClick={handleSignOut} className="mt-8 text-sm text-gray-400 hover:text-gray-600">Sign Out</button>
     </div>
   )
 
+  // ── Render: main dashboard ──────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50">
 
+      {/* Pull Pass Modal */}
       {showPullPass && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl">
@@ -876,6 +802,7 @@ function TeacherInner() {
         </div>
       )}
 
+      {/* Late Pass Modal */}
       {showLatePass && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl">
@@ -942,6 +869,7 @@ function TeacherInner() {
         </div>
       )}
 
+      {/* Header */}
       <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
         <div className="flex items-center gap-3">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
@@ -953,7 +881,7 @@ function TeacherInner() {
         <div className="flex gap-4 items-center">
           <a href="/analytics" className="text-sm text-green-200 hover:text-white">Analytics</a>
           {currentTeacher?.is_admin && (
-            <a href="/admin" className="text-sm text-green-200 hover:text-white">Teachers</a>
+            <a href="/admin" className="text-sm text-green-200 hover:text-white">Admin</a>
           )}
           <button onClick={() => setActivePeriod(null)} className="text-sm text-green-200 hover:text-white">← Period</button>
           <button onClick={handleSignOut} className="text-sm text-green-200 hover:text-white">Sign Out</button>
@@ -961,6 +889,8 @@ function TeacherInner() {
       </div>
 
       <div className="p-6 max-w-3xl mx-auto">
+
+        {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6">
           {[
             { label: 'Currently Out', value: activePasses.length, color: activePasses.length > 0 ? 'text-red-500' : 'text-green-600' },
@@ -974,6 +904,7 @@ function TeacherInner() {
           ))}
         </div>
 
+        {/* Held passes */}
         {heldPasses.length > 0 && (
           <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
             <div className="px-4 py-2 bg-amber-100 border-b border-amber-200">
@@ -982,9 +913,7 @@ function TeacherInner() {
             {heldPasses.map(hold => (
               <div key={hold.id} className="px-4 py-3 border-b border-amber-100 last:border-0 flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-800">
-                    {students[hold.student_id]?.full_name || hold.student_id} → {hold.reason}
-                  </p>
+                  <p className="text-sm font-medium text-gray-800">{students[hold.student_id]?.full_name || hold.student_id} → {hold.reason}</p>
                   <p className="text-xs text-amber-600 mt-0.5">
                     Held at {new Date(hold.held_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · conflicting student still out
                   </p>
@@ -1004,6 +933,7 @@ function TeacherInner() {
           </div>
         )}
 
+        {/* Alerts */}
         {activePasses.length >= 2 && (
           <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
             ⚠ {activePasses.length} students out simultaneously: {activePasses.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')}
@@ -1015,6 +945,7 @@ function TeacherInner() {
           </div>
         )}
 
+        {/* Students Out */}
         <div className="bg-white rounded-xl border border-gray-200 mb-6">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <span className="text-sm font-medium" style={{ color: RHS_GREEN }}>Students Out</span>
@@ -1032,6 +963,7 @@ function TeacherInner() {
               <button onClick={loadData} className="text-xs text-gray-400 hover:text-gray-600">Refresh</button>
             </div>
           </div>
+
           {activePasses.length === 0 ? (
             <div className="p-8 text-center text-gray-400 text-sm">All students are in the classroom</div>
           ) : activePasses.map(pass => {
@@ -1065,6 +997,7 @@ function TeacherInner() {
             )
           })}
 
+          {/* Checkout form */}
           <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl">
             <div className="text-xs font-medium text-gray-500 mb-2">Check out a student</div>
             <div className="flex gap-2 mb-2">
@@ -1084,9 +1017,10 @@ function TeacherInner() {
                 disabled={!selected || !reason || (reason === 'On Assignment' && !assignedTeacher)}
                 className="px-4 py-2 text-sm rounded-lg disabled:opacity-30 font-medium text-white"
                 style={{ backgroundColor: selected && dnloList.includes(selected) ? '#dc2626' : RHS_GREEN }}>
-                {selected && dnloList.includes(selected) ? '⚠ Override & Send' : 'Send'}
+                {selected && dnloList.includes(selected) ? '⚠ Override' : 'Send'}
               </button>
             </div>
+
             {selected && dnloList.includes(selected) && (
               <div className="mb-2 p-3 bg-red-600 border border-red-700 rounded-lg text-white text-sm font-bold flex items-center gap-2">
                 <span className="text-lg">⛔</span>
@@ -1096,84 +1030,74 @@ function TeacherInner() {
                 </div>
               </div>
             )}
+
             {reason === 'On Assignment' && (
               <div className="flex flex-col gap-2">
                 <select value={assignedTeacher} onChange={e => setAssignedTeacher(e.target.value)}
-                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }}>
+                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
                   <option value="">— Select a teacher —</option>
                   {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 <input type="text" placeholder="Purpose (e.g. picking up worksheets)"
                   value={purposeText} onChange={e => setPurposeText(e.target.value)}
-                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }} />
+                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
               </div>
             )}
             {reason === 'Errand' && (
               <div className="flex flex-col gap-2">
                 <select value={errandTeacher} onChange={e => setErrandTeacher(e.target.value)}
-                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }}>
+                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
                   <option value="">— Select a teacher (optional) —</option>
                   {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 <select value={purposeText} onChange={e => setPurposeText(e.target.value)}
-                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }}>
+                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
                   <option value="">— Select location (optional) —</option>
                   {ERRAND_LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
               </div>
             )}
             {reason === 'Other' && (
-              <div className="flex flex-col gap-2">
-                <input type="text" placeholder="Describe reason..."
-                  value={purposeText} onChange={e => setPurposeText(e.target.value)}
-                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }} />
-              </div>
+              <input type="text" placeholder="Describe reason..."
+                value={purposeText} onChange={e => setPurposeText(e.target.value)}
+                className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800 mt-2" style={{ borderColor: RHS_GREEN }} />
             )}
 
-            {/* Self-Checkout Mode */}
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                <button onClick={() => setSelfCheckoutMode(false)}
-                  style={{ flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600, borderRadius: 8, border: 'none', cursor: 'pointer',
-                    background: !selfCheckoutMode ? RHS_GREEN : 'white', color: !selfCheckoutMode ? 'white' : '#6b7280',
-                    outline: selfCheckoutMode ? '1px solid #d1d5db' : 'none' }}>
-                  Manual
-                </button>
-                <button onClick={() => setSelfCheckoutMode(true)}
-                  style={{ flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600, borderRadius: 8, border: 'none', cursor: 'pointer',
-                    background: selfCheckoutMode ? RHS_GREEN : 'white', color: selfCheckoutMode ? 'white' : '#6b7280',
-                    outline: !selfCheckoutMode ? '1px solid #d1d5db' : 'none' }}>
-                  Self-Checkout Mode
-                </button>
+            {/* Self-checkout toggle */}
+            <div className="mt-3 pt-3 border-t border-gray-200">
+              <div className="flex gap-2 mb-2">
+                {[{ label: 'Manual', val: false }, { label: 'Self-Checkout Mode', val: true }].map(({ label, val }) => (
+                  <button key={label} onClick={() => setSelfCheckoutMode(val)}
+                    className="flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors"
+                    style={{
+                      background: selfCheckoutMode === val ? RHS_GREEN : 'white',
+                      color: selfCheckoutMode === val ? 'white' : '#6b7280',
+                      outline: selfCheckoutMode !== val ? '1px solid #d1d5db' : 'none',
+                      border: 'none', cursor: 'pointer',
+                    }}>
+                    {label}
+                  </button>
+                ))}
               </div>
               {selfCheckoutMode && (
-                <div style={{ background: 'white', borderRadius: 12, padding: 16, border: '1px solid #e5e7eb', textAlign: 'center' }}>
-                  <div style={{ fontSize: 40, fontWeight: 900, letterSpacing: 10, color: '#1f2937', fontFamily: 'monospace', marginBottom: 4 }}>
-                    {selfCheckoutCode || '—'}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Teacher session code — tell students to go to:</div>
-                  <div style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 700, color: RHS_GREEN, marginBottom: 8 }}>
-                    hall-pass-lime.vercel.app/self-checkout
-                  </div>
+                <div className="bg-white rounded-xl p-4 border border-gray-200 text-center">
+                  <div className="text-4xl font-mono font-black tracking-widest text-gray-800 mb-1">{selfCheckoutCode || '—'}</div>
+                  <div className="text-xs text-gray-500 mb-1">Teacher session code — tell students to go to:</div>
+                  <div className="text-xs font-mono font-bold mb-3" style={{ color: RHS_GREEN }}>hall-pass-lime.vercel.app/self-checkout</div>
                   <button onClick={generateCheckoutCode}
-                    style={{ fontSize: 11, padding: '4px 12px', borderRadius: 8, border: '1px solid #d1d5db', background: 'white', cursor: 'pointer', color: '#6b7280', marginBottom: 8 }}>
+                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 mb-3">
                     🔄 Generate New Code
                   </button>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 12, color: '#374151' }}>Kiosk return required:</span>
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="text-xs text-gray-700">Kiosk return required:</span>
                     <button onClick={() => saveKioskReturn(!kioskReturnRequired)}
-                      style={{ padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                        background: kioskReturnRequired ? RHS_GREEN : '#e5e7eb', color: kioskReturnRequired ? 'white' : '#6b7280' }}>
+                      className="px-3 py-1 rounded-full text-xs font-semibold transition-colors"
+                      style={{ background: kioskReturnRequired ? RHS_GREEN : '#e5e7eb', color: kioskReturnRequired ? 'white' : '#6b7280', border: 'none', cursor: 'pointer' }}>
                       {kioskReturnRequired ? 'ON' : 'OFF'}
                     </button>
-                    {kioskReturnSaved && <span style={{ fontSize: 11, color: RHS_GREEN }}>✓ Saved</span>}
+                    {kioskReturnSaved && <span className="text-xs" style={{ color: RHS_GREEN }}>✓ Saved</span>}
                   </div>
-                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+                  <div className="text-xs text-gray-400 mt-2">
                     {kioskReturnRequired ? 'Students must scan at kiosk to return' : "Students see an \"I'm Back\" button on their device"}
                   </div>
                 </div>
@@ -1182,7 +1106,7 @@ function TeacherInner() {
           </div>
         </div>
 
-        {/* ── DIDN'T RETURN ── */}
+        {/* Didn't Return */}
         {missedPasses.length > 0 && (
           <div className="bg-white rounded-xl border border-orange-200 mb-6 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-orange-100 bg-orange-50">
@@ -1205,17 +1129,11 @@ function TeacherInner() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-800">{name}</span>
-                      <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded font-medium">
-                        P{pass.period}
-                      </span>
+                      <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded font-medium">P{pass.period}</span>
                     </div>
-                    <div className="text-xs text-gray-400">
-                      {pass.reason} · out at {timeOut} · {mins}m ago
-                    </div>
+                    <div className="text-xs text-gray-400">{pass.reason} · out at {timeOut} · {mins}m ago</div>
                   </div>
-                  <button
-                    onClick={() => handleMissedReturn(pass.id)}
-                    disabled={checkingInMissed === pass.id}
+                  <button onClick={() => handleMissedReturn(pass.id)} disabled={checkingInMissed === pass.id}
                     className="text-xs px-3 py-1.5 rounded-lg text-white font-medium disabled:opacity-50"
                     style={{ backgroundColor: RHS_GREEN }}>
                     {checkingInMissed === pass.id ? '...' : 'Check In'}
@@ -1226,6 +1144,7 @@ function TeacherInner() {
           </div>
         )}
 
+        {/* Settings */}
         {showSettings && (
           <>
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
@@ -1245,12 +1164,11 @@ function TeacherInner() {
                   <p className="text-xs text-gray-400 mb-1">Current code</p>
                   <p className="text-sm font-mono text-gray-700">{unlockCode}</p>
                   <p className="text-xs text-gray-400 mt-2">Tap Rotate Code anytime to invalidate the old one.</p>
-                  <a href="/unlock" target="_blank" className="text-xs mt-2 inline-block" style={{ color: RHS_GREEN }}>
-                    Open full-screen QR →
-                  </a>
+                  <a href="/unlock" target="_blank" className="text-xs mt-2 inline-block" style={{ color: RHS_GREEN }}>Open full-screen QR →</a>
                 </div>
               </div>
             </div>
+
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
               <div className="mb-3">
                 <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Substitute Code</p>
@@ -1259,8 +1177,7 @@ function TeacherInner() {
               <div className="flex gap-2">
                 <input type="number" maxLength={4} placeholder="New 4-digit sub code" value={newSubCode}
                   onChange={e => setNewSubCode(e.target.value.slice(0, 4))}
-                  className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }} />
+                  className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
                 <button onClick={saveSubCode} disabled={newSubCode.length !== 4}
                   className={`px-4 py-2 text-sm font-medium rounded-lg ${subCodeSaved ? 'bg-green-50 border border-green-200 text-green-700' : 'text-white disabled:opacity-30'}`}
                   style={!subCodeSaved ? { backgroundColor: RHS_GREEN } : {}}>
@@ -1268,6 +1185,7 @@ function TeacherInner() {
                 </button>
               </div>
             </div>
+
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -1288,6 +1206,7 @@ function TeacherInner() {
               </div>
               {printPassesSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
             </div>
+
             <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
               <div className="mb-3">
                 <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Keypad PIN</p>
@@ -1296,8 +1215,7 @@ function TeacherInner() {
               <div className="flex gap-2">
                 <input type="number" maxLength={4} placeholder="New 4-digit PIN" value={newPin}
                   onChange={e => setNewPin(e.target.value.slice(0, 4))}
-                  className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }} />
+                  className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
                 <button onClick={savePin} disabled={newPin.length !== 4}
                   className={`px-4 py-2 text-sm font-medium rounded-lg ${pinSaved ? 'bg-green-50 border border-green-200 text-green-700' : 'text-white disabled:opacity-30'}`}
                   style={!pinSaved ? { backgroundColor: RHS_GREEN } : {}}>
@@ -1308,6 +1226,7 @@ function TeacherInner() {
           </>
         )}
 
+        {/* Footer links */}
         <div className="flex justify-end mb-4">
           <button onClick={() => setShowSettings(s => !s)}
             className="text-xs px-3 py-1.5 border rounded-lg text-gray-500 hover:bg-gray-50">
@@ -1317,12 +1236,9 @@ function TeacherInner() {
 
         <div className="flex justify-between items-center flex-wrap gap-2">
           <a href="/admin/students" className="text-sm text-gray-400 hover:text-gray-600">Manage Students →</a>
-          <a href={`/roster?room=${currentTeacher?.room || '27'}&teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-gray-400 hover:text-gray-600">Import Roster →</a>
+          <a href={`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-gray-400 hover:text-gray-600">Import Roster →</a>
           <a href="/qr" className="text-sm text-gray-400 hover:text-gray-600">Print QR Badges →</a>
           <a href="/log" className="text-sm text-gray-400 hover:text-gray-600">Pass Log →</a>
-          {currentTeacher?.is_admin && (
-            <a href="/admin/teachers" className="text-sm text-gray-400 hover:text-gray-600">Teacher Admin →</a>
-          )}
         </div>
       </div>
     </div>
