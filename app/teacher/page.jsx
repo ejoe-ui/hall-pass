@@ -953,7 +953,7 @@ function TeacherInner() {
         <div className="flex gap-4 items-center">
           <a href="/analytics" className="text-sm text-green-200 hover:text-white">Analytics</a>
           {currentTeacher?.is_admin && (
-            <a href="/admin/teachers" className="text-sm text-green-200 hover:text-white">Teachers</a>
+            <a href="/admin" className="text-sm text-green-200 hover:text-white">Teachers</a>
           )}
           <button onClick={() => setActivePeriod(null)} className="text-sm text-green-200 hover:text-white">← Period</button>
           <button onClick={handleSignOut} className="text-sm text-green-200 hover:text-white">Sign Out</button>
