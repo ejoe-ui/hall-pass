@@ -501,7 +501,9 @@ export default function AdminPanel() {
                       </div>
                       {(form.periods || []).length > 0 && (
                         <div className="mt-3">
-                          <label className="block text-xs font-medium text-gray-600 mb-2">Kiosk Display Labels <span className="font-normal text-gray-400">(optional)</span></label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Kiosk Display Labels <span className="font-normal text-gray-400">(optional)</span></label>
+<p className="text-xs text-gray-400 mb-2">Label fields appear for each selected period</p>
+                          
                           <div className="space-y-1.5">
                             {(form.periods || []).sort().map(p => (
                               <div key={p} className="flex items-center gap-2">
