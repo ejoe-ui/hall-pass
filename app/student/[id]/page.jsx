@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, Suspense } from 'react'
-import { useParams, useSearchParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 
 const RHS_GREEN = '#006938'
@@ -44,16 +44,15 @@ function getSemesterStart() {
   return new Date(year, 0, 1)
 }
 
-// ─── NFC UID Normalization ───────────────────────────────────────────────────
-// Strips card-type prefix bytes, keeps last 6 hex chars, lowercase
-// Handles all variants: 894158fd704104, 00000000704104, fd704104, 00704104 → 704104
 function normalizeUid(uid) {
   const clean = uid.trim().toLowerCase().replace(/[^0-9a-f]/g, '')
   return clean.slice(-6)
 }
-// ─────────────────────────────────────────────────────────────────────────────
+
+const NFC_BASE_URL = 'https://ejoe-ui.github.io/rhs-flipboard/mobile.html'
+
 function NFCEnrollment({ student, onEnrolled }) {
-  const [mode, setMode] = useState('idle') // idle | listening | success | error | confirm
+  const [mode, setMode] = useState('idle')
   const [capturedUid, setCapturedUid] = useState('')
   const [saving, setSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
@@ -65,13 +64,11 @@ function NFCEnrollment({ student, onEnrolled }) {
 
   useEffect(() => {
     if (mode !== 'listening') return
-    // Focus the hidden input when listening starts
     setTimeout(() => inputRef.current?.focus(), 50)
   }, [mode])
 
   function handleKeyDown(e) {
     if (mode !== 'listening') return
-
     if (e.key === 'Enter') {
       const raw = bufferRef.current.trim()
       bufferRef.current = ''
@@ -86,17 +83,13 @@ function NFCEnrollment({ student, onEnrolled }) {
       }
       return
     }
-
-    // Accumulate characters — HID reader types fast
     bufferRef.current += e.key
-    // Reset buffer if no Enter within 500ms (stale input)
     clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => { bufferRef.current = '' }, 500)
   }
 
   async function saveUid() {
     setSaving(true)
-    // Check if UID already assigned to another student
     const { data: existing } = await supabase
       .from('students')
       .select('id, full_name')
@@ -147,19 +140,15 @@ function NFCEnrollment({ student, onEnrolled }) {
     setMode('idle')
   }
 
+  const nfcUrl = (uid) => `${NFC_BASE_URL}?uid=${uid}`
+
   return (
     <div style={{
-      marginTop: 16,
-      padding: '14px 16px',
+      marginTop: 16, padding: '14px 16px',
       background: '#f9fafb',
       border: `1px solid ${hasCard ? '#d1fae5' : '#e5e7eb'}`,
-      borderRadius: 12,
-      display: 'flex',
-      alignItems: 'center',
-      gap: 12,
-      flexWrap: 'wrap',
+      borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
     }}>
-      {/* Hidden input to capture HID keystrokes */}
       <input
         ref={inputRef}
         onKeyDown={handleKeyDown}
@@ -173,27 +162,20 @@ function NFCEnrollment({ student, onEnrolled }) {
       </div>
 
       <div style={{ flex: 1 }}>
-        {/* Idle — card enrolled */}
         {mode === 'idle' && hasCard && (
           <>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#166534' }}>NFC Card Enrolled</p>
             <p style={{ margin: '2px 0 0', fontSize: 10, color: '#6b7280', fontFamily: 'monospace', wordBreak: 'break-all', lineHeight: 1.5 }}>
-              {`https://ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${student.nfc_uid}`}
+              {nfcUrl(student.nfc_uid)}
             </p>
             <button
-              onClick={() => navigator.clipboard.writeText(`https://ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${student.nfc_uid}`)}
-              style={{
-                marginTop: 6, padding: '4px 10px', fontSize: 11, fontWeight: 500,
-                background: '#f0fdf4', color: '#166534',
-                border: '1px solid #bbf7d0', borderRadius: 6, cursor: 'pointer',
-              }}
-            >
+              onClick={() => navigator.clipboard.writeText(nfcUrl(student.nfc_uid))}
+              style={{ marginTop: 6, padding: '4px 10px', fontSize: 11, fontWeight: 500, background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: 6, cursor: 'pointer' }}>
               📋 Copy URL
             </button>
           </>
         )}
 
-        {/* Idle — no card */}
         {mode === 'idle' && !hasCard && (
           <>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#374151' }}>No NFC Card</p>
@@ -201,56 +183,35 @@ function NFCEnrollment({ student, onEnrolled }) {
           </>
         )}
 
-        {/* Listening */}
         {mode === 'listening' && (
           <>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: RHS_GREEN }}>
-              👂 Tap the NFC sticker now...
-            </p>
-            <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6b7280' }}>
-              Hold sticker to reader — will capture automatically
-            </p>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: RHS_GREEN }}>👂 Tap the NFC sticker now...</p>
+            <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6b7280' }}>Hold sticker to reader — will capture automatically</p>
           </>
         )}
 
-        {/* Confirm */}
         {mode === 'confirm' && (
           <>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#374151' }}>
-              Card detected — save this UID?
-            </p>
-            <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6b7280', fontFamily: 'monospace' }}>
-              {capturedUid}
-            </p>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#374151' }}>Card detected — save this UID?</p>
+            <p style={{ margin: '2px 0 0', fontSize: 11, color: '#6b7280', fontFamily: 'monospace' }}>{capturedUid}</p>
           </>
         )}
 
-        {/* Success */}
         {mode === 'success' && (
           <>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#166534' }}>Enrolled! Write this URL to the sticker:</p>
             <p style={{ margin: '4px 0 2px', fontSize: 10, color: '#6b7280', fontFamily: 'monospace', wordBreak: 'break-all', lineHeight: 1.5 }}>
-              {`https://ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${capturedUid}`}
+              {nfcUrl(capturedUid)}
             </p>
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(`https://ejoe-ui.github.io/rhs-flipboard/rhs-flipboard-mobile.html?uid=${capturedUid}`)
-              }}
-              style={{
-                marginTop: 6, padding: '4px 10px', fontSize: 11, fontWeight: 500,
-                background: '#f0fdf4', color: '#166534',
-                border: '1px solid #bbf7d0', borderRadius: 6, cursor: 'pointer',
-              }}
-            >
+              onClick={() => navigator.clipboard.writeText(nfcUrl(capturedUid))}
+              style={{ marginTop: 6, padding: '4px 10px', fontSize: 11, fontWeight: 500, background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', borderRadius: 6, cursor: 'pointer' }}>
               📋 Copy URL
             </button>
-            <p style={{ margin: '4px 0 0', fontSize: 10, color: '#9ca3af' }}>
-              Paste into NFC Tools for Desktop → Write → URL
-            </p>
+            <p style={{ margin: '4px 0 0', fontSize: 10, color: '#9ca3af' }}>Paste into NFC Tools for Desktop → Write → URL</p>
           </>
         )}
 
-        {/* Error */}
         {mode === 'error' && (
           <>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#dc2626' }}>Error</p>
@@ -259,65 +220,36 @@ function NFCEnrollment({ student, onEnrolled }) {
         )}
       </div>
 
-      {/* Action buttons */}
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         {mode === 'idle' && (
           <>
-            <button onClick={startListening} style={{
-              padding: '7px 14px', fontSize: 12, fontWeight: 600,
-              background: RHS_GREEN, color: 'white',
-              border: 'none', borderRadius: 8, cursor: 'pointer',
-            }}>
+            <button onClick={startListening} style={{ padding: '7px 14px', fontSize: 12, fontWeight: 600, background: RHS_GREEN, color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer' }}>
               {hasCard ? 'Re-enroll' : 'Enroll Card'}
             </button>
             {hasCard && (
-              <button onClick={removeCard} style={{
-                padding: '7px 14px', fontSize: 12, fontWeight: 500,
-                background: 'white', color: '#dc2626',
-                border: '1px solid #fca5a5', borderRadius: 8, cursor: 'pointer',
-              }}>
+              <button onClick={removeCard} style={{ padding: '7px 14px', fontSize: 12, fontWeight: 500, background: 'white', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 8, cursor: 'pointer' }}>
                 Remove
               </button>
             )}
           </>
         )}
-
         {mode === 'listening' && (
-          <button onClick={cancel} style={{
-            padding: '7px 14px', fontSize: 12,
-            background: 'white', color: '#6b7280',
-            border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer',
-          }}>
+          <button onClick={cancel} style={{ padding: '7px 14px', fontSize: 12, background: 'white', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer' }}>
             Cancel
           </button>
         )}
-
         {mode === 'confirm' && (
           <>
-            <button onClick={saveUid} disabled={saving} style={{
-              padding: '7px 14px', fontSize: 12, fontWeight: 600,
-              background: RHS_GREEN, color: 'white',
-              border: 'none', borderRadius: 8, cursor: 'pointer',
-              opacity: saving ? 0.6 : 1,
-            }}>
+            <button onClick={saveUid} disabled={saving} style={{ padding: '7px 14px', fontSize: 12, fontWeight: 600, background: RHS_GREEN, color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
               {saving ? 'Saving...' : 'Save'}
             </button>
-            <button onClick={startListening} style={{
-              padding: '7px 14px', fontSize: 12,
-              background: 'white', color: '#6b7280',
-              border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer',
-            }}>
+            <button onClick={startListening} style={{ padding: '7px 14px', fontSize: 12, background: 'white', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer' }}>
               Retry
             </button>
           </>
         )}
-
         {(mode === 'success' || mode === 'error') && (
-          <button onClick={() => setMode('idle')} style={{
-            padding: '7px 14px', fontSize: 12,
-            background: 'white', color: '#6b7280',
-            border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer',
-          }}>
+          <button onClick={() => setMode('idle')} style={{ padding: '7px 14px', fontSize: 12, background: 'white', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer' }}>
             Done
           </button>
         )}
@@ -325,14 +257,31 @@ function NFCEnrollment({ student, onEnrolled }) {
     </div>
   )
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
 function StudentDetailInner() {
   const { id } = useParams()
+  const [currentTeacher, setCurrentTeacher] = useState(null)
   const [student, setStudent] = useState(null)
+  const [photoUrl, setPhotoUrl] = useState(null)
   const [passes, setPasses] = useState([])
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState('semester')
+
+  // Load logged-in teacher
+  useEffect(() => {
+    async function loadTeacher() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const { data } = await supabase
+        .from('teachers')
+        .select('*')
+        .eq('auth_id', session.user.id)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (data) setCurrentTeacher(data)
+    }
+    loadTeacher()
+  }, [])
 
   useEffect(() => { loadData() }, [id, timeRange])
 
@@ -341,7 +290,14 @@ function StudentDetailInner() {
 
     const { data: studentData } = await supabase
       .from('students').select('*').eq('id', id).single()
-    if (studentData) setStudent(studentData)
+    if (studentData) {
+      setStudent(studentData)
+      // Load photo if available
+      if (studentData.photo_file) {
+        const { data } = supabase.storage.from('student-photos').getPublicUrl(studentData.photo_file)
+        if (data?.publicUrl) setPhotoUrl(`${data.publicUrl}?t=${Date.now()}`)
+      }
+    }
 
     let query = supabase.from('passes').select('*').eq('student_id', id).order('time_out', { ascending: false })
 
@@ -363,13 +319,8 @@ function StudentDetailInner() {
   function exportCSV() {
     const headers = ['Date', 'Reason', 'Time Out', 'Time In', 'Duration (min)', 'Period', 'Status']
     const rows = passes.map(p => [
-      fmtDate(p.time_out),
-      p.reason,
-      fmt(p.time_out),
-      fmt(p.time_in),
-      p.duration_minutes || '',
-      p.period,
-      p.time_in ? 'Returned' : 'Out'
+      fmtDate(p.time_out), p.reason, fmt(p.time_out), fmt(p.time_in),
+      p.duration_minutes || '', p.period, p.time_in ? 'Returned' : 'Out'
     ])
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
@@ -382,8 +333,7 @@ function StudentDetailInner() {
   const completed = passes.filter(p => p.duration_minutes != null)
   const totalPasses = passes.length
   const avgDuration = completed.length > 0
-    ? Math.round(completed.reduce((sum, p) => sum + p.duration_minutes, 0) / completed.length)
-    : 0
+    ? Math.round(completed.reduce((sum, p) => sum + p.duration_minutes, 0) / completed.length) : 0
   const totalMinutes = completed.reduce((sum, p) => sum + p.duration_minutes, 0)
   const longestPass = completed.length > 0 ? Math.max(...completed.map(p => p.duration_minutes)) : 0
   const overLimitCount = completed.filter(p => p.duration_minutes > 10).length
@@ -405,7 +355,15 @@ function StudentDetailInner() {
   })
   const maxDay = Math.max(...Object.values(dayCounts), 1)
 
-  const PERIODS = { '1': 'Per 1&2', '4': 'Per 4&5', '6': 'Per 6&7' }
+  const teacherRoom = currentTeacher?.room || '27'
+  const teacherName = currentTeacher?.name || 'RHS PassAble'
+
+  // Build period label from teacher's config or fallback
+  function getPeriodLabel(period) {
+    if (currentTeacher?.period_labels?.[period]) return currentTeacher.period_labels[period]
+    const defaults = { '1': 'Per 1&2', '4': 'Per 4&5', '6': 'Per 6&7' }
+    return defaults[period] || `Period ${period}`
+  }
 
   if (loading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f9fafb' }}>
@@ -436,7 +394,7 @@ function StudentDetailInner() {
           <img src="/RHSCOWBOYlogo.png" alt="RHS" style={{ width: 32, height: 32, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
           <div>
             <h1 style={{ color: 'white', fontWeight: 700, fontSize: 18, margin: 0 }}>Student Profile</h1>
-            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, margin: 0 }}>Room 27 · RHS PassAble</p>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, margin: 0 }}>Room {teacherRoom} · {teacherName}</p>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -447,16 +405,24 @@ function StudentDetailInner() {
 
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 16px' }}>
 
-        {/* Student header */}
+        {/* Student header card */}
         <div style={{ background: 'white', borderRadius: 16, padding: 24, border: '1px solid #e5e7eb', marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-            <div style={{ width: 64, height: 64, borderRadius: 16, background: RHS_GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 700, color: 'white', flexShrink: 0 }}>
-              {student.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
+
+            {/* Avatar — photo if available, initials fallback */}
+            <div style={{ width: 64, height: 64, borderRadius: 16, overflow: 'hidden', flexShrink: 0, background: RHS_GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {photoUrl
+                ? <img src={photoUrl} alt={student.full_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : <span style={{ fontSize: 22, fontWeight: 700, color: 'white' }}>
+                    {student.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                  </span>
+              }
             </div>
+
             <div style={{ flex: 1 }}>
               <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#1f2937' }}>{student.full_name}</h2>
               <p style={{ margin: '4px 0 0', fontSize: 14, color: '#6b7280' }}>
-                {PERIODS[student.period] || `Period ${student.period}`} · Room 27
+                {getPeriodLabel(student.period)} · Room {teacherRoom}
               </p>
             </div>
             <div style={{ display: 'flex', gap: 8 }} className="no-print">
@@ -469,7 +435,6 @@ function StudentDetailInner() {
             </div>
           </div>
 
-          {/* NFC Enrollment — lives inside the student card */}
           <NFCEnrollment
             student={student}
             onEnrolled={(uid) => setStudent(s => ({ ...s, nfc_uid: uid }))}
@@ -508,7 +473,6 @@ function StudentDetailInner() {
 
         {/* Reason breakdown + day pattern */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-
           <div style={{ background: 'white', borderRadius: 16, padding: 20, border: '1px solid #e5e7eb' }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 600, color: '#1f2937' }}>🎯 By Reason</h3>
             {reasonList.length === 0 ? (
@@ -535,10 +499,8 @@ function StudentDetailInner() {
                   <div style={{
                     width: '100%',
                     height: `${Math.max(4, (count / maxDay) * 80)}px`,
-                    background: RHS_GREEN,
-                    borderRadius: '4px 4px 0 0',
-                    opacity: count === 0 ? 0.15 : 1,
-                    transition: 'height 0.5s ease',
+                    background: RHS_GREEN, borderRadius: '4px 4px 0 0',
+                    opacity: count === 0 ? 0.15 : 1, transition: 'height 0.5s ease',
                   }} />
                   <div style={{ fontSize: 11, color: '#9ca3af' }}>{day}</div>
                 </div>
@@ -547,7 +509,7 @@ function StudentDetailInner() {
           </div>
         </div>
 
-        {/* Pass history table */}
+        {/* Pass history */}
         <div style={{ background: 'white', borderRadius: 16, border: '1px solid #e5e7eb', overflow: 'hidden', marginBottom: 24 }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#1f2937' }}>📋 Pass History</h3>
@@ -569,18 +531,16 @@ function StudentDetailInner() {
                   <tr key={p.id} style={{ borderBottom: i < passes.length - 1 ? '1px solid #f9fafb' : 'none' }}>
                     <td style={{ padding: '10px 16px', color: '#6b7280' }}>{fmtDate(p.time_out)}</td>
                     <td style={{ padding: '10px 16px' }}>
-                      <span style={{
-                        display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 12, fontWeight: 500,
-                        background: `${getReasonColor(p.reason)}18`,
-                        color: getReasonColor(p.reason),
-                      }}>{p.reason}</span>
+                      <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 12, fontWeight: 500, background: `${getReasonColor(p.reason)}18`, color: getReasonColor(p.reason) }}>
+                        {p.reason}
+                      </span>
                     </td>
                     <td style={{ padding: '10px 16px', color: '#6b7280' }}>{fmt(p.time_out)}</td>
                     <td style={{ padding: '10px 16px', color: '#6b7280' }}>{fmt(p.time_in)}</td>
                     <td style={{ padding: '10px 16px', fontWeight: 600, color: p.duration_minutes > 10 ? '#EF4444' : '#374151' }}>
                       {p.duration_minutes ? `${p.duration_minutes}m` : '—'}
                     </td>
-                    <td style={{ padding: '10px 16px', color: '#6b7280' }}>{PERIODS[p.period] || p.period}</td>
+                    <td style={{ padding: '10px 16px', color: '#6b7280' }}>{getPeriodLabel(p.period)}</td>
                     <td style={{ padding: '10px 16px' }}>
                       {p.time_in
                         ? <span style={{ padding: '2px 8px', background: '#f0fdf4', color: '#166534', borderRadius: 6, fontSize: 12, fontWeight: 500 }}>Returned</span>
