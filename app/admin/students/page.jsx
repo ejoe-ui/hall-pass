@@ -3,19 +3,24 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../../lib/supabase'
 
 const RHS_GREEN = '#006938'
-const PERIODS = [
+
+const DEFAULT_PERIODS = [
   { label: 'Periods 1 & 2', value: '1' },
   { label: 'Periods 4 & 5', value: '4' },
   { label: 'Periods 6 & 7', value: '6' },
 ]
 
 export default function StudentsAdmin() {
-  const [activePeriod, setActivePeriod] = useState('1')
+  const [currentTeacher, setCurrentTeacher] = useState(null)
+  const [periods, setPeriods] = useState(DEFAULT_PERIODS)
+  const [room, setRoom] = useState('27')
+
+  const [activePeriod, setActivePeriod] = useState(null)
   const [students, setStudents] = useState([])
   const [loading, setLoading] = useState(false)
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  const [addPeriod, setAddPeriod] = useState('1')
+  const [addPeriod, setAddPeriod] = useState(null)
   const [addId, setAddId] = useState('')
   const [adding, setAdding] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(null)
@@ -29,7 +34,44 @@ export default function StudentsAdmin() {
   const [photoUrl, setPhotoUrl] = useState(null)
   const photoRef = useRef()
 
-  useEffect(() => { loadStudents() }, [activePeriod])
+  // Load teacher on mount
+  useEffect(() => {
+    async function loadTeacher() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const { data } = await supabase
+        .from('teachers')
+        .select('*')
+        .eq('auth_id', session.user.id)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (data) {
+        setCurrentTeacher(data)
+        const teacherRoom = data.room || '27'
+        setRoom(teacherRoom)
+
+        // Build period list from teacher's configured periods
+        if (data.periods?.length) {
+          const sorted = [...data.periods].sort()
+          const builtPeriods = sorted.map(p => ({
+            value: p,
+            label: data.period_labels?.[p] || `Period ${p}`,
+          }))
+          setPeriods(builtPeriods)
+          setActivePeriod(sorted[0])
+          setAddPeriod(sorted[0])
+        } else {
+          setActivePeriod('1')
+          setAddPeriod('1')
+        }
+      }
+    }
+    loadTeacher()
+  }, [])
+
+  useEffect(() => {
+    if (activePeriod && room) loadStudents()
+  }, [activePeriod, room])
 
   async function loadStudents() {
     setLoading(true)
@@ -37,7 +79,7 @@ export default function StudentsAdmin() {
       .from('student_periods')
       .select('student_id')
       .eq('period', activePeriod)
-      .eq('room', '27')
+      .eq('room', room)
     const studentIds = spRows?.map(r => r.student_id) || []
     if (studentIds.length === 0) {
       setStudents([])
@@ -70,7 +112,7 @@ export default function StudentsAdmin() {
     })
     if (!error) {
       await supabase.from('student_periods').insert({
-        student_id: id, period: addPeriod, room: '27'
+        student_id: id, period: addPeriod, room
       })
       setFirstName(''); setLastName(''); setAddId('')
       if (addPeriod === activePeriod) loadStudents()
@@ -79,20 +121,17 @@ export default function StudentsAdmin() {
   }
 
   async function removeStudent(studentId) {
-    // Remove only from current period, not from all periods
     await supabase.from('student_periods')
       .delete()
       .eq('student_id', studentId)
       .eq('period', activePeriod)
-      .eq('room', '27')
+      .eq('room', room)
 
-    // Check if student has any remaining period assignments
     const { data: remaining } = await supabase
       .from('student_periods')
       .select('id')
       .eq('student_id', studentId)
 
-    // Only delete student record entirely if no periods remain
     if (!remaining || remaining.length === 0) {
       await supabase.from('students').delete().eq('id', studentId)
     }
@@ -107,7 +146,7 @@ export default function StudentsAdmin() {
       .select('id')
       .eq('student_id', studentId)
       .eq('period', activePeriod)
-      .eq('room', '27')
+      .eq('room', room)
       .maybeSingle()
 
     if (existing) {
@@ -116,7 +155,7 @@ export default function StudentsAdmin() {
         .eq('id', existing.id)
     } else {
       await supabase.from('student_periods').insert({
-        student_id: studentId, period: newPeriod, room: '27'
+        student_id: studentId, period: newPeriod, room
       })
     }
     await supabase.from('students').update({ period: newPeriod }).eq('id', studentId)
@@ -139,12 +178,10 @@ export default function StudentsAdmin() {
     const newId = editId.trim()
 
     if (newId && newId !== editStudent.id) {
-      // If photo was named after old ID, point reference to new ID
       let photoFile = editStudent.photo_file || null
       if (photoFile && photoFile.startsWith(editStudent.id)) {
         photoFile = newId + '.jpg'
       }
-      // Step 1: Insert new student row with correct ID
       await supabase.from('students').insert({
         id: newId,
         first_name: editFirst.trim(),
@@ -154,20 +191,16 @@ export default function StudentsAdmin() {
         nfc_uid: editStudent.nfc_uid || null,
         photo_file: photoFile,
       })
-      // Step 2: Get all existing period assignments for old ID
       const { data: oldPeriods } = await supabase
         .from('student_periods')
         .select('period, room')
         .eq('student_id', editStudent.id)
-      // Step 3: Insert new student_periods rows for new ID
       if (oldPeriods && oldPeriods.length > 0) {
         await supabase.from('student_periods').insert(
           oldPeriods.map(p => ({ student_id: newId, period: p.period, room: p.room }))
         )
       }
-      // Step 4: Delete old student_periods rows
       await supabase.from('student_periods').delete().eq('student_id', editStudent.id)
-      // Step 5: Delete old student row
       await supabase.from('students').delete().eq('id', editStudent.id)
     } else {
       await supabase.from('students').update({
@@ -199,6 +232,14 @@ export default function StudentsAdmin() {
     setPhotoUploading(false)
   }
 
+  const teacherName = currentTeacher?.name || 'Loading...'
+
+  if (!activePeriod) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="w-6 h-6 border-2 border-gray-300 rounded-full animate-spin" style={{ borderTopColor: RHS_GREEN }} />
+    </div>
+  )
+
   return (
     <div className="min-h-screen bg-gray-50">
 
@@ -214,7 +255,6 @@ export default function StudentsAdmin() {
               <button onClick={() => setEditStudent(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
 
-            {/* Show Aeries ID field only for auto-generated IDs */}
             {editStudent.id?.startsWith('NEW') && (
               <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
                 <label className="text-xs text-amber-700 font-medium mb-1 block">⚠ Set Aeries Student ID</label>
@@ -287,12 +327,13 @@ export default function StudentsAdmin() {
         </div>
       )}
 
+      {/* Header */}
       <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
         <div className="flex items-center gap-3">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
           <div>
             <h1 className="text-lg font-bold text-white">Student Management</h1>
-            <p className="text-green-200 text-xs">Room 27 · Mr. Joe</p>
+            <p className="text-green-200 text-xs">Room {room} · {teacherName}</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -322,7 +363,7 @@ export default function StudentsAdmin() {
             <select value={addPeriod} onChange={e => setAddPeriod(e.target.value)}
               className="p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
               style={{ borderColor: RHS_GREEN }}>
-              {PERIODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+              {periods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
             <button onClick={addStudent} disabled={adding || !firstName.trim() || !lastName.trim()}
               className="px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-30"
@@ -337,7 +378,7 @@ export default function StudentsAdmin() {
         <div className="bg-white rounded-xl border border-gray-200">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <div className="flex gap-2">
-              {PERIODS.map(p => (
+              {periods.map(p => (
                 <button key={p.value} onClick={() => setActivePeriod(p.value)}
                   className="px-3 py-1.5 text-xs font-medium rounded-lg border"
                   style={activePeriod === p.value
@@ -382,7 +423,7 @@ export default function StudentsAdmin() {
                     onChange={e => movePeriod(s.id, e.target.value)}
                     className="text-xs border rounded-lg p-1 text-gray-600 bg-white"
                     style={{ borderColor: '#e5e7eb' }}>
-                    {PERIODS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                    {periods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
                   </select>
                   <button onClick={() => openEdit(s)}
                     className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
