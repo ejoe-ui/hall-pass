@@ -379,8 +379,11 @@ function TeacherInner() {
 
   async function handleSendMagicLink() {
     setSigningIn(true); setAuthError('')
-    const DEMO_EMAILS = ['connect.joe@gmail.com'];
-    if (!email.endsWith('@rjusd.org') && !DEMO_EMAILS.includes(email)) { setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return } setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return }
+    if (!email.endsWith('@rjusd.org') && email !== 'connect.joe@gmail.com') {
+      setAuthError('Only @rjusd.org accounts are allowed.')
+      setSigningIn(false)
+      return
+    }
     const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' } })
     if (error) setAuthError('Could not send link. Try again.')
     else { setMagicSent(true); setMagicEmail(email) }
@@ -389,8 +392,11 @@ function TeacherInner() {
 
   async function handlePasswordSignIn() {
     setSigningIn(true); setAuthError('')
-    const DEMO_EMAILS = ['connect.joe@gmail.com'];
-    if (!email.endsWith('@rjusd.org') && !DEMO_EMAILS.includes(email)) { setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return } setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return }
+    if (!email.endsWith('@rjusd.org') && email !== 'connect.joe@gmail.com') {
+      setAuthError('Only @rjusd.org accounts are allowed.')
+      setSigningIn(false)
+      return
+    }
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) setAuthError('Invalid email or password.')
     setSigningIn(false)
@@ -620,7 +626,6 @@ function TeacherInner() {
   const teacherDisplayName = currentTeacher?.name || session?.user?.email?.split('@')[0] || 'Teacher'
   const teacherRoom = currentTeacher?.room || '27'
 
-  // Period selector — use teacher's configured periods if available, else default block schedule
   const periods = currentTeacher?.periods?.length
     ? currentTeacher.periods.sort().map(p => ({
         value: p,
@@ -634,14 +639,12 @@ function TeacherInner() {
 
   const periodLabel = periods.find(p => p.value === activePeriod)?.label || `Period ${activePeriod}`
 
-  // ── Render: loading ─────────────────────────────────────────────────────────
   if (authLoading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="w-6 h-6 border-2 border-gray-300 rounded-full animate-spin" style={{ borderTopColor: RHS_GREEN }} />
     </div>
   )
 
-  // ── Render: sign in ─────────────────────────────────────────────────────────
   if (!session) {
     if (magicSent) return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
@@ -723,7 +726,6 @@ function TeacherInner() {
     )
   }
 
-  // ── Render: period select ───────────────────────────────────────────────────
   if (!activePeriod) return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
@@ -743,11 +745,9 @@ function TeacherInner() {
     </div>
   )
 
-  // ── Render: main dashboard ──────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* Pull Pass Modal */}
       {showPullPass && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl">
@@ -804,7 +804,6 @@ function TeacherInner() {
         </div>
       )}
 
-      {/* Late Pass Modal */}
       {showLatePass && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl">
@@ -871,7 +870,6 @@ function TeacherInner() {
         </div>
       )}
 
-      {/* Header */}
       <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
         <div className="flex items-center gap-3">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
@@ -892,7 +890,6 @@ function TeacherInner() {
 
       <div className="p-6 max-w-3xl mx-auto">
 
-        {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6">
           {[
             { label: 'Currently Out', value: activePasses.length, color: activePasses.length > 0 ? 'text-red-500' : 'text-green-600' },
@@ -906,7 +903,6 @@ function TeacherInner() {
           ))}
         </div>
 
-        {/* Held passes */}
         {heldPasses.length > 0 && (
           <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
             <div className="px-4 py-2 bg-amber-100 border-b border-amber-200">
@@ -935,7 +931,6 @@ function TeacherInner() {
           </div>
         )}
 
-        {/* Alerts */}
         {activePasses.length >= 2 && (
           <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
             ⚠ {activePasses.length} students out simultaneously: {activePasses.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')}
@@ -947,7 +942,6 @@ function TeacherInner() {
           </div>
         )}
 
-        {/* Students Out */}
         <div className="bg-white rounded-xl border border-gray-200 mb-6">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <span className="text-sm font-medium" style={{ color: RHS_GREEN }}>Students Out</span>
@@ -999,7 +993,6 @@ function TeacherInner() {
             )
           })}
 
-          {/* Checkout form */}
           <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl">
             <div className="text-xs font-medium text-gray-500 mb-2">Check out a student</div>
             <div className="flex gap-2 mb-2">
@@ -1065,7 +1058,6 @@ function TeacherInner() {
                 className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800 mt-2" style={{ borderColor: RHS_GREEN }} />
             )}
 
-            {/* Self-checkout toggle */}
             <div className="mt-3 pt-3 border-t border-gray-200">
               <div className="flex gap-2 mb-2">
                 {[{ label: 'Manual', val: false }, { label: 'Self-Checkout Mode', val: true }].map(({ label, val }) => (
@@ -1108,7 +1100,6 @@ function TeacherInner() {
           </div>
         </div>
 
-        {/* Didn't Return */}
         {missedPasses.length > 0 && (
           <div className="bg-white rounded-xl border border-orange-200 mb-6 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-orange-100 bg-orange-50">
@@ -1146,7 +1137,6 @@ function TeacherInner() {
           </div>
         )}
 
-        {/* Settings */}
         {showSettings && (
           <>
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
@@ -1228,7 +1218,6 @@ function TeacherInner() {
           </>
         )}
 
-        {/* Footer links */}
         <div className="flex justify-end mb-4">
           <button onClick={() => setShowSettings(s => !s)}
             className="text-xs px-3 py-1.5 border rounded-lg text-gray-500 hover:bg-gray-50">
