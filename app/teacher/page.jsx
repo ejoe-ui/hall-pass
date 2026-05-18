@@ -1248,6 +1248,7 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
           <a href="/qr" className="text-sm text-gray-400 hover:text-gray-600">Print QR Badges →</a>
           <a href="/log" className="text-sm text-gray-400 hover:text-gray-600">Pass Log →</a>
           <a href="/teacher/dnlo" className="text-sm text-gray-400 hover:text-gray-600">Do Not Let Out →</a>
+          <a href={`/kiosk?room=${teacherRoom}`} className="text-sm text-gray-400 hover:text-gray-600">Open Kiosk →</a>
         </div>
       </div>
     </div>
