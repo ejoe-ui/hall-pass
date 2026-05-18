@@ -306,6 +306,7 @@ function TeacherInner() {
   const [printPasses, setPrintPasses] = useState(false)
   const [printPassesSaved, setPrintPassesSaved] = useState(false)
   const [rotating, setRotating] = useState(false)
+  const [teacherDnloList, setTeacherDnloList] = useState([])
   const [rotated, setRotated] = useState(false)
 
   const prevHeldIds = useRef([])
