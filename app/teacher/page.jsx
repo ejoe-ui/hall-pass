@@ -229,7 +229,6 @@ function printPullPass({ studentName, fromTeacher, purpose, timeIssued, issuedBy
 }
 
 async function notifyReceivingTeacher({ toTeacher, studentName, issuedBy, timeIssued, passUrl }) {
-  // Stub — wire up email notifications in fall build
   console.log('[PassAble] Late pass notification:', {
     to: `${toTeacher.toLowerCase().replace(/\s+/g, '.')}@rjusd.org`,
     subject: `Late Pass — ${studentName} heading your way`,
@@ -266,8 +265,8 @@ function TeacherInner() {
   const [missedPasses, setMissedPasses] = useState([])
   const [checkingInMissed, setCheckingInMissed] = useState(null)
   const [dnloList, setDnloList] = useState([])
-  const [students, setStudents] = useState({})       // map by id
-  const [allStudents, setAllStudents] = useState([]) // sorted array
+  const [students, setStudents] = useState({})
+  const [allStudents, setAllStudents] = useState([])
   const [now, setNow] = useState(Date.now())
 
   // Checkout form
@@ -279,7 +278,11 @@ function TeacherInner() {
 
   // Modals
   const [showLatePass, setShowLatePass] = useState(false)
-  const [lateStudent, setLateStudent] = useState('')
+  // lateStudents: array of { id: string|null, name: string, isOther: boolean }
+  const [lateStudents, setLateStudents] = useState([])
+  const [lateSearchInput, setLateSearchInput] = useState('')
+  const [lateSearchOpen, setLateSearchOpen] = useState(false)
+  const lateSearchRef = useRef(null)
   const [lateTeacher, setLateTeacher] = useState('')
   const [lateReason, setLateReason] = useState('')
   const [issuingLatePass, setIssuingLatePass] = useState(false)
@@ -311,6 +314,17 @@ function TeacherInner() {
 
   const prevHeldIds = useRef([])
   const prevActiveIds = useRef([])
+
+  // ── Close late pass search on outside click ─────────────────────────────────
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (lateSearchRef.current && !lateSearchRef.current.contains(e.target)) {
+        setLateSearchOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // ── Auth effects ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -503,12 +517,12 @@ function TeacherInner() {
     }
     if (dnlo) setDnloList(dnlo.map(d => d.student_id))
     const { data: teacherDnlo } = await supabase
-  .from('do_not_let_out')
-  .select('student_id')
-  .eq('active', true)
-  .eq('scope', 'teacher')
-  .eq('created_by', currentTeacher?.id || '')
-if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
+      .from('do_not_let_out')
+      .select('student_id')
+      .eq('active', true)
+      .eq('scope', 'teacher')
+      .eq('created_by', currentTeacher?.id || '')
+    if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
 
     await loadMissedPasses(activePeriod)
   }
@@ -603,28 +617,64 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
     loadData()
   }
 
+  // ── Late pass — supports multiple students ─────────────────────────────────
   async function handleIssueLatePass() {
-    if (!lateStudent || !lateTeacher) return
+    if (lateStudents.length === 0 || !lateTeacher) return
     setIssuingLatePass(true)
     const issuedBy = currentTeacher?.name || session?.user?.email?.split('@')[0] || 'Teacher'
     const room = currentTeacher?.room || '27'
     const now = new Date()
     const timeIssued = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
       ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    const { data: passData } = await supabase.from('passes').insert({
-      student_id: lateStudent, reason: `Late Pass → ${lateTeacher}`,
-      room, period: activePeriod, teacher_id: currentTeacher?.id || null,
-      time_out: now.toISOString(), time_in: now.toISOString(), duration_minutes: 0, pass_type: 'late_pass',
-    }).select().single()
-    const studentName = allStudents.find(s => s.id === lateStudent)?.full_name || 'Student'
-    const passUrl = passData?.id ? `${window.location.origin}/pass/${passData.id}` : window.location.origin
-    printLatePass({ studentName, toTeacher: lateTeacher, timeIssued, lateReason, issuedBy, room })
-    await notifyReceivingTeacher({ toTeacher: lateTeacher, studentName, issuedBy, timeIssued, passUrl })
-    setLatePassSuccess({ studentName, toTeacher: lateTeacher })
+
+    for (const student of lateStudents) {
+      const studentName = student.name
+      if (!student.isOther) {
+        await supabase.from('passes').insert({
+          student_id: student.id, reason: `Late Pass → ${lateTeacher}`,
+          room, period: activePeriod, teacher_id: currentTeacher?.id || null,
+          time_out: now.toISOString(), time_in: now.toISOString(), duration_minutes: 0, pass_type: 'late_pass',
+        })
+      }
+      printLatePass({ studentName, toTeacher: lateTeacher, timeIssued, lateReason, issuedBy, room })
+      await notifyReceivingTeacher({ toTeacher: lateTeacher, studentName, issuedBy, timeIssued, passUrl: window.location.origin })
+    }
+
+    const names = lateStudents.map(s => s.name).join(', ')
+    setLatePassSuccess({ studentName: names, toTeacher: lateTeacher })
     setIssuingLatePass(false)
-    setLateStudent(''); setLateTeacher(''); setLateReason('')
+    setLateStudents([]); setLateTeacher(''); setLateReason(''); setLateSearchInput('')
     loadData()
     setTimeout(() => { setLatePassSuccess(null); setShowLatePass(false) }, 4000)
+  }
+
+  // ── Late pass tag input helpers ────────────────────────────────────────────
+  function addLateStudent(student) {
+    if (lateStudents.find(x => x.id === student.id)) return
+    setLateStudents(prev => [...prev, { id: student.id, name: student.full_name, isOther: false }])
+    setLateSearchInput('')
+    setLateSearchOpen(false)
+  }
+
+  function addLateStudentOther(name) {
+    const trimmed = name.trim()
+    if (!trimmed || lateStudents.find(x => x.name === trimmed)) return
+    setLateStudents(prev => [...prev, { id: null, name: trimmed, isOther: true }])
+    setLateSearchInput('')
+    setLateSearchOpen(false)
+  }
+
+  function removeLateStudent(key) {
+    setLateStudents(prev => prev.filter(x => (x.id || x.name) !== key))
+  }
+
+  function resetLatePass() {
+    setShowLatePass(false)
+    setLateStudents([])
+    setLateSearchInput('')
+    setLateSearchOpen(false)
+    setLateTeacher('')
+    setLateReason('')
   }
 
   // ── Derived ─────────────────────────────────────────────────────────────────
@@ -646,6 +696,16 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
       ]
 
   const periodLabel = periods.find(p => p.value === activePeriod)?.label || `Period ${activePeriod}`
+
+  // ── Filtered students for late pass search ─────────────────────────────────
+  const lateSearchFiltered = lateSearchInput.trim().length > 0
+    ? allStudents
+        .filter(s =>
+          s.full_name.toLowerCase().includes(lateSearchInput.trim().toLowerCase()) &&
+          !lateStudents.find(x => x.id === s.id)
+        )
+        .slice(0, 6)
+    : []
 
   if (authLoading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -756,6 +816,7 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
   return (
     <div className="min-h-screen bg-gray-50">
 
+      {/* ── Pull Pass Modal ── */}
       {showPullPass && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl">
@@ -812,6 +873,7 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
         </div>
       )}
 
+      {/* ── Late Pass Modal ── */}
       {showLatePass && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl">
@@ -820,9 +882,10 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
                 <h2 className="text-lg font-semibold text-gray-800">Issue Late Pass</h2>
                 <p className="text-xs text-gray-400">Student will not return to Room {teacherRoom}</p>
               </div>
-              <button onClick={() => { setShowLatePass(false); setLateStudent(''); setLateTeacher(''); setLateReason('') }}
+              <button onClick={resetLatePass}
                 className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
+
             {latePassSuccess ? (
               <div className="text-center py-4">
                 <div className="text-4xl mb-2">🖨️</div>
@@ -832,15 +895,85 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
             ) : (
               <>
                 <div className="flex flex-col gap-3 mb-4">
-                  <div>
-                    <label className="text-xs text-gray-500 font-medium mb-1 block">Student</label>
-                    <select value={lateStudent} onChange={e => setLateStudent(e.target.value)}
-                      className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
-                      style={{ borderColor: RHS_GREEN }}>
-                      <option value="">— Select student —</option>
-                      {allStudents.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-                    </select>
+
+                  {/* ── Student tag input ── */}
+                  <div ref={lateSearchRef}>
+                    <label className="text-xs text-gray-500 font-medium mb-1 block">Students</label>
+
+                    {/* Chips */}
+                    {lateStudents.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {lateStudents.map((s) => (
+                          <span
+                            key={s.id || s.name}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+                            style={{
+                              backgroundColor: s.isOther ? '#f3f4f6' : '#dcfce7',
+                              color: s.isOther ? '#374151' : RHS_GREEN,
+                              border: `1px solid ${s.isOther ? '#d1d5db' : '#86efac'}`,
+                            }}>
+                            {s.isOther && <span className="opacity-40 mr-0.5">✎</span>}
+                            {s.name}
+                            <button
+                              onClick={() => removeLateStudent(s.id || s.name)}
+                              className="ml-0.5 hover:opacity-60 leading-none font-bold">
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Search input */}
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder={lateStudents.length === 0 ? 'Search student or type name…' : 'Add another…'}
+                        value={lateSearchInput}
+                        onChange={e => { setLateSearchInput(e.target.value); setLateSearchOpen(true) }}
+                        onFocus={() => setLateSearchOpen(true)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && lateSearchInput.trim()) {
+                            const match = lateSearchFiltered[0]
+                            if (match) {
+                              addLateStudent(match)
+                            } else {
+                              addLateStudentOther(lateSearchInput)
+                            }
+                          }
+                          if (e.key === 'Escape') setLateSearchOpen(false)
+                        }}
+                        className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
+                        style={{ borderColor: RHS_GREEN }}
+                      />
+
+                      {/* Dropdown */}
+                      {lateSearchOpen && lateSearchInput.trim().length > 0 && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                          {lateSearchFiltered.map(s => (
+                            <button
+                              key={s.id}
+                              onMouseDown={e => e.preventDefault()}
+                              onClick={() => addLateStudent(s)}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-green-50 text-gray-800 transition-colors">
+                              {s.full_name}
+                            </button>
+                          ))}
+                          {/* Other / freeform option */}
+                          {lateSearchInput.trim().length > 1 && (
+                            <button
+                              onMouseDown={e => e.preventDefault()}
+                              onClick={() => addLateStudentOther(lateSearchInput)}
+                              className="w-full text-left px-3 py-2 text-sm text-gray-400 hover:bg-gray-50 border-t border-gray-100 italic transition-colors">
+                              ✎ Add &ldquo;{lateSearchInput.trim()}&rdquo; as other
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Reporting To */}
                   <div>
                     <label className="text-xs text-gray-500 font-medium mb-1 block">Reporting To</label>
                     <select value={lateTeacher} onChange={e => setLateTeacher(e.target.value)}
@@ -850,6 +983,8 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
                       {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
+
+                  {/* Reason */}
                   <div>
                     <label className="text-xs text-gray-500 font-medium mb-1 block">Reason for Lateness</label>
                     <input type="text" placeholder="e.g. finishing assignment, helping in class..."
@@ -858,16 +993,26 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
                       style={{ borderColor: RHS_GREEN }} />
                   </div>
                 </div>
+
                 <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-4 text-xs text-blue-700">
-                  A receipt will print and the receiving teacher will be notified.
+                  {lateStudents.length > 1
+                    ? `${lateStudents.length} passes will print — one per student.`
+                    : 'A receipt will print and the receiving teacher will be notified.'}
                 </div>
+
                 <div className="flex gap-3">
-                  <button onClick={handleIssueLatePass} disabled={!lateStudent || !lateTeacher || issuingLatePass}
+                  <button
+                    onClick={handleIssueLatePass}
+                    disabled={lateStudents.length === 0 || !lateTeacher || issuingLatePass}
                     className="flex-1 py-3 text-white text-sm font-semibold rounded-xl disabled:opacity-30"
                     style={{ backgroundColor: RHS_GREEN }}>
-                    {issuingLatePass ? 'Issuing...' : '🖨️ Print & Issue'}
+                    {issuingLatePass
+                      ? 'Issuing...'
+                      : lateStudents.length > 1
+                        ? `🖨️ Print ${lateStudents.length} Passes`
+                        : '🖨️ Print & Issue'}
                   </button>
-                  <button onClick={() => { setShowLatePass(false); setLateStudent(''); setLateTeacher(''); setLateReason('') }}
+                  <button onClick={resetLatePass}
                     className="flex-1 py-3 border border-gray-200 text-gray-600 text-sm rounded-xl hover:bg-gray-50">
                     Cancel
                   </button>
@@ -878,6 +1023,7 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
         </div>
       )}
 
+      {/* ── Header ── */}
       <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
         <div className="flex items-center gap-3">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
@@ -898,6 +1044,7 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
 
       <div className="p-6 max-w-3xl mx-auto">
 
+        {/* ── Stats ── */}
         <div className="grid grid-cols-3 gap-4 mb-6">
           {[
             { label: 'Currently Out', value: activePasses.length, color: activePasses.length > 0 ? 'text-red-500' : 'text-green-600' },
@@ -911,6 +1058,7 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
           ))}
         </div>
 
+        {/* ── Held passes ── */}
         {heldPasses.length > 0 && (
           <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
             <div className="px-4 py-2 bg-amber-100 border-b border-amber-200">
@@ -939,6 +1087,7 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
           </div>
         )}
 
+        {/* ── Alerts ── */}
         {activePasses.length >= 2 && (
           <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
             ⚠ {activePasses.length} students out simultaneously: {activePasses.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')}
@@ -950,6 +1099,7 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
           </div>
         )}
 
+        {/* ── Students Out card ── */}
         <div className="bg-white rounded-xl border border-gray-200 mb-6">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <span className="text-sm font-medium" style={{ color: RHS_GREEN }}>Students Out</span>
@@ -1001,6 +1151,7 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
             )
           })}
 
+          {/* ── Checkout form ── */}
           <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl">
             <div className="text-xs font-medium text-gray-500 mb-2">Check out a student</div>
             <div className="flex gap-2 mb-2">
@@ -1117,6 +1268,7 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
           </div>
         </div>
 
+        {/* ── Missed passes ── */}
         {missedPasses.length > 0 && (
           <div className="bg-white rounded-xl border border-orange-200 mb-6 overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-orange-100 bg-orange-50">
@@ -1154,6 +1306,7 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
           </div>
         )}
 
+        {/* ── Settings ── */}
         {showSettings && (
           <>
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
@@ -1178,31 +1331,32 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
               </div>
             </div>
 
-<div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
-  <div className="mb-3">
-    <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Kiosk URL</p>
-    <p className="text-xs text-gray-400">Share this URL to set up your classroom kiosk on any device</p>
-  </div>
-  <div className="bg-gray-50 rounded-lg px-3 py-2 font-mono text-xs text-gray-700 mb-3 break-all">
-    {`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`}
-  </div>
-  <div className="flex gap-2 flex-wrap">
-    <button
-      onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`)}
-      className="text-xs px-3 py-1.5 rounded-lg font-medium text-white"
-      style={{ backgroundColor: RHS_GREEN }}>
-      📋 Copy URL
-    </button>
-    <button
-      onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`)}
-      className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">
-      📲 Copy for NFC Tag
-    </button>
-  </div>
-  <div className="mt-3 p-3 bg-green-50 border border-green-100 rounded-lg text-xs text-green-700">
-    💡 To write to an NFC sticker: open <strong>NFC Tools for Desktop</strong> → Write → URL → paste the URL above. Tap the sticker on the kiosk computer to launch instantly.
-  </div>
-</div>
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="mb-3">
+                <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Kiosk URL</p>
+                <p className="text-xs text-gray-400">Share this URL to set up your classroom kiosk on any device</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg px-3 py-2 font-mono text-xs text-gray-700 mb-3 break-all">
+                {`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`)}
+                  className="text-xs px-3 py-1.5 rounded-lg font-medium text-white"
+                  style={{ backgroundColor: RHS_GREEN }}>
+                  📋 Copy URL
+                </button>
+                <button
+                  onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`)}
+                  className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">
+                  📲 Copy for NFC Tag
+                </button>
+              </div>
+              <div className="mt-3 p-3 bg-green-50 border border-green-100 rounded-lg text-xs text-green-700">
+                💡 To write to an NFC sticker: open <strong>NFC Tools for Desktop</strong> → Write → URL → paste the URL above. Tap the sticker on the kiosk computer to launch instantly.
+              </div>
+            </div>
+
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
               <div className="mb-3">
                 <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Substitute Code</p>
