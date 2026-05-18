@@ -36,6 +36,7 @@ export default function AdminPanel() {
   // ── Pass log ──────────────────────────────────────────────────────────────
   const [passes, setPasses] = useState([])
   const [logFilter, setLogFilter] = useState('today')
+  const [checkingIn, setCheckingIn] = useState(null)
 
   // ── Conflict groups ───────────────────────────────────────────────────────
   const [groups, setGroups] = useState([])
@@ -212,6 +213,18 @@ export default function AdminPanel() {
     const studMap = {}
     if (studs) studs.forEach(s => studMap[s.id] = s.full_name)
     setPasses(passData.map(p => ({ ...p, students: { full_name: studMap[p.student_id] || 'Unknown' } })))
+  }
+
+  async function checkInPass(passId) {
+    setCheckingIn(passId)
+    const pass = passes.find(p => p.id === passId)
+    const mins = pass ? Math.floor((new Date() - new Date(pass.time_out)) / 60000) : 0
+    await supabase.from('passes').update({
+      time_in: new Date().toISOString(),
+      duration_minutes: mins,
+    }).eq('id', passId)
+    setCheckingIn(null)
+    loadPasses()
   }
 
   // ── Conflict group functions ──────────────────────────────────────────────
@@ -501,9 +514,8 @@ export default function AdminPanel() {
                       </div>
                       {(form.periods || []).length > 0 && (
                         <div className="mt-3">
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Kiosk Display Labels <span className="font-normal text-gray-400">(optional)</span></label>
-<p className="text-xs text-gray-400 mb-2">Label fields appear for each selected period</p>
-                          
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Kiosk Display Labels <span className="font-normal text-gray-400">(optional)</span></label>
+                          <p className="text-xs text-gray-400 mb-2">Label fields appear for each selected period</p>
                           <div className="space-y-1.5">
                             {(form.periods || []).sort().map(p => (
                               <div key={p} className="flex items-center gap-2">
@@ -796,7 +808,8 @@ export default function AdminPanel() {
               {passes.length === 0 ? (
                 <div className="p-8 text-center text-gray-400 text-sm">No passes found</div>
               ) : passes.map(p => {
-                const duration = p.duration_minutes != null ? `${p.duration_minutes}m` : p.time_in ? '—' : 'Out'
+                const isOut = !p.time_in
+                const duration = p.duration_minutes != null ? `${p.duration_minutes}m` : isOut ? 'Out' : '—'
                 return (
                   <div key={p.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
                     <div className="flex-1">
@@ -805,7 +818,18 @@ export default function AdminPanel() {
                         {p.reason} · Period {p.period} · {new Date(p.time_out).toLocaleDateString()} {new Date(p.time_out).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
                       </div>
                     </div>
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${p.time_in ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>{duration}</span>
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${p.time_in ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                      {duration}
+                    </span>
+                    {isOut && (
+                      <button
+                        onClick={() => checkInPass(p.id)}
+                        disabled={checkingIn === p.id}
+                        className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-40"
+                        style={{ backgroundColor: RHS_GREEN }}>
+                        {checkingIn === p.id ? '...' : 'Check In'}
+                      </button>
+                    )}
                   </div>
                 )
               })}
