@@ -21,8 +21,6 @@ const PASS_LIMIT = 3
 const MAX_PIN_ATTEMPTS = 3
 const LOCKOUT_SECONDS = 60
 
-// Periods are loaded dynamically from teacher settings
-// Fallback used only if teacher record not found
 const DEFAULT_PERIODS = [
   { label: 'Period 1', value: '1' },
   { label: 'Period 2', value: '2' },
@@ -194,9 +192,7 @@ function PassQRCode({ passId, studentName, reason, onDismiss }) {
           </svg>
           <span className="absolute inset-0 flex items-center justify-center text-white text-sm font-bold">{countdown}</span>
         </div>
-        <button onClick={onDismiss} className="text-green-200 text-xs hover:text-white">
-          Tap to dismiss
-        </button>
+        <button onClick={onDismiss} className="text-green-200 text-xs hover:text-white">Tap to dismiss</button>
       </div>
     </div>
   )
@@ -208,12 +204,10 @@ function loadQueue() {
 }
 function saveQueue(q) { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)) }
 
-// ─── NFC UID Normalization ────────────────────────────────────────────────────
 function normalizeUid(uid) {
   const clean = uid.trim().toLowerCase().replace(/[^0-9a-f]/g, '')
   return clean.slice(-6)
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
 function KioskInner() {
   const searchParams = useSearchParams()
@@ -247,30 +241,27 @@ function KioskInner() {
   const [syncedCount, setSyncedCount] = useState(0)
   const [cameras, setCameras] = useState([])
   const [teacherPeriods, setTeacherPeriods] = useState(DEFAULT_PERIODS)
-  const [periodLabels, setPeriodLabels] = useState({})
   const [selectedCamera, setSelectedCamera] = useState('')
 
-  // NFC HID buffer refs
+  // Teacher context — loaded from URL param (room) or settings
+  const [kioskRoom, setKioskRoom] = useState('27')
+  const [kioskTeacherId, setKioskTeacherId] = useState(null)
+  const [kioskTeacherName, setKioskTeacherName] = useState('Teacher')
+
   const nfcBufferRef = useRef('')
   const nfcTimerRef = useRef(null)
-  // ── FIX: ref so NFC handler always reads current activePasses without stale closure ──
   const activePassesRef = useRef([])
 
-  // Keep activePassesRef in sync with activePasses state
   useEffect(() => {
     activePassesRef.current = activePasses
   }, [activePasses])
 
-  // Lockout countdown timer
   useEffect(() => {
     if (!lockedUntil) return
     const interval = setInterval(() => {
       const remaining = Math.ceil((lockedUntil - Date.now()) / 1000)
       if (remaining <= 0) {
-        setLockedUntil(null)
-        setLockoutRemaining(0)
-        setPinAttempts(0)
-        clearInterval(interval)
+        setLockedUntil(null); setLockoutRemaining(0); setPinAttempts(0); clearInterval(interval)
       } else {
         setLockoutRemaining(remaining)
       }
@@ -315,9 +306,7 @@ function KioskInner() {
       if (error) remaining.push(pass)
     }
     const synced = queue.length - remaining.length
-    saveQueue(remaining)
-    setOfflineQueue(remaining)
-    setSyncing(false)
+    saveQueue(remaining); setOfflineQueue(remaining); setSyncing(false)
     if (synced > 0) { setSyncedCount(synced); setTimeout(() => setSyncedCount(0), 4000) }
   }
 
@@ -333,21 +322,17 @@ function KioskInner() {
     if (code && code === unlockCode) setUnlocked(true)
   }, [unlockCode])
 
-  // ── NFC HID listener ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!unlocked || !activePeriod) return
-
     function handleNfcKey(e) {
       const tag = document.activeElement?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-
       if (e.key === 'Enter') {
         const uid = nfcBufferRef.current.trim()
         nfcBufferRef.current = ''
         clearTimeout(nfcTimerRef.current)
         if (uid.length < 4) return
         if (students.length === 0) return
-        // Normalize both the scanned UID and stored UIDs before comparing
         const normalizedUid = normalizeUid(uid)
         const reversed = uid.match(/.{2}/g)?.reverse().join('') || uid
         const normalizedReversed = normalizeUid(reversed)
@@ -356,12 +341,10 @@ function KioskInner() {
           return stored === normalizedUid || stored === normalizedReversed
         })
         if (match) {
-          // Use ref so we always have current passes — avoids stale closure crash
           const openPass = activePassesRef.current.find(p => p.student_id === match.id)
           if (openPass) {
             setSelected(match.id)
             setCurrentPass(openPass)
-            // Directly checkin without showing confirm screen
             const mins = Math.floor((Date.now() - new Date(openPass.time_out)) / 60000)
             supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', openPass.id)
               .then(async () => {
@@ -369,14 +352,11 @@ function KioskInner() {
                 weekStart.setDate(weekStart.getDate() - weekStart.getDay())
                 weekStart.setHours(0, 0, 0, 0)
                 const { data: weekPasses } = await supabase.from('passes')
-                  .select('duration_minutes')
-                  .eq('student_id', match.id)
-                  .gte('time_out', weekStart.toISOString())
-                  .not('time_in', 'is', null)
+                  .select('duration_minutes').eq('student_id', match.id)
+                  .gte('time_out', weekStart.toISOString()).not('time_in', 'is', null)
                 const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
                 const { count: todayCount } = await supabase.from('passes')
-                  .select('*', { count: 'exact', head: true })
-                  .eq('student_id', match.id)
+                  .select('*', { count: 'exact', head: true }).eq('student_id', match.id)
                   .gte('time_out', todayStart.toISOString())
                 const weekCount = weekPasses?.length || 0
                 const weekMins = weekPasses?.reduce((sum, p) => sum + (p.duration_minutes || 0), 0) || 0
@@ -388,61 +368,66 @@ function KioskInner() {
           } else {
             handleStudentSelect(match.id)
           }
-        } else {
-          console.warn('NFC UID not matched:', uid, '→ normalized:', normalizedUid)
         }
         nfcBufferRef.current = ''
         return
       }
-
       nfcBufferRef.current += e.key
       clearTimeout(nfcTimerRef.current)
       nfcTimerRef.current = setTimeout(() => { nfcBufferRef.current = '' }, 300)
     }
-
     window.addEventListener('keydown', handleNfcKey)
     return () => {
       window.removeEventListener('keydown', handleNfcKey)
       clearTimeout(nfcTimerRef.current)
     }
   }, [unlocked, activePeriod, students])
-  // ─── activePasses intentionally removed from deps — read via activePassesRef instead ───
 
   async function loadSettings() {
-    const { data } = await supabase.from('settings').select('key, value').in('key', ['teacher_unlock_code', 'teacher_pin'])
-    if (data) {
-      const unlockRow = data.find(r => r.key === 'teacher_unlock_code')
-      const pinRow = data.find(r => r.key === 'teacher_pin')
+    const { data: settingsData } = await supabase.from('settings').select('key, value')
+      .in('key', ['teacher_unlock_code', 'teacher_pin'])
+    if (settingsData) {
+      const unlockRow = settingsData.find(r => r.key === 'teacher_unlock_code')
+      const pinRow = settingsData.find(r => r.key === 'teacher_pin')
       if (unlockRow) setUnlockCode(unlockRow.value)
       if (pinRow) setPinCode(pinRow.value)
     }
-    // Load teacher's periods from teachers table
+
+    // Load teacher by room from URL param
+    const roomParam = searchParams.get('room') || '27'
+    setKioskRoom(roomParam)
+
     const { data: teacher } = await supabase
       .from('teachers')
-      .select('periods, period_labels')
+      .select('id, name, room, periods, period_labels')
+      .eq('room', roomParam)
       .eq('is_active', true)
-      .limit(1)
       .maybeSingle()
-    if (teacher?.periods && teacher.periods.length > 0) {
-      const labels = teacher.period_labels || {}
-      setPeriodLabels(labels)
-      setTeacherPeriods(
-        teacher.periods.sort().map(p => ({
-          label: labels[p] || buildPeriodLabel(p),
-          value: p
-        }))
-      )
+
+    if (teacher) {
+      setKioskTeacherId(teacher.id || null)
+      setKioskTeacherName(teacher.name || 'Teacher')
+      if (teacher.periods?.length > 0) {
+        const labels = teacher.period_labels || {}
+        setTeacherPeriods(
+          teacher.periods.sort().map(p => ({
+            label: labels[p] || buildPeriodLabel(p),
+            value: p,
+          }))
+        )
+      }
     }
   }
 
   async function loadStudents() {
-    // nfc_uid added for HID reader lookup
-    const { data } = await supabase.from('students').select('id, full_name, last_name, nfc_uid').eq('period', activePeriod).order('first_name')
+    const { data } = await supabase
+      .from('students')
+      .select('id, full_name, last_name, nfc_uid')
+      .eq('period', activePeriod)
+      .order('first_name')
     if (data) setStudents(data)
-    // Also load active passes so NFC auto-checkin knows who's out
     const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
     if (passes) setActivePasses(passes)
-    // Load DNLO list
     const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
     if (dnlo) setDnloList(dnlo.map(d => d.student_id))
   }
@@ -453,18 +438,13 @@ function KioskInner() {
     setPin(next)
     if (next.length === 4) {
       if (next === pinCode) {
-        setUnlocked(true)
-        setPinError(false)
-        setPinAttempts(0)
+        setUnlocked(true); setPinError(false); setPinAttempts(0)
       } else {
         const newAttempts = pinAttempts + 1
-        setPinAttempts(newAttempts)
-        setPinError(true)
+        setPinAttempts(newAttempts); setPinError(true)
         if (newAttempts >= MAX_PIN_ATTEMPTS) {
           setLockedUntil(Date.now() + LOCKOUT_SECONDS * 1000)
-          setLockoutRemaining(LOCKOUT_SECONDS)
-          setPin('')
-          setPinError(false)
+          setLockoutRemaining(LOCKOUT_SECONDS); setPin(''); setPinError(false)
         } else {
           setTimeout(() => { setPin(''); setPinError(false) }, 1000)
         }
@@ -479,39 +459,31 @@ function KioskInner() {
 
   async function handleStudentSelect(id) {
     if (!id) { setSelected(''); return }
-    // Check DNLO list
     if (dnloList.includes(id)) {
       setSelected(id)
-      // Play warning sound
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)()
         for (let i = 0; i < 3; i++) {
-          const osc = ctx.createOscillator()
-          const gain = ctx.createGain()
-          osc.connect(gain); gain.connect(ctx.destination)
-          osc.type = 'square'
+          const osc = ctx.createOscillator(); const gain = ctx.createGain()
+          osc.connect(gain); gain.connect(ctx.destination); osc.type = 'square'
           osc.frequency.setValueAtTime(880, ctx.currentTime + i * 0.25)
           gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.25)
           gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.25 + 0.2)
-          osc.start(ctx.currentTime + i * 0.25)
-          osc.stop(ctx.currentTime + i * 0.25 + 0.2)
+          osc.start(ctx.currentTime + i * 0.25); osc.stop(ctx.currentTime + i * 0.25 + 0.2)
         }
       } catch(e) {}
-      setStage('dnlo-blocked')
-      return
+      setStage('dnlo-blocked'); return
     }
     setSelected(id)
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
+      const osc = ctx.createOscillator(); const gain = ctx.createGain()
       osc.connect(gain); gain.connect(ctx.destination)
       osc.frequency.setValueAtTime(1047, ctx.currentTime)
       gain.gain.setValueAtTime(0.2, ctx.currentTime)
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
       osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3)
     } catch (e) {}
-    if (!id) return
     const { data: pass } = await supabase.from('passes').select('*').eq('student_id', id).is('time_in', null).maybeSingle()
     if (pass) { setCurrentPass(pass); setStage('checkin'); return }
     const weekStart = new Date()
@@ -539,8 +511,12 @@ function KioskInner() {
     }
 
     const passData = {
-      student_id: selected, reason: finalReason, room: '27',
-      period: activePeriod, teacher_id: '77b18e87-4b3b-46de-a808-c13207efb5d6', time_out: new Date().toISOString(),
+      student_id: selected,
+      reason: finalReason,
+      room: kioskRoom,
+      period: activePeriod,
+      teacher_id: kioskTeacherId,
+      time_out: new Date().toISOString(),
     }
     const name = students.find(s => s.id === selected)?.full_name
 
@@ -548,8 +524,7 @@ function KioskInner() {
       const queue = loadQueue()
       queue.push(passData); saveQueue(queue); setOfflineQueue(queue)
       setMessage({ text: name, sub: finalReason })
-      setNewPassId(null)
-      setStage('done'); return
+      setNewPassId(null); setStage('done'); return
     }
 
     const { data, error } = await supabase.from('passes').insert(passData).select().single()
@@ -557,7 +532,6 @@ function KioskInner() {
       setMessage({ text: name, sub: finalReason })
       setNewPassId(data?.id || null)
       setStage('done')
-      // Refresh active passes
       const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
       if (passes) setActivePasses(passes)
     }
@@ -568,36 +542,20 @@ function KioskInner() {
     const mins = Math.floor((new Date() - new Date(currentPass.time_out)) / 60000)
     await supabase.from('passes').update({ time_in: now, duration_minutes: mins }).eq('id', currentPass.id)
     const name = students.find(s => s.id === selected)?.full_name
-
     const weekStart = new Date()
     weekStart.setDate(weekStart.getDate() - weekStart.getDay())
     weekStart.setHours(0, 0, 0, 0)
     const { data: weekPasses } = await supabase.from('passes')
-      .select('duration_minutes')
-      .eq('student_id', selected)
-      .gte('time_out', weekStart.toISOString())
-      .not('time_in', 'is', null)
-
+      .select('duration_minutes').eq('student_id', selected)
+      .gte('time_out', weekStart.toISOString()).not('time_in', 'is', null)
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
     const { count: todayCount } = await supabase.from('passes')
-      .select('*', { count: 'exact', head: true })
-      .eq('student_id', selected)
+      .select('*', { count: 'exact', head: true }).eq('student_id', selected)
       .gte('time_out', todayStart.toISOString())
-
     const weekCount = weekPasses?.length || 0
     const weekMins = weekPasses?.reduce((sum, p) => sum + (p.duration_minutes || 0), 0) || 0
-
-    setMessage({
-      text: name,
-      minsOut: mins,
-      weekCount,
-      weekMins,
-      todayCount: todayCount || 0,
-    })
-    setNewPassId(null)
-    setStage('checkin-done')
-
-    // Auto-reset after 5 seconds
+    setMessage({ text: name, minsOut: mins, weekCount, weekMins, todayCount: todayCount || 0 })
+    setNewPassId(null); setStage('checkin-done')
     setTimeout(() => reset(), 5000)
   }
 
@@ -619,7 +577,7 @@ function KioskInner() {
   if (!activePeriod) return (
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-24 h-24 object-contain mb-4" style={{ filter: 'brightness(0) invert(1)' }} />
-      <h1 className="text-2xl font-bold text-white mb-1">Room 27</h1>
+      <h1 className="text-2xl font-bold text-white mb-1">Room {kioskRoom}</h1>
       <p className="text-green-200 text-sm mb-8 uppercase tracking-widest">Select the current period</p>
       <div className="flex flex-col gap-3 w-full max-w-xs">
         {teacherPeriods.map(p => (
@@ -637,13 +595,11 @@ function KioskInner() {
       <h1 className="text-2xl font-bold text-white mb-1">RHS PassAble</h1>
       <p className="text-green-200 text-sm mb-2">{teacherPeriods.find(p => p.value === activePeriod)?.label}</p>
       <p className="text-green-100 mb-4 text-sm">Enter teacher PIN to unlock</p>
-
       {lockedUntil ? (
         <div className="flex flex-col items-center gap-3 mb-8">
           <div className="text-6xl">🔒</div>
           <p className="text-white font-bold text-lg">Locked</p>
           <p className="text-red-300 text-sm text-center">Too many incorrect attempts.<br />Try again in {lockoutRemaining}s</p>
-          <p className="text-green-300 text-xs text-center mt-2">Unauthorized access attempts are logged.</p>
         </div>
       ) : (
         <>
@@ -664,7 +620,6 @@ function KioskInner() {
           </div>
         </>
       )}
-
       <div className="mb-2 text-xs text-green-200">— or scan teacher QR —</div>
       {cameras.length > 1 && (
         <select className="mb-2 w-48 rounded-lg bg-green-900 text-green-100 text-xs px-2 py-1 border border-green-600"
@@ -701,7 +656,6 @@ function KioskInner() {
         <div className="text-6xl mb-4">✓</div>
         <h2 className="text-3xl font-bold text-white mb-1">Welcome back, {firstName}!</h2>
         <p className="text-green-200 text-sm mb-8">You're checked in</p>
-
         <div className="bg-white/10 rounded-2xl p-6 w-full max-w-sm mb-6 backdrop-blur">
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
@@ -723,7 +677,6 @@ function KioskInner() {
             </div>
           )}
         </div>
-
         <p className="text-green-300 text-xs">Returning to kiosk in a few seconds...</p>
       </div>
     )
@@ -731,7 +684,6 @@ function KioskInner() {
 
   if (stage === 'dnlo-blocked') {
     const name = students.find(s => s.id === selected)?.full_name || 'This student'
-    const dnloEntry = null // reason pulled from list if needed
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6"
         style={{ background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)' }}>
@@ -740,35 +692,16 @@ function KioskInner() {
         <p className="text-red-200 text-lg mb-1">{name}</p>
         <p className="text-red-300 text-sm mb-8 text-center">This student has an admin restriction.<br/>Teacher must approve before checking out.</p>
         <div className="flex flex-col gap-3 w-full max-w-xs">
-          <button
-            onClick={async () => {
-              // Log override
-              await supabase.from('do_not_let_out').insert({
-                student_id: selected,
-                reason: 'Kiosk override by teacher',
-                scope: 'override_log',
-                created_by: 'kiosk',
-                active: false,
-              }).catch(() => {})
-              // Play alert sound
-              try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)()
-                const osc = ctx.createOscillator()
-                const gain = ctx.createGain()
-                osc.connect(gain); gain.connect(ctx.destination)
-                osc.type = 'square'
-                osc.frequency.setValueAtTime(440, ctx.currentTime)
-                gain.gain.setValueAtTime(0.3, ctx.currentTime)
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
-                osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5)
-              } catch(e) {}
-              setStage('select')
-            }}
-            className="py-4 text-white text-lg font-bold rounded-xl border-2 border-white/50 bg-white/10 hover:bg-white/20">
+          <button onClick={async () => {
+            await supabase.from('do_not_let_out').insert({
+              student_id: selected, reason: 'Kiosk override by teacher',
+              scope: 'override_log', created_by: 'kiosk', active: false,
+            }).catch(() => {})
+            setStage('select')
+          }} className="py-4 text-white text-lg font-bold rounded-xl border-2 border-white/50 bg-white/10 hover:bg-white/20">
             Override — Check Out Anyway
           </button>
-          <button onClick={reset}
-            className="py-4 text-red-200 text-sm font-medium rounded-xl border border-red-400/30 hover:bg-red-900/30">
+          <button onClick={reset} className="py-4 text-red-200 text-sm font-medium rounded-xl border border-red-400/30 hover:bg-red-900/30">
             Cancel — Send Back to Seat
           </button>
         </div>
@@ -797,8 +730,8 @@ function KioskInner() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 max-w-xs mx-4 text-center shadow-xl">
             <div className="text-4xl mb-3">📚</div>
-            <h2 className="text-lg font--semibold text-gray-800 mb-2">Library Pass Required</h2>
-            <p className="text-gray-500 text-sm mb-4">You must have a signed pass from Mr. Joe to enter the library.</p>
+            <h2 className="text-lg font-semibold text-gray-800 mb-2">Library Pass Required</h2>
+            <p className="text-gray-500 text-sm mb-4">You must have a signed pass from {kioskTeacherName} to enter the library.</p>
             <button onClick={() => setShowLibraryAlert(false)}
               className="w-full py-3 text-white rounded-xl font-medium" style={{ backgroundColor: RHS_GREEN }}>
               I have a pass
@@ -836,7 +769,7 @@ function KioskInner() {
         </div>
       </div>
       <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>RHS PassAble</h1>
-      <p className="text-sm font-medium mb-1" style={{ color: RHS_GREEN }}>Room 27 · {periodLabel}</p>
+      <p className="text-sm font-medium mb-1" style={{ color: RHS_GREEN }}>Room {kioskRoom} · {periodLabel}</p>
       <p className="text-gray-500 mb-6">Scan badge or select your name</p>
       <div className="w-full max-w-sm mb-4">
         <select value={selected} onChange={e => handleStudentSelect(e.target.value)}
@@ -862,48 +795,38 @@ function KioskInner() {
           </button>
         ))}
       </div>
-
       {reason === 'On Assignment' && (
         <div className="w-full max-w-sm flex flex-col gap-2 mb-6">
           <select value={assignedTeacher} onChange={e => setAssignedTeacher(e.target.value)}
-            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800"
-            style={{ borderColor: RHS_GREEN }}>
+            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
             <option value="">— Select a teacher —</option>
             {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
           <input type="text" placeholder="Purpose (e.g. picking up worksheets)"
             value={purposeText} onChange={e => setPurposeText(e.target.value)}
-            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800"
-            style={{ borderColor: RHS_GREEN }} />
+            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
         </div>
       )}
-
       {reason === 'Errand' && (
         <div className="w-full max-w-sm flex flex-col gap-2 mb-6">
           <select value={errandTeacher} onChange={e => setErrandTeacher(e.target.value)}
-            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800"
-            style={{ borderColor: RHS_GREEN }}>
+            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
             <option value="">— Select a teacher (optional) —</option>
             {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
           <input type="text" placeholder="Purpose (e.g. returning equipment)"
             value={purposeText} onChange={e => setPurposeText(e.target.value)}
-            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800"
-            style={{ borderColor: RHS_GREEN }} />
+            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
         </div>
       )}
-
       {reason === 'Other' && (
         <div className="w-full max-w-sm mb-6">
           <input type="text" placeholder="Where are you going?"
             value={otherText} onChange={e => setOtherText(e.target.value)}
-            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800"
-            style={{ borderColor: RHS_GREEN }} autoFocus />
+            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} autoFocus />
         </div>
       )}
-
       {reason !== 'On Assignment' && reason !== 'Errand' && reason !== 'Other' && <div className="mb-6" />}
-
       <button onClick={handleCheckout} disabled={checkoutDisabled}
         className="px-8 py-4 text-white text-lg font-bold rounded-xl disabled:opacity-30 shadow-md"
         style={{ backgroundColor: RHS_GREEN }}>
