@@ -418,7 +418,7 @@ function TeacherInner() {
     const unlockVal = get('teacher_unlock_code')
     if (unlockVal) {
       setUnlockCode(unlockVal)
-      const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${unlockVal}`
+      const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${unlockVal}&room=${teacherRoom}`
       QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
     }
     if (get('teacher_pin')) setCurrentPin(get('teacher_pin'))
@@ -433,7 +433,7 @@ function TeacherInner() {
     const newCode = Math.random().toString(36).substring(2, 12)
     await supabase.from('settings').update({ value: newCode }).eq('key', 'teacher_unlock_code')
     setUnlockCode(newCode)
-    const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${newCode}`
+    const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${newCode}&room=${teacherRoom}`
     QRCode.toDataURL(url, { width: 160, margin: 1 }).then(qr => { setUnlockQR(qr); setRotating(false); setRotated(true); setTimeout(() => setRotated(false), 3000) })
   }
 
