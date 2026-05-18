@@ -419,11 +419,18 @@ function KioskInner() {
     }
   }
 
-  async function loadStudents() {
+async function loadStudents() {
+    const { data: spRows } = await supabase
+      .from('student_periods')
+      .select('student_id')
+      .eq('period', activePeriod)
+      .eq('room', kioskRoom)
+    const studentIds = spRows?.map(r => r.student_id) || []
+    if (studentIds.length === 0) { setStudents([]); return }
     const { data } = await supabase
       .from('students')
       .select('id, full_name, last_name, nfc_uid')
-      .eq('period', activePeriod)
+      .in('id', studentIds)
       .order('first_name')
     if (data) setStudents(data)
     const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
