@@ -57,8 +57,9 @@ function SelfCheckoutInner() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [openPass, setOpenPass] = useState(null)
-  const [teacherName, setTeacherName] = useState('Mr. Joe')
+  const [teacherName, setTeacherName] = useState('Teacher')
   const [teacherRoom, setTeacherRoom] = useState('27')
+  const [teacherId, setTeacherId] = useState(null)
 
   useEffect(() => {
     loadSettings()
@@ -67,16 +68,50 @@ function SelfCheckoutInner() {
   }, [])
 
   async function loadSettings() {
-    const { data } = await supabase.from('settings').select('key, value')
+    const { data: settingsData } = await supabase
+      .from('settings')
+      .select('key, value')
       .in('key', ['active_checkout_code', 'kiosk_return_required'])
-    if (data) {
-      const codeRow = data.find(r => r.key === 'active_checkout_code')
-      const kioskRow = data.find(r => r.key === 'kiosk_return_required')
+
+    if (settingsData) {
+      const codeRow = settingsData.find(r => r.key === 'active_checkout_code')
+      const kioskRow = settingsData.find(r => r.key === 'kiosk_return_required')
       if (codeRow) setValidCodes([codeRow.value])
       if (kioskRow) setKioskReturnRequired(kioskRow.value !== 'false')
     }
-    const { data: t } = await supabase.from('teachers').select('name, room').eq('is_active', true).limit(1).maybeSingle()
-    if (t) { setTeacherName(t.name || 'Mr. Joe'); setTeacherRoom(t.room || '27') }
+
+    // Load teacher from active session
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session) {
+      const { data: teacher } = await supabase
+        .from('teachers')
+        .select('id, name, room')
+        .eq('auth_id', session.user.id)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (teacher) {
+        setTeacherName(teacher.name || 'Teacher')
+        setTeacherRoom(teacher.room || '27')
+        setTeacherId(teacher.id || null)
+        return
+      }
+    }
+
+    // Fallback: read room from URL param if no session
+    const roomParam = searchParams.get('room')
+    if (roomParam) {
+      setTeacherRoom(roomParam)
+      const { data: teacher } = await supabase
+        .from('teachers')
+        .select('id, name, room')
+        .eq('room', roomParam)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (teacher) {
+        setTeacherName(teacher.name || 'Teacher')
+        setTeacherId(teacher.id || null)
+      }
+    }
   }
 
   function handleCodeDigit(digit) {
@@ -99,23 +134,34 @@ function SelfCheckoutInner() {
 
   async function lookupStudent(id) {
     setLoading(true); setError('')
-    const { data: studs } = await supabase.from('students').select('id, full_name, photo_file, period').eq('id', id)
+    const { data: studs } = await supabase
+      .from('students')
+      .select('id, full_name, photo_file, period')
+      .eq('id', id)
+
     if (!studs || studs.length === 0) {
       setError('Student not found. Check your ID and try again.')
       setLoading(false); return
     }
+
     const stud = studs[0]
     setStudentId(stud.id)
     setStudentName(stud.full_name)
     setPeriod(stud.period)
 
     if (stud.photo_file) {
-      const { data: photoData } = await supabase.storage.from('student-photos').createSignedUrl(stud.photo_file, 3600)
+      const { data: photoData } = await supabase.storage
+        .from('student-photos')
+        .createSignedUrl(stud.photo_file, 3600)
       if (photoData?.signedUrl) setStudentPhoto(photoData.signedUrl)
     }
 
-    // Check for open pass
-    const { data: openPasses } = await supabase.from('passes').select('*').eq('student_id', stud.id).is('time_in', null)
+    const { data: openPasses } = await supabase
+      .from('passes')
+      .select('*')
+      .eq('student_id', stud.id)
+      .is('time_in', null)
+
     if (openPasses && openPasses.length > 0) {
       setOpenPass(openPasses[0])
       setCheckoutTime(openPasses[0].time_out)
@@ -133,18 +179,26 @@ function SelfCheckoutInner() {
     setLoading(true)
     const now = new Date().toISOString()
     const { data, error } = await supabase.from('passes').insert({
-      student_id: studentId, reason, room: teacherRoom,
-      period, teacher_id: null, time_out: now,
+      student_id: studentId,
+      reason,
+      room: teacherRoom,
+      period,
+      teacher_id: teacherId,
+      time_out: now,
     }).select().single()
 
     if (error) { setError('Could not create pass. Try again.'); setLoading(false); return }
     setPassId(data.id)
     setCheckoutTime(now)
 
-    // Load weekly stats
-    const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 7); weekStart.setHours(0,0,0,0)
-    const { data: weekPasses } = await supabase.from('passes').select('*')
-      .eq('student_id', studentId).gte('time_out', weekStart.toISOString())
+    const weekStart = new Date()
+    weekStart.setDate(weekStart.getDate() - 7)
+    weekStart.setHours(0, 0, 0, 0)
+    const { data: weekPasses } = await supabase
+      .from('passes')
+      .select('*')
+      .eq('student_id', studentId)
+      .gte('time_out', weekStart.toISOString())
 
     if (weekPasses) {
       const completed = weekPasses.filter(p => p.duration_minutes != null)
@@ -154,7 +208,7 @@ function SelfCheckoutInner() {
         const r = p.reason?.split(' — ')[0] || p.reason || 'Other'
         reasonCounts[r] = (reasonCounts[r] || 0) + 1
       })
-      const topReason = Object.entries(reasonCounts).sort((a,b) => b[1]-a[1])[0]
+      const topReason = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0]
       setStats({
         weekCount: weekPasses.length,
         totalMins,
@@ -171,7 +225,10 @@ function SelfCheckoutInner() {
     if (!openPass) return
     setLoading(true)
     const mins = Math.floor((new Date() - new Date(openPass.time_out)) / 60000)
-    await supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', openPass.id)
+    await supabase.from('passes').update({
+      time_in: new Date().toISOString(),
+      duration_minutes: mins,
+    }).eq('id', openPass.id)
     setStage('checkin-done')
     setLoading(false)
   }
@@ -182,7 +239,10 @@ function SelfCheckoutInner() {
     const { data: pass } = await supabase.from('passes').select('*').eq('id', passId).single()
     if (pass) {
       const mins = Math.floor((new Date() - new Date(pass.time_out)) / 60000)
-      await supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', passId)
+      await supabase.from('passes').update({
+        time_in: new Date().toISOString(),
+        duration_minutes: mins,
+      }).eq('id', passId)
     }
     setStage('returned')
     setLoading(false)
@@ -194,7 +254,6 @@ function SelfCheckoutInner() {
     setPassId(null); setCheckoutTime(null); setStats(null); setError(''); setOpenPass(null)
   }
 
-  // PIN: Enter session code
   if (stage === 'code') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
@@ -217,7 +276,6 @@ function SelfCheckoutInner() {
     </div>
   )
 
-  // Enter student ID
   if (stage === 'id') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-14 h-14 object-contain mb-3" />
@@ -237,7 +295,6 @@ function SelfCheckoutInner() {
     </div>
   )
 
-  // Select reason
   if (stage === 'reason') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
       <div className="flex items-center gap-4 mb-6">
@@ -273,18 +330,12 @@ function SelfCheckoutInner() {
     </div>
   )
 
-  // Checked out — timer + stats
   if (stage === 'done') return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6"
       style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
-
-      {/* Big timer */}
       {checkoutTime && <TimerDisplay checkoutTime={checkoutTime} />}
-
       <h2 className="text-xl font-bold text-white mb-1">{studentName}</h2>
       <p className="text-green-200 text-sm mb-6">Checked out → {reason}</p>
-
-      {/* Stats */}
       {stats && (
         <div className="bg-white rounded-2xl p-5 w-full max-w-xs mb-6 shadow-xl">
           <h3 className="text-sm font-bold text-gray-700 mb-3">📊 Your Stats This Week</h3>
@@ -308,7 +359,6 @@ function SelfCheckoutInner() {
           </div>
         </div>
       )}
-
       {kioskReturnRequired ? (
         <div className="bg-white/20 rounded-xl p-4 w-full max-w-xs text-center">
           <p className="text-white text-sm font-medium">Return to the kiosk to check back in when you're done.</p>
@@ -323,7 +373,6 @@ function SelfCheckoutInner() {
     </div>
   )
 
-  // Self-returned
   if (stage === 'returned') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
       <div className="text-5xl mb-4">✅</div>
@@ -333,14 +382,10 @@ function SelfCheckoutInner() {
     </div>
   )
 
-  // Open pass — check in
   if (stage === 'checkin') return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6"
       style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
-
-      {/* Big timer for existing pass */}
       {checkoutTime && <TimerDisplay checkoutTime={checkoutTime} />}
-
       <div className="text-4xl mb-3">👋</div>
       <h2 className="text-2xl font-semibold text-white mb-2">Welcome back, {studentName}!</h2>
       <p className="text-green-200 mb-1">You're currently checked out</p>
@@ -351,15 +396,11 @@ function SelfCheckoutInner() {
           style={{ color: RHS_GREEN }}>
           {loading ? 'Checking in...' : 'Check Back In'}
         </button>
-        <button onClick={reset}
-          className="px-6 py-3 border border-white/40 text-white rounded-xl">
-          Cancel
-        </button>
+        <button onClick={reset} className="px-6 py-3 border border-white/40 text-white rounded-xl">Cancel</button>
       </div>
     </div>
   )
 
-  // Check-in done
   if (stage === 'checkin-done') return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
       <div className="text-5xl mb-4">✅</div>
