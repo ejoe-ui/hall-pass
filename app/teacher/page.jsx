@@ -502,6 +502,13 @@ function TeacherInner() {
       setHeldPasses(holds)
     }
     if (dnlo) setDnloList(dnlo.map(d => d.student_id))
+    const { data: teacherDnlo } = await supabase
+  .from('do_not_let_out')
+  .select('student_id')
+  .eq('active', true)
+  .eq('scope', 'teacher')
+  .eq('created_by', currentTeacher?.id || '')
+if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
 
     await loadMissedPasses(activePeriod)
   }
@@ -1026,6 +1033,15 @@ function TeacherInner() {
                 </div>
               </div>
             )}
+            {selected && teacherDnloList.includes(selected) && !dnloList.includes(selected) && (
+              <div className="mb-2 p-3 bg-amber-500 border border-amber-600 rounded-lg text-white text-sm font-bold flex items-center gap-2">
+                <span className="text-lg">⚠</span>
+                <div>
+                  <div>Your Do Not Let Out List</div>
+                  <div className="text-xs font-normal text-amber-100 mt-0.5">You added this student to your DNLO list. You can still send them — this is a reminder only.</div>
+                </div>
+              </div>
+            )}
 
             {reason === 'On Assignment' && (
               <div className="flex flex-col gap-2">
@@ -1231,6 +1247,7 @@ function TeacherInner() {
           <a href={`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-gray-400 hover:text-gray-600">Import Roster →</a>
           <a href="/qr" className="text-sm text-gray-400 hover:text-gray-600">Print QR Badges →</a>
           <a href="/log" className="text-sm text-gray-400 hover:text-gray-600">Pass Log →</a>
+          <a href="/teacher/dnlo" className="text-sm text-gray-400 hover:text-gray-600">Do Not Let Out →</a>
         </div>
       </div>
     </div>
