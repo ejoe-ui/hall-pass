@@ -1178,6 +1178,31 @@ if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
               </div>
             </div>
 
+<div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+  <div className="mb-3">
+    <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Kiosk URL</p>
+    <p className="text-xs text-gray-400">Share this URL to set up your classroom kiosk on any device</p>
+  </div>
+  <div className="bg-gray-50 rounded-lg px-3 py-2 font-mono text-xs text-gray-700 mb-3 break-all">
+    {`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`}
+  </div>
+  <div className="flex gap-2 flex-wrap">
+    <button
+      onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`)}
+      className="text-xs px-3 py-1.5 rounded-lg font-medium text-white"
+      style={{ backgroundColor: RHS_GREEN }}>
+      📋 Copy URL
+    </button>
+    <button
+      onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`)}
+      className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">
+      📲 Copy for NFC Tag
+    </button>
+  </div>
+  <div className="mt-3 p-3 bg-green-50 border border-green-100 rounded-lg text-xs text-green-700">
+    💡 To write to an NFC sticker: open <strong>NFC Tools for Desktop</strong> → Write → URL → paste the URL above. Tap the sticker on the kiosk computer to launch instantly.
+  </div>
+</div>
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
               <div className="mb-3">
                 <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Substitute Code</p>
