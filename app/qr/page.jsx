@@ -107,11 +107,15 @@ export default function QRPage() {
   return (
     <>
       <style>{`
+
+        /* ─────────────────────────────────────────
+           PRINT STYLES
+        ───────────────────────────────────────── */
         @media print {
           .no-print { display: none !important; }
           body { margin: 0; padding: 0; }
 
-          /* ── Badge template (3-up) ── */
+          /* Badge 3-up */
           .badge-print-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -136,59 +140,74 @@ export default function QRPage() {
           .badge-print-card .sub { font-size: 8px; color: #9ca3af; margin-bottom: 4px; }
           .badge-print-card .label { font-size: 7px; color: #d1d5db; margin-top: 2px; }
 
-          /* ── Sticker template (Spartan R011 — 3"×2", 2×5, 10/sheet) ── */
-          @page { size: 8.5in 11in; margin: 0; }
+          /* ── Spartan R011 sticker sheet
+             Sheet:        8.5" × 11"
+             Top margin:   0.25"
+             Side margin:  1.1875"
+             Label:        3" × 2"
+             Col gap:      0.125" (pitch 3.125" - width 3")
+             Row gap:      0.125" (pitch 2.125" - height 2")
+          ── */
+          @page {
+            size: 8.5in 11in;
+            margin: 0;
+          }
 
           .sticker-sheet {
-            width: 8.5in;
-            padding-top: 0.25in;
-            padding-left: 1.1875in;
-            box-sizing: border-box;
+            position: absolute;
+            top: 0.25in;
+            left: 1.1875in;
+            width: 6.125in; /* 2 × 3" + 0.125" gap */
           }
+
           .sticker-grid {
             display: grid;
             grid-template-columns: 3in 3in;
+            grid-template-rows: repeat(5, 2in);
             column-gap: 0.125in;
             row-gap: 0.125in;
           }
+
+          /* Each label is exactly 3" × 2", flex column */
           .sticker-label {
             width: 3in;
             height: 2in;
-            overflow: hidden;
             box-sizing: border-box;
+            overflow: hidden;
             display: flex;
             flex-direction: column;
-            padding: 0.1in 0.12in 0.07in 0.12in;
+            padding: 0.1in 0.12in 0.08in 0.12in;
             page-break-inside: avoid;
             break-inside: avoid;
           }
-          /* Top content area */
+
+          /* Top content row fills remaining height above brand strip */
           .sticker-top {
             display: flex;
             flex-direction: row;
             align-items: center;
             gap: 0.1in;
             flex: 1;
-            overflow: hidden;
+            min-height: 0;
           }
-          /* Left: photo + name */
+
           .sticker-left {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 5pt;
-            width: 1.15in;
+            gap: 4pt;
+            width: 1.1in;
             flex-shrink: 0;
           }
           .sticker-photo {
-            width: 1.1in;
-            height: 1.1in;
+            width: 1.05in;
+            height: 1.05in;
             object-fit: cover;
             border-radius: 5pt;
           }
           .sticker-placeholder {
-            width: 1.1in;
-            height: 1.1in;
+            width: 1.05in;
+            height: 1.05in;
             border-radius: 5pt;
             background: #f3f4f6;
             display: flex;
@@ -196,8 +215,8 @@ export default function QRPage() {
             justify-content: center;
           }
           .sticker-logo {
-            width: 0.45in;
-            height: 0.45in;
+            width: 0.4in;
+            height: 0.4in;
             object-fit: contain;
             opacity: 0.3;
           }
@@ -207,9 +226,9 @@ export default function QRPage() {
             text-align: center;
             color: #111;
             line-height: 1.2;
-            max-width: 1.15in;
+            max-width: 1.1in;
           }
-          /* Right: QR + subtitle */
+
           .sticker-right {
             flex: 1;
             display: flex;
@@ -219,27 +238,28 @@ export default function QRPage() {
             gap: 4pt;
           }
           .sticker-qr {
-            width: 1.15in;
-            height: 1.15in;
+            width: 1.1in;
+            height: 1.1in;
           }
           .sticker-sub {
             font-size: 8pt;
-            color: #555;
-            text-align: center;
             font-weight: 600;
+            color: #444;
+            text-align: center;
             line-height: 1.3;
           }
-          /* Bottom brand strip */
+
+          /* Brand strip — locked inside label, fixed height */
           .sticker-brand {
-            border-top: 0.5pt solid #d1d5db;
-            padding-top: 4pt;
-            margin-top: 5pt;
             flex-shrink: 0;
+            border-top: 0.5pt solid #d1d5db;
+            padding-top: 3pt;
+            margin-top: 4pt;
           }
           .sticker-brand-text {
-            font-size: 7pt;
+            font-size: 11pt;
             font-weight: 800;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.04em;
             color: #006938;
             white-space: nowrap;
           }
@@ -253,7 +273,7 @@ export default function QRPage() {
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-5xl mx-auto">
 
-          {/* ── Header ── */}
+          {/* Header */}
           <div className="flex items-center justify-between mb-4 no-print">
             <div>
               <h1 className="text-2xl font-semibold text-gray-800">Student QR Badges</h1>
@@ -270,7 +290,7 @@ export default function QRPage() {
             </div>
           </div>
 
-          {/* ── Template toggle ── */}
+          {/* Template toggle */}
           <div className="no-print mb-4 flex items-center gap-3">
             <span className="text-sm text-gray-500 font-medium">Template:</span>
             <div className="flex gap-2">
@@ -288,11 +308,11 @@ export default function QRPage() {
             </div>
           </div>
 
-          {/* ── Print tip ── */}
+          {/* Print tip */}
           <div className="no-print mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
             {template === 'badge'
               ? '⚠ Before printing: set printer to single-sided and fit to page.'
-              : '⚠ Before printing: set printer to actual size (not fit to page) and single-sided. Load Spartan R011 label sheets.'}
+              : '⚠ Before printing: set printer to actual size (NOT fit to page) and single-sided. Load Spartan R011 label sheets.'}
           </div>
 
           {students.length === 0 ? (
@@ -301,7 +321,7 @@ export default function QRPage() {
             </div>
           ) : template === 'badge' ? (
 
-            /* ── Badge template ── */
+            /* Badge template */
             <div className="grid grid-cols-3 gap-3 badge-print-grid">
               {students.map(s => (
                 <div key={s.id} className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col items-center badge-print-card">
@@ -322,9 +342,9 @@ export default function QRPage() {
 
           ) : (
 
-            /* ── Sticker template — screen preview uses inline styles matching print proportions ── */
-            <div style={{ paddingLeft: 0 }}>
-              <div style={{
+            /* Sticker template — screen preview */
+            <div className="sticker-sheet" style={{ position: 'relative' }}>
+              <div className="sticker-grid" style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(2, 288px)',
                 columnGap: 12,
@@ -334,11 +354,11 @@ export default function QRPage() {
                   <div key={s.id} className="sticker-label" style={{
                     width: 288,
                     height: 192,
-                    overflow: 'hidden',
                     boxSizing: 'border-box',
+                    overflow: 'hidden',
                     display: 'flex',
                     flexDirection: 'column',
-                    padding: '10px 12px 7px 12px',
+                    padding: '10px 12px 8px 12px',
                     border: '1px dashed #d1d5db',
                     background: 'white',
                   }}>
@@ -350,7 +370,7 @@ export default function QRPage() {
                       alignItems: 'center',
                       gap: 10,
                       flex: 1,
-                      overflow: 'hidden',
+                      minHeight: 0,
                     }}>
 
                       {/* Left: photo + name */}
@@ -359,26 +379,24 @@ export default function QRPage() {
                         flexDirection: 'column',
                         alignItems: 'center',
                         gap: 4,
-                        width: 110,
+                        width: 106,
                         flexShrink: 0,
                       }}>
                         {photoUrls[s.id] ? (
-                          <img src={photoUrls[s.id]} alt={s.full_name} className="sticker-photo" style={{
-                            width: 106, height: 106, objectFit: 'cover', borderRadius: 5,
-                          }} />
+                          <img src={photoUrls[s.id]} alt={s.full_name} className="sticker-photo"
+                            style={{ width: 101, height: 101, objectFit: 'cover', borderRadius: 5 }} />
                         ) : (
                           <div className="sticker-placeholder" style={{
-                            width: 106, height: 106, borderRadius: 5,
+                            width: 101, height: 101, borderRadius: 5,
                             background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center',
                           }}>
-                            <img src="/RHSCOWBOYlogo.png" alt="RHS" className="sticker-logo" style={{
-                              width: 42, height: 42, objectFit: 'contain', opacity: 0.3,
-                            }} />
+                            <img src="/RHSCOWBOYlogo.png" alt="RHS" className="sticker-logo"
+                              style={{ width: 38, height: 38, objectFit: 'contain', opacity: 0.3 }} />
                           </div>
                         )}
                         <p className="sticker-name" style={{
                           fontSize: 9, fontWeight: 800, textAlign: 'center',
-                          color: '#111', lineHeight: 1.2, maxWidth: 110,
+                          color: '#111', lineHeight: 1.2, maxWidth: 106,
                         }}>
                           {s.full_name}
                         </p>
@@ -394,31 +412,31 @@ export default function QRPage() {
                         gap: 4,
                       }}>
                         {qrCodes[s.id] && (
-                          <img src={qrCodes[s.id]} alt={s.full_name} className="sticker-qr" style={{
-                            width: 110, height: 110,
-                          }} />
+                          <img src={qrCodes[s.id]} alt={s.full_name} className="sticker-qr"
+                            style={{ width: 106, height: 106 }} />
                         )}
                         <p className="sticker-sub" style={{
-                          fontSize: 8, color: '#555', textAlign: 'center',
-                          fontWeight: 600, lineHeight: 1.3,
+                          fontSize: 8, fontWeight: 600, color: '#444',
+                          textAlign: 'center', lineHeight: 1.3,
                         }}>
                           {badgeSubtitle}
                         </p>
                       </div>
                     </div>
 
-                    {/* Bottom brand strip */}
+                    {/* Brand strip — inside label */}
                     <div className="sticker-brand" style={{
-                      borderTop: '1px solid #d1d5db',
-                      paddingTop: 4,
-                      marginTop: 5,
                       flexShrink: 0,
+                      borderTop: '1px solid #d1d5db',
+                      paddingTop: 3,
+                      marginTop: 4,
                     }}>
                       <p className="sticker-brand-text" style={{
-                        fontSize: 7, fontWeight: 800, letterSpacing: '0.05em',
+                        fontSize: 11, fontWeight: 800, letterSpacing: '0.04em',
                         color: RHS_GREEN, whiteSpace: 'nowrap',
                       }}>
-                        Scan Out. Scan In. <span style={{ color: '#9ca3af', fontWeight: 400 }}>PassAble MultiPass</span>
+                        Scan Out. Scan In.{' '}
+                        <span style={{ color: '#9ca3af', fontWeight: 400 }}>PassAble MultiPass</span>
                       </p>
                     </div>
 
@@ -429,7 +447,7 @@ export default function QRPage() {
 
           )}
 
-          {/* ── Footer ── */}
+          {/* Footer */}
           <div className="mt-8 flex justify-between items-center no-print">
             <a href="/teacher"
               className="px-5 py-2.5 text-sm font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
