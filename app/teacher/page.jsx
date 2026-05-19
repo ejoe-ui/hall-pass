@@ -442,14 +442,22 @@ function TeacherInner() {
     if (get('print_passes')) setPrintPasses(get('print_passes') === 'true')
   }
 
-  async function rotateUnlockCode() {
-    setRotating(true)
-    const newCode = Math.random().toString(36).substring(2, 12)
-    await supabase.from('settings').update({ value: newCode }).eq('key', 'teacher_unlock_code')
-    setUnlockCode(newCode)
-    const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${newCode}&room=${teacherRoom}`
-    QRCode.toDataURL(url, { width: 160, margin: 1 }).then(qr => { setUnlockQR(qr); setRotating(false); setRotated(true); setTimeout(() => setRotated(false), 3000) })
+async function rotateUnlockCode() {
+  setRotating(true)
+  const newCode = Math.random().toString(36).substring(2, 12)
+  if (currentTeacher?.id) {
+    await supabase.from('teachers').update({ unlock_code: newCode }).eq('id', currentTeacher.id)
   }
+  await supabase.from('settings').update({ value: newCode }).eq('key', 'teacher_unlock_code')
+  setUnlockCode(newCode)
+  const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${newCode}&room=${teacherRoom}`
+  QRCode.toDataURL(url, { width: 160, margin: 1 }).then(qr => {
+    setUnlockQR(qr)
+    setRotating(false)
+    setRotated(true)
+    setTimeout(() => setRotated(false), 3000)
+  })
+}
 
   async function savePin() {
     if (newPin.length !== 4 || isNaN(newPin)) return
@@ -1328,18 +1336,26 @@ function TeacherInner() {
                   <p className="text-xs text-gray-400 mt-2">Tap Rotate Code anytime to invalidate the old one.</p>
                   <a href="/unlock" target="_blank" className="text-xs mt-2 inline-block" style={{ color: RHS_GREEN }}>Open full-screen QR →</a>
 <div className="flex gap-2 mt-3 flex-wrap">
-  <button
-    onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/unlock?code=${unlockCode}&room=${teacherRoom}`)}
-    className="text-xs px-3 py-1.5 rounded-lg font-medium text-white"
-    style={{ backgroundColor: RHS_GREEN }}>
-    📋 Copy QR Link
-  </button>
-  
-    <a href={`/unlock?code=${unlockCode}&room=${teacherRoom}`}
-    target="_blank"
-    className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">
-    📱 Open on this device →
-  </a>
+<button
+  onClick={() => {
+    const base = `https://hall-pass-lime.vercel.app/unlock`
+    const url = currentTeacher?.id
+      ? `${base}?teacher_id=${currentTeacher.id}&room=${teacherRoom}`
+      : `${base}?code=${unlockCode}&room=${teacherRoom}`
+    navigator.clipboard.writeText(url)
+  }}
+  className="text-xs px-3 py-1.5 rounded-lg font-medium text-white"
+  style={{ backgroundColor: RHS_GREEN }}>
+  📋 Copy QR Link
+</button>
+
+  href={currentTeacher?.id
+    ? `/unlock?teacher_id=${currentTeacher.id}&room=${teacherRoom}`
+    : `/unlock?code=${unlockCode}&room=${teacherRoom}`}
+  target="_blank"
+  className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">
+  📱 Open on this device →
+</a>
 </div>
                 </div>
               </div>
