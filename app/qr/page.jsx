@@ -113,7 +113,7 @@ export default function QRPage() {
         ───────────────────────────────────────── */
         @media print {
           .no-print { display: none !important; }
-          body { margin: 0; padding: 0; }
+          body { margin: 0; padding: 0; width: 8.5in; }
 
           /* Badge 3-up */
           .badge-print-grid {
@@ -154,10 +154,12 @@ export default function QRPage() {
           }
 
           .sticker-sheet {
-            position: absolute;
-            top: 0.25in;
-            left: 1.1875in;
-            width: 6.125in; /* 2 × 3" + 0.125" gap */
+            width: 8.5in;
+            box-sizing: border-box;
+            padding-top: 0.25in;
+            padding-left: 1.1875in;
+            padding-right: 1.1875in;
+            padding-bottom: 0;
           }
 
           .sticker-grid {
@@ -343,7 +345,7 @@ export default function QRPage() {
           ) : (
 
             /* Sticker template — screen preview */
-            <div className="sticker-sheet" style={{ position: 'relative' }}>
+            <div className="sticker-sheet" style={{ paddingLeft: 0 }}>
               <div className="sticker-grid" style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(2, 288px)',
