@@ -1327,6 +1327,20 @@ function TeacherInner() {
                   <p className="text-sm font-mono text-gray-700">{unlockCode}</p>
                   <p className="text-xs text-gray-400 mt-2">Tap Rotate Code anytime to invalidate the old one.</p>
                   <a href="/unlock" target="_blank" className="text-xs mt-2 inline-block" style={{ color: RHS_GREEN }}>Open full-screen QR →</a>
+<div className="flex gap-2 mt-3 flex-wrap">
+  <button
+    onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/unlock?code=${unlockCode}&room=${teacherRoom}`)}
+    className="text-xs px-3 py-1.5 rounded-lg font-medium text-white"
+    style={{ backgroundColor: RHS_GREEN }}>
+    📋 Copy QR Link
+  </button>
+  
+    <a href={`/unlock?code=${unlockCode}&room=${teacherRoom}`}
+    target="_blank"
+    className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">
+    📱 Open on this device →
+  </a>
+</div>
                 </div>
               </div>
             </div>
