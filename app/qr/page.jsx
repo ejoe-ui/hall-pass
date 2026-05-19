@@ -247,22 +247,32 @@ export default function QRPage() {
             text-align: center;
             margin-top: 1pt;
           }
+          .sticker-label .sticker-brand {
+            font-size: 5.5pt;
+            font-weight: 700;
+            text-align: center;
+            margin-top: 3pt;
+            letter-spacing: 0.03em;
+            color: #006938;
+            white-space: nowrap;
+          }
+          .sticker-label .sticker-brand span {
+            color: #9ca3af;
+            font-weight: 400;
+          }
         }
 
-        /* Screen styles for sticker header */
-        .sticker-header {
-          width: 6.125in;
+        /* Screen styles for sticker labels */
+        .sticker-brand {
+          font-size: 8px;
+          font-weight: 700;
           text-align: center;
-          margin-bottom: 0.15in;
-          padding-top: 4px;
-        }
-        .sticker-title {
-          font-size: 22px;
-          font-weight: 900;
-          letter-spacing: 0.04em;
+          margin-top: 3px;
+          letter-spacing: 0.03em;
           color: #006938;
+          white-space: nowrap;
         }
-        .sticker-title span {
+        .sticker-brand span {
           color: #9ca3af;
           font-weight: 400;
         }
@@ -342,9 +352,6 @@ export default function QRPage() {
 
             /* ── Sticker template ── */
             <div className="sticker-sheet">
-              <div className="sticker-header">
-                <div className="sticker-title">Scan Out. Scan In. <span>PassAble.</span></div>
-              </div>
               <div className="sticker-grid">
                 {students.map(s => (
                   <div key={s.id} className="sticker-label" style={{ border: '0.5pt dashed #e5e7eb' }}>
@@ -361,6 +368,7 @@ export default function QRPage() {
                       {qrCodes[s.id] && <img src={qrCodes[s.id]} alt={s.full_name} className="sticker-qr" />}
                       <p className="sticker-name">{s.full_name}</p>
                       <p className="sticker-sub">{badgeSubtitle}</p>
+                      <p className="sticker-brand">Scan Out. Scan In. <span>PassAble MultiPass</span></p>
                     </div>
                   </div>
                 ))}
