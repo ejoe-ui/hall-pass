@@ -19,7 +19,7 @@ export default function QRPage() {
   const [qrCodes, setQrCodes] = useState({})
   const [photoUrls, setPhotoUrls] = useState({})
   const [activePeriod, setActivePeriod] = useState(null)
-  const [template, setTemplate] = useState('badge') // 'badge' | 'sticker'
+  const [template, setTemplate] = useState('badge')
 
   useEffect(() => {
     async function loadTeacher() {
@@ -137,31 +137,8 @@ export default function QRPage() {
           .badge-print-card .label { font-size: 7px; color: #d1d5db; margin-top: 2px; }
 
           /* ── Sticker template (Spartan R011 — 3"×2", 2×5, 10/sheet) ── */
-          /* 
-            Sheet: 8.5" × 11"
-            Top margin: 0.25" = 18pt
-            Side margin: 1.1875" = 85.5pt
-            Label: 3" × 2" = 216pt × 144pt
-            H pitch: 3.125" = 225pt (gap = 9pt)
-            V pitch: 2.125" = 153pt (gap = 9pt)
-          */
           @page { size: 8.5in 11in; margin: 0; }
 
-          .sticker-header {
-            width: 6.125in;
-            text-align: center;
-            margin-bottom: 0.15in;
-          }
-          .sticker-header .sticker-title {
-            font-size: 18pt;
-            font-weight: 900;
-            letter-spacing: 0.05em;
-            color: #006938;
-          }
-          .sticker-header .sticker-title span {
-            color: #9ca3af;
-            font-weight: 400;
-          }
           .sticker-sheet {
             width: 8.5in;
             min-height: 11in;
@@ -177,102 +154,162 @@ export default function QRPage() {
             column-gap: 0.125in;
             row-gap: 0.125in;
           }
+
+          /* Label: column layout — top content row + bottom brand strip */
           .sticker-label {
             width: 3in;
             height: 2in;
             overflow: hidden;
             box-sizing: border-box;
             display: flex;
-            flex-direction: row;
-            align-items: center;
+            flex-direction: column;
             justify-content: space-between;
-            padding: 0.1in 0.12in;
+            padding: 0.1in 0.12in 0.08in 0.12in;
             page-break-inside: avoid;
             break-inside: avoid;
           }
-          .sticker-label .sticker-left {
+
+          /* Top row: photo+name on left, QR+subtitle on right */
+          .sticker-top {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            justify-content: space-between;
+            flex: 1;
+            gap: 0.1in;
+          }
+
+          .sticker-left {
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
             gap: 4pt;
             flex-shrink: 0;
             width: 1in;
           }
-          .sticker-label .sticker-photo { width: 1in; height: 1in; object-fit: cover; border-radius: 4pt; }
-            width: 0.7in;
-            height: 0.7in;
+          .sticker-photo {
+            width: 1in;
+            height: 1in;
             object-fit: cover;
             border-radius: 4pt;
           }
-          .sticker-label .sticker-placeholder { width: 1in; height: 1in; border-radius: 4pt; background: #f3f4f6; display: flex; align-items: center; justify-content: center; }
-            width: 0.7in;
-            height: 0.7in;
+          .sticker-placeholder {
+            width: 1in;
+            height: 1in;
             border-radius: 4pt;
             background: #f3f4f6;
             display: flex;
             align-items: center;
             justify-content: center;
           }
-          .sticker-label .sticker-logo {
-            width: 0.35in;
-            height: 0.35in;
+          .sticker-logo {
+            width: 0.4in;
+            height: 0.4in;
             object-fit: contain;
             opacity: 0.3;
           }
-          .sticker-label .sticker-right {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding-left: 0.08in;
-          }
-          .sticker-label .sticker-qr {
-            width: 1in;
-            height: 1in;
-          }
-          .sticker-label .sticker-name {
+          .sticker-name {
             font-size: 7pt;
             font-weight: 700;
             text-align: center;
             color: #111;
-            margin-top: 3pt;
             line-height: 1.2;
-            max-width: 1.1in;
+            max-width: 1in;
           }
-          .sticker-label .sticker-sub {
+
+          .sticker-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding-left: 0.05in;
+          }
+          .sticker-qr {
+            width: 1in;
+            height: 1in;
+          }
+          .sticker-sub {
             font-size: 6pt;
             color: #9ca3af;
             text-align: center;
-            margin-top: 1pt;
-          }
-          .sticker-label .sticker-brand {
-            font-size: 5.5pt;
-            font-weight: 700;
-            text-align: center;
             margin-top: 3pt;
-            letter-spacing: 0.03em;
+            line-height: 1.3;
+          }
+
+          /* Bottom brand strip — full width */
+          .sticker-brand {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: flex-start;
+            width: 100%;
+            padding-top: 4pt;
+            border-top: 0.5pt solid #e5e7eb;
+            margin-top: 4pt;
+          }
+          .sticker-brand-text {
+            font-size: 6pt;
+            font-weight: 700;
+            letter-spacing: 0.04em;
             color: #006938;
             white-space: nowrap;
           }
-          .sticker-label .sticker-brand span {
+          .sticker-brand-text span {
             color: #9ca3af;
             font-weight: 400;
           }
         }
 
-        /* Screen styles for sticker labels */
-        .sticker-brand {
-          font-size: 8px;
+        /* Screen styles */
+        .sticker-label-screen {
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          background: white;
+          border: 1px dashed #e5e7eb;
+          width: 288px;
+          height: 192px;
+          padding: 10px 12px 8px 12px;
+          box-sizing: border-box;
+        }
+        .sticker-top-screen {
+          display: flex;
+          flex-direction: row;
+          align-items: flex-start;
+          gap: 10px;
+          flex: 1;
+        }
+        .sticker-left-screen {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 3px;
+          width: 96px;
+          flex-shrink: 0;
+        }
+        .sticker-right-screen {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+        .sticker-brand-screen {
+          display: flex;
+          align-items: center;
+          width: 100%;
+          padding-top: 4px;
+          border-top: 1px solid #e5e7eb;
+          margin-top: 4px;
+        }
+        .sticker-brand-text-screen {
+          font-size: 7px;
           font-weight: 700;
-          text-align: center;
-          margin-top: 3px;
-          letter-spacing: 0.03em;
+          letter-spacing: 0.04em;
           color: #006938;
           white-space: nowrap;
         }
-        .sticker-brand span {
+        .sticker-brand-text-screen span {
           color: #9ca3af;
           font-weight: 400;
         }
@@ -319,8 +356,8 @@ export default function QRPage() {
           {/* ── Print tip ── */}
           <div className="no-print mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
             {template === 'badge'
-              ? '⚠ Before printing: set printer to <strong>single-sided</strong> and <strong>fit to page</strong>.'
-              : '⚠ Before printing: set printer to <strong>actual size</strong> (not fit to page) and <strong>single-sided</strong>. Load Spartan R011 label sheets.'}
+              ? '⚠ Before printing: set printer to single-sided and fit to page.'
+              : '⚠ Before printing: set printer to actual size (not fit to page) and single-sided. Load Spartan R011 label sheets.'}
           </div>
 
           {students.length === 0 ? (
@@ -354,22 +391,50 @@ export default function QRPage() {
             <div className="sticker-sheet">
               <div className="sticker-grid">
                 {students.map(s => (
-                  <div key={s.id} className="sticker-label" style={{ border: '0.5pt dashed #e5e7eb' }}>
-                    <div className="sticker-left">
-                      {photoUrls[s.id] ? (
-                        <img src={photoUrls[s.id]} alt={s.full_name} className="sticker-photo" />
-                      ) : (
-                        <div className="sticker-placeholder">
-                          <img src="/RHSCOWBOYlogo.png" alt="RHS" className="sticker-logo" />
-                        </div>
-                      )}
+                  /* Screen version uses screen classes; print CSS overrides via class names */
+                  <div key={s.id} className="sticker-label sticker-label-screen">
+
+                    {/* Top row */}
+                    <div className="sticker-top sticker-top-screen">
+
+                      {/* Left: photo + name */}
+                      <div className="sticker-left sticker-left-screen">
+                        {photoUrls[s.id] ? (
+                          <img src={photoUrls[s.id]} alt={s.full_name} className="sticker-photo"
+                            style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 4 }} />
+                        ) : (
+                          <div className="sticker-placeholder"
+                            style={{ width: 96, height: 96, borderRadius: 4, background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <img src="/RHSCOWBOYlogo.png" alt="RHS" className="sticker-logo"
+                              style={{ width: 38, height: 38, objectFit: 'contain', opacity: 0.3 }} />
+                          </div>
+                        )}
+                        <p className="sticker-name"
+                          style={{ fontSize: 7, fontWeight: 700, textAlign: 'center', color: '#111', lineHeight: 1.2, maxWidth: 96 }}>
+                          {s.full_name}
+                        </p>
+                      </div>
+
+                      {/* Right: QR + subtitle */}
+                      <div className="sticker-right sticker-right-screen">
+                        {qrCodes[s.id] && (
+                          <img src={qrCodes[s.id]} alt={s.full_name} className="sticker-qr"
+                            style={{ width: 96, height: 96 }} />
+                        )}
+                        <p className="sticker-sub"
+                          style={{ fontSize: 6, color: '#9ca3af', textAlign: 'center', marginTop: 3, lineHeight: 1.3 }}>
+                          {badgeSubtitle}
+                        </p>
+                      </div>
                     </div>
-                    <div className="sticker-right">
-                      {qrCodes[s.id] && <img src={qrCodes[s.id]} alt={s.full_name} className="sticker-qr" />}
-                      <p className="sticker-name">{s.full_name}</p>
-                      <p className="sticker-sub">{badgeSubtitle}</p>
-                      <p className="sticker-brand">Scan Out. Scan In. <span>PassAble MultiPass</span></p>
+
+                    {/* Bottom brand strip */}
+                    <div className="sticker-brand sticker-brand-screen">
+                      <p className="sticker-brand-text sticker-brand-text-screen">
+                        Scan Out. Scan In. <span>PassAble MultiPass</span>
+                      </p>
                     </div>
+
                   </div>
                 ))}
               </div>
