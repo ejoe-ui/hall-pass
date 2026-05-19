@@ -9,35 +9,42 @@ const RHS_GREEN = '#006938'
 function UnlockInner() {
   const searchParams = useSearchParams()
   const [qrCode, setQrCode] = useState('')
-  const [unlockCode, setUnlockCode] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const codeParam = searchParams.get('code')
-    const roomParam = searchParams.get('room')
+    const teacherId = searchParams.get('teacher_id')
+    const room = searchParams.get('room')
 
-    if (codeParam) {
-      // Use params directly — no Supabase needed
-      renderQR(codeParam, roomParam)
+    if (teacherId) {
+      loadFromTeacher(teacherId, room)
+      // Poll every 15s so rotated codes update automatically
+      const interval = setInterval(() => loadFromTeacher(teacherId, room), 15000)
+      return () => clearInterval(interval)
     } else {
-      // Fall back to Supabase for the global code
-      loadAndRender()
-      const interval = setInterval(loadAndRender, 15000)
+      loadGlobal()
+      const interval = setInterval(loadGlobal, 15000)
       return () => clearInterval(interval)
     }
   }, [])
 
-  async function renderQR(code, room) {
-    setUnlockCode(code)
-    const url = room
-      ? `https://hall-pass-lime.vercel.app/kiosk?unlock=${code}&room=${room}`
-      : `https://hall-pass-lime.vercel.app/kiosk?unlock=${code}`
-    const qr = await QRCode.toDataURL(url, { width: 400, margin: 2 })
-    setQrCode(qr)
+  async function loadFromTeacher(teacherId, room) {
+    const { data } = await supabase
+      .from('teachers')
+      .select('unlock_code, room')
+      .eq('id', teacherId)
+      .maybeSingle()
+    if (data?.unlock_code) {
+      const r = room || data.room || ''
+      const url = r
+        ? `https://hall-pass-lime.vercel.app/kiosk?unlock=${data.unlock_code}&room=${r}`
+        : `https://hall-pass-lime.vercel.app/kiosk?unlock=${data.unlock_code}`
+      const qr = await QRCode.toDataURL(url, { width: 400, margin: 2 })
+      setQrCode(qr)
+    }
     setLoading(false)
   }
 
-  async function loadAndRender() {
+  async function loadGlobal() {
     const { data } = await supabase
       .from('settings')
       .select('value')
@@ -46,7 +53,6 @@ function UnlockInner() {
     if (data?.value) {
       const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${data.value}`
       const qr = await QRCode.toDataURL(url, { width: 400, margin: 2 })
-      setUnlockCode(data.value)
       setQrCode(qr)
     }
     setLoading(false)
