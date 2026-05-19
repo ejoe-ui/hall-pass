@@ -278,7 +278,6 @@ function TeacherInner() {
 
   // Modals
   const [showLatePass, setShowLatePass] = useState(false)
-  // lateStudents: array of { id: string|null, name: string, isOther: boolean }
   const [lateStudents, setLateStudents] = useState([])
   const [lateSearchInput, setLateSearchInput] = useState('')
   const [lateSearchOpen, setLateSearchOpen] = useState(false)
@@ -315,7 +314,7 @@ function TeacherInner() {
   const prevHeldIds = useRef([])
   const prevActiveIds = useRef([])
 
-  // ── Close late pass search on outside click ─────────────────────────────────
+  // ── Close late pass search on outside click ────────────────────────────────
   useEffect(() => {
     function handleClickOutside(e) {
       if (lateSearchRef.current && !lateSearchRef.current.contains(e.target)) {
@@ -326,7 +325,7 @@ function TeacherInner() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // ── Auth effects ────────────────────────────────────────────────────────────
+  // ── Auth effects ───────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session); setAuthLoading(false)
@@ -354,14 +353,16 @@ function TeacherInner() {
     if (session) { loadSettings(); loadCurrentTeacher() }
   }, [session])
 
+  // Once teacher record loads, override with their personal unlock code
   useEffect(() => {
-  if (!currentTeacher) return
-  if (currentTeacher.unlock_code) {
-    setUnlockCode(currentTeacher.unlock_code)
-    const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${currentTeacher.unlock_code}&room=${currentTeacher.room || '27'}`
-    QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
-  }
-}, [currentTeacher])
+    if (!currentTeacher) return
+    if (currentTeacher.unlock_code) {
+      setUnlockCode(currentTeacher.unlock_code)
+      const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${currentTeacher.unlock_code}&room=${currentTeacher.room || '27'}`
+      QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
+    }
+  }, [currentTeacher])
+
   useEffect(() => {
     supabase.from('settings').select('value').eq('key', 'teacher_unlock_code').maybeSingle()
       .then(({ data }) => { if (data) setUnlockCode(data.value) })
@@ -374,7 +375,7 @@ function TeacherInner() {
     return () => clearInterval(timer)
   }, [activePeriod, currentTeacher])
 
-  // ── Auth functions ──────────────────────────────────────────────────────────
+  // ── Auth functions ─────────────────────────────────────────────────────────
   async function loadCurrentTeacher() {
     const { data: { session: s } } = await supabase.auth.getSession()
     if (!s) return
@@ -404,8 +405,7 @@ function TeacherInner() {
     setSigningIn(true); setAuthError('')
     if (!email.endsWith('@rjusd.org') && email !== 'connect.joe@gmail.com') {
       setAuthError('Only @rjusd.org accounts are allowed.')
-      setSigningIn(false)
-      return
+      setSigningIn(false); return
     }
     const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' } })
     if (error) setAuthError('Could not send link. Try again.')
@@ -417,8 +417,7 @@ function TeacherInner() {
     setSigningIn(true); setAuthError('')
     if (!email.endsWith('@rjusd.org') && email !== 'connect.joe@gmail.com') {
       setAuthError('Only @rjusd.org accounts are allowed.')
-      setSigningIn(false)
-      return
+      setSigningIn(false); return
     }
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) setAuthError('Invalid email or password.')
@@ -431,18 +430,19 @@ function TeacherInner() {
     setMagicSent(false); setMagicEmail('')
   }
 
-  // ── Settings ────────────────────────────────────────────────────────────────
+  // ── Settings ───────────────────────────────────────────────────────────────
   async function loadSettings() {
     const { data } = await supabase.from('settings').select('key, value')
       .in('key', ['teacher_unlock_code', 'teacher_pin', 'sub_code', 'teacher_checkout_code', 'kiosk_return_required', 'print_passes'])
     if (!data) return
     const get = (key) => data.find(r => r.key === key)?.value
-const teacherUnlockVal = currentTeacher?.unlock_code || get('teacher_unlock_code')
-if (teacherUnlockVal) {
-  setUnlockCode(teacherUnlockVal)
-  const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${teacherUnlockVal}&room=${teacherRoom}`
-  QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
-}
+    // Use per-teacher unlock code if available, otherwise fall back to global
+    const teacherUnlockVal = currentTeacher?.unlock_code || get('teacher_unlock_code')
+    if (teacherUnlockVal) {
+      setUnlockCode(teacherUnlockVal)
+      const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${teacherUnlockVal}&room=${teacherRoom}`
+      QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
+    }
     if (get('teacher_pin')) setCurrentPin(get('teacher_pin'))
     if (get('sub_code')) setSubCode(get('sub_code'))
     if (get('teacher_checkout_code')) setSelfCheckoutCode(get('teacher_checkout_code'))
@@ -450,22 +450,22 @@ if (teacherUnlockVal) {
     if (get('print_passes')) setPrintPasses(get('print_passes') === 'true')
   }
 
-async function rotateUnlockCode() {
-  setRotating(true)
-  const newCode = Math.random().toString(36).substring(2, 12)
-  if (currentTeacher?.id) {
-    await supabase.from('teachers').update({ unlock_code: newCode }).eq('id', currentTeacher.id)
+  async function rotateUnlockCode() {
+    setRotating(true)
+    const newCode = Math.random().toString(36).substring(2, 12)
+    if (currentTeacher?.id) {
+      await supabase.from('teachers').update({ unlock_code: newCode }).eq('id', currentTeacher.id)
+    }
+    await supabase.from('settings').update({ value: newCode }).eq('key', 'teacher_unlock_code')
+    setUnlockCode(newCode)
+    const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${newCode}&room=${teacherRoom}`
+    QRCode.toDataURL(url, { width: 160, margin: 1 }).then(qr => {
+      setUnlockQR(qr)
+      setRotating(false)
+      setRotated(true)
+      setTimeout(() => setRotated(false), 3000)
+    })
   }
-  await supabase.from('settings').update({ value: newCode }).eq('key', 'teacher_unlock_code')
-  setUnlockCode(newCode)
-  const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${newCode}&room=${teacherRoom}`
-  QRCode.toDataURL(url, { width: 160, margin: 1 }).then(qr => {
-    setUnlockQR(qr)
-    setRotating(false)
-    setRotated(true)
-    setTimeout(() => setRotated(false), 3000)
-  })
-}
 
   async function savePin() {
     if (newPin.length !== 4 || isNaN(newPin)) return
@@ -493,7 +493,7 @@ async function rotateUnlockCode() {
     await supabase.from('settings').update({ value: code }).eq('key', 'active_checkout_code')
   }
 
-  // ── Data loading ────────────────────────────────────────────────────────────
+  // ── Data loading ───────────────────────────────────────────────────────────
   async function loadData() {
     let passQuery = supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod).order('time_out')
     if (currentTeacher?.id) passQuery = passQuery.or(`teacher_id.eq.${currentTeacher.id},teacher_id.is.null`)
@@ -539,7 +539,6 @@ async function rotateUnlockCode() {
       .eq('scope', 'teacher')
       .eq('created_by', currentTeacher?.id || '')
     if (teacherDnlo) setTeacherDnloList(teacherDnlo.map(d => d.student_id))
-
     await loadMissedPasses(activePeriod)
   }
 
@@ -559,7 +558,7 @@ async function rotateUnlockCode() {
     setMissedPasses(missed.map(p => ({ ...p, students: studMap[p.student_id] || null })))
   }
 
-  // ── Pass actions ────────────────────────────────────────────────────────────
+  // ── Pass actions ───────────────────────────────────────────────────────────
   async function handleReturn(passId) {
     const pass = activePasses.find(p => p.id === passId)
     const mins = Math.floor((new Date() - new Date(pass.time_out)) / 60000)
@@ -633,7 +632,7 @@ async function rotateUnlockCode() {
     loadData()
   }
 
-  // ── Late pass — supports multiple students ─────────────────────────────────
+  // ── Late pass ──────────────────────────────────────────────────────────────
   async function handleIssueLatePass() {
     if (lateStudents.length === 0 || !lateTeacher) return
     setIssuingLatePass(true)
@@ -664,20 +663,17 @@ async function rotateUnlockCode() {
     setTimeout(() => { setLatePassSuccess(null); setShowLatePass(false) }, 4000)
   }
 
-  // ── Late pass tag input helpers ────────────────────────────────────────────
   function addLateStudent(student) {
     if (lateStudents.find(x => x.id === student.id)) return
     setLateStudents(prev => [...prev, { id: student.id, name: student.full_name, isOther: false }])
-    setLateSearchInput('')
-    setLateSearchOpen(false)
+    setLateSearchInput(''); setLateSearchOpen(false)
   }
 
   function addLateStudentOther(name) {
     const trimmed = name.trim()
     if (!trimmed || lateStudents.find(x => x.name === trimmed)) return
     setLateStudents(prev => [...prev, { id: null, name: trimmed, isOther: true }])
-    setLateSearchInput('')
-    setLateSearchOpen(false)
+    setLateSearchInput(''); setLateSearchOpen(false)
   }
 
   function removeLateStudent(key) {
@@ -685,15 +681,11 @@ async function rotateUnlockCode() {
   }
 
   function resetLatePass() {
-    setShowLatePass(false)
-    setLateStudents([])
-    setLateSearchInput('')
-    setLateSearchOpen(false)
-    setLateTeacher('')
-    setLateReason('')
+    setShowLatePass(false); setLateStudents([]); setLateSearchInput('')
+    setLateSearchOpen(false); setLateTeacher(''); setLateReason('')
   }
 
-  // ── Derived ─────────────────────────────────────────────────────────────────
+  // ── Derived ────────────────────────────────────────────────────────────────
   const overLimit = activePasses.filter(p => Math.floor((now - new Date(p.time_out)) / 60000) >= TIME_LIMIT)
   const elapsed = (timeOut) => Math.floor((now - new Date(timeOut)) / 60000)
   const elapsedColor = (mins) => mins >= TIME_LIMIT ? 'text-red-500' : mins >= TIME_LIMIT * 0.7 ? 'text-amber-500' : 'text-green-600'
@@ -713,15 +705,16 @@ async function rotateUnlockCode() {
 
   const periodLabel = periods.find(p => p.value === activePeriod)?.label || `Period ${activePeriod}`
 
-  // ── Filtered students for late pass search ─────────────────────────────────
   const lateSearchFiltered = lateSearchInput.trim().length > 0
-    ? allStudents
-        .filter(s =>
-          s.full_name.toLowerCase().includes(lateSearchInput.trim().toLowerCase()) &&
-          !lateStudents.find(x => x.id === s.id)
-        )
-        .slice(0, 6)
+    ? allStudents.filter(s =>
+        s.full_name.toLowerCase().includes(lateSearchInput.trim().toLowerCase()) &&
+        !lateStudents.find(x => x.id === s.id)
+      ).slice(0, 6)
     : []
+
+  const kioskQRUrl = currentTeacher?.id
+    ? `https://hall-pass-lime.vercel.app/unlock?teacher_id=${currentTeacher.id}&room=${teacherRoom}`
+    : `https://hall-pass-lime.vercel.app/unlock?code=${unlockCode}&room=${teacherRoom}`
 
   if (authLoading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -898,10 +891,8 @@ async function rotateUnlockCode() {
                 <h2 className="text-lg font-semibold text-gray-800">Issue Late Pass</h2>
                 <p className="text-xs text-gray-400">Student will not return to Room {teacherRoom}</p>
               </div>
-              <button onClick={resetLatePass}
-                className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              <button onClick={resetLatePass} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
-
             {latePassSuccess ? (
               <div className="text-center py-4">
                 <div className="text-4xl mb-2">🖨️</div>
@@ -911,17 +902,12 @@ async function rotateUnlockCode() {
             ) : (
               <>
                 <div className="flex flex-col gap-3 mb-4">
-
-                  {/* ── Student tag input ── */}
                   <div ref={lateSearchRef}>
                     <label className="text-xs text-gray-500 font-medium mb-1 block">Students</label>
-
-                    {/* Chips */}
                     {lateStudents.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mb-2">
                         {lateStudents.map((s) => (
-                          <span
-                            key={s.id || s.name}
+                          <span key={s.id || s.name}
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
                             style={{
                               backgroundColor: s.isOther ? '#f3f4f6' : '#dcfce7',
@@ -930,20 +916,14 @@ async function rotateUnlockCode() {
                             }}>
                             {s.isOther && <span className="opacity-40 mr-0.5">✎</span>}
                             {s.name}
-                            <button
-                              onClick={() => removeLateStudent(s.id || s.name)}
-                              className="ml-0.5 hover:opacity-60 leading-none font-bold">
-                              ×
-                            </button>
+                            <button onClick={() => removeLateStudent(s.id || s.name)}
+                              className="ml-0.5 hover:opacity-60 leading-none font-bold">×</button>
                           </span>
                         ))}
                       </div>
                     )}
-
-                    {/* Search input */}
                     <div className="relative">
-                      <input
-                        type="text"
+                      <input type="text"
                         placeholder={lateStudents.length === 0 ? 'Search student or type name…' : 'Add another…'}
                         value={lateSearchInput}
                         onChange={e => { setLateSearchInput(e.target.value); setLateSearchOpen(true) }}
@@ -951,34 +931,23 @@ async function rotateUnlockCode() {
                         onKeyDown={e => {
                           if (e.key === 'Enter' && lateSearchInput.trim()) {
                             const match = lateSearchFiltered[0]
-                            if (match) {
-                              addLateStudent(match)
-                            } else {
-                              addLateStudentOther(lateSearchInput)
-                            }
+                            if (match) { addLateStudent(match) } else { addLateStudentOther(lateSearchInput) }
                           }
                           if (e.key === 'Escape') setLateSearchOpen(false)
                         }}
                         className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
-                        style={{ borderColor: RHS_GREEN }}
-                      />
-
-                      {/* Dropdown */}
+                        style={{ borderColor: RHS_GREEN }} />
                       {lateSearchOpen && lateSearchInput.trim().length > 0 && (
                         <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
                           {lateSearchFiltered.map(s => (
-                            <button
-                              key={s.id}
-                              onMouseDown={e => e.preventDefault()}
+                            <button key={s.id} onMouseDown={e => e.preventDefault()}
                               onClick={() => addLateStudent(s)}
                               className="w-full text-left px-3 py-2 text-sm hover:bg-green-50 text-gray-800 transition-colors">
                               {s.full_name}
                             </button>
                           ))}
-                          {/* Other / freeform option */}
                           {lateSearchInput.trim().length > 1 && (
-                            <button
-                              onMouseDown={e => e.preventDefault()}
+                            <button onMouseDown={e => e.preventDefault()}
                               onClick={() => addLateStudentOther(lateSearchInput)}
                               className="w-full text-left px-3 py-2 text-sm text-gray-400 hover:bg-gray-50 border-t border-gray-100 italic transition-colors">
                               ✎ Add &ldquo;{lateSearchInput.trim()}&rdquo; as other
@@ -988,8 +957,6 @@ async function rotateUnlockCode() {
                       )}
                     </div>
                   </div>
-
-                  {/* Reporting To */}
                   <div>
                     <label className="text-xs text-gray-500 font-medium mb-1 block">Reporting To</label>
                     <select value={lateTeacher} onChange={e => setLateTeacher(e.target.value)}
@@ -999,8 +966,6 @@ async function rotateUnlockCode() {
                       {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
-
-                  {/* Reason */}
                   <div>
                     <label className="text-xs text-gray-500 font-medium mb-1 block">Reason for Lateness</label>
                     <input type="text" placeholder="e.g. finishing assignment, helping in class..."
@@ -1009,24 +974,17 @@ async function rotateUnlockCode() {
                       style={{ borderColor: RHS_GREEN }} />
                   </div>
                 </div>
-
                 <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 mb-4 text-xs text-blue-700">
                   {lateStudents.length > 1
                     ? `${lateStudents.length} passes will print — one per student.`
                     : 'A receipt will print and the receiving teacher will be notified.'}
                 </div>
-
                 <div className="flex gap-3">
-                  <button
-                    onClick={handleIssueLatePass}
+                  <button onClick={handleIssueLatePass}
                     disabled={lateStudents.length === 0 || !lateTeacher || issuingLatePass}
                     className="flex-1 py-3 text-white text-sm font-semibold rounded-xl disabled:opacity-30"
                     style={{ backgroundColor: RHS_GREEN }}>
-                    {issuingLatePass
-                      ? 'Issuing...'
-                      : lateStudents.length > 1
-                        ? `🖨️ Print ${lateStudents.length} Passes`
-                        : '🖨️ Print & Issue'}
+                    {issuingLatePass ? 'Issuing...' : lateStudents.length > 1 ? `🖨️ Print ${lateStudents.length} Passes` : '🖨️ Print & Issue'}
                   </button>
                   <button onClick={resetLatePass}
                     className="flex-1 py-3 border border-gray-200 text-gray-600 text-sm rounded-xl hover:bg-gray-50">
@@ -1050,9 +1008,7 @@ async function rotateUnlockCode() {
         </div>
         <div className="flex gap-4 items-center">
           <a href="/analytics" className="text-sm text-green-200 hover:text-white">Analytics</a>
-          {currentTeacher?.is_admin && (
-            <a href="/admin" className="text-sm text-green-200 hover:text-white">Admin</a>
-          )}
+          {currentTeacher?.is_admin && <a href="/admin" className="text-sm text-green-200 hover:text-white">Admin</a>}
           <button onClick={() => setActivePeriod(null)} className="text-sm text-green-200 hover:text-white">← Period</button>
           <button onClick={handleSignOut} className="text-sm text-green-200 hover:text-white">Sign Out</button>
         </div>
@@ -1103,7 +1059,6 @@ async function rotateUnlockCode() {
           </div>
         )}
 
-        {/* ── Alerts ── */}
         {activePasses.length >= 2 && (
           <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
             ⚠ {activePasses.length} students out simultaneously: {activePasses.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')}
@@ -1325,50 +1280,52 @@ async function rotateUnlockCode() {
         {/* ── Settings ── */}
         {showSettings && (
           <>
+            {/* Teacher Unlock QR — redesigned with two clear sections */}
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Teacher Unlock QR</p>
-                  <p className="text-xs text-gray-400">Scan to sign in without typing password</p>
-                </div>
-                <button onClick={rotateUnlockCode} disabled={rotating}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${rotated ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-                  {rotating ? 'Rotating...' : rotated ? '✓ Rotated' : 'Rotate Code'}
-                </button>
+              <div className="mb-3">
+                <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Teacher Unlock QR</p>
+                <p className="text-xs text-gray-400">Two separate QR codes for two different purposes</p>
               </div>
-              <div className="flex items-center gap-4">
-                {unlockQR && <img src={unlockQR} alt="Teacher unlock QR" className="w-24 h-24" />}
-                <div>
-                  <p className="text-xs text-gray-400 mb-1">Current code</p>
-                  <p className="text-sm font-mono text-gray-700">{unlockCode}</p>
-                  <p className="text-xs text-gray-400 mt-2">Tap Rotate Code anytime to invalidate the old one.</p>
-                  <a href="/unlock" target="_blank" className="text-xs mt-2 inline-block" style={{ color: RHS_GREEN }}>Open full-screen QR →</a>
-<div className="flex gap-2 mt-3 flex-wrap">
-<button
-  onClick={() => {
-    const base = `https://hall-pass-lime.vercel.app/unlock`
-    const url = currentTeacher?.id
-      ? `${base}?teacher_id=${currentTeacher.id}&room=${teacherRoom}`
-      : `${base}?code=${unlockCode}&room=${teacherRoom}`
-    navigator.clipboard.writeText(url)
-  }}
-  className="text-xs px-3 py-1.5 rounded-lg font-medium text-white"
-  style={{ backgroundColor: RHS_GREEN }}>
-  📋 Copy QR Link
-</button>
 
-  href={currentTeacher?.id
-    ? `/unlock?teacher_id=${currentTeacher.id}&room=${teacherRoom}`
-    : `/unlock?code=${unlockCode}&room=${teacherRoom}`}
-  target="_blank"
-  className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">
-  📱 Open on this device →
-</a>
-</div>
+              {/* Sign-in QR */}
+              <div className="flex gap-4 mb-3 p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                {unlockQR && <img src={unlockQR} alt="Teacher unlock QR" className="w-20 h-20 flex-shrink-0" />}
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-blue-800 mb-0.5">📲 Teacher Sign-In QR</p>
+                  <p className="text-xs text-blue-600 mb-1">Scan with a phone camera to sign into the teacher dashboard — no password needed.</p>
+                  <p className="text-xs text-gray-500 font-mono mb-2">Code: {unlockCode}</p>
+                  <div className="flex gap-2 flex-wrap">
+                    <button onClick={rotateUnlockCode} disabled={rotating}
+                      className={`text-xs px-3 py-1.5 rounded-lg border font-medium ${rotated ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-blue-200 text-blue-700 hover:bg-blue-50'}`}>
+                      {rotating ? 'Rotating...' : rotated ? '✓ Rotated' : '🔄 Rotate Code'}
+                    </button>
+                    <a href="/unlock" target="_blank"
+                      className="text-xs px-3 py-1.5 rounded-lg border border-blue-200 bg-white text-blue-700 hover:bg-blue-50 font-medium">
+                      Full Screen →
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              {/* Kiosk unlock QR */}
+              <div className="p-3 bg-green-50 border border-green-100 rounded-xl">
+                <p className="text-xs font-semibold mb-0.5" style={{ color: RHS_GREEN }}>🖥️ Kiosk Unlock QR</p>
+                <p className="text-xs text-green-700 mb-3">Save this link on your phone. Open it anytime to show the QR that unlocks your classroom kiosk — updates automatically if code rotates.</p>
+                <div className="flex gap-2 flex-wrap">
+                  <button onClick={() => navigator.clipboard.writeText(kioskQRUrl)}
+                    className="text-xs px-3 py-1.5 rounded-lg font-medium text-white"
+                    style={{ backgroundColor: RHS_GREEN }}>
+                    📋 Copy Kiosk QR Link
+                  </button>
+                  <a href={kioskQRUrl} target="_blank"
+                    className="text-xs px-3 py-1.5 rounded-lg font-medium border border-green-200 text-green-700 hover:bg-green-100">
+                    📱 Open on this device →
+                  </a>
                 </div>
               </div>
             </div>
 
+            {/* Kiosk URL */}
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
               <div className="mb-3">
                 <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Kiosk URL</p>
@@ -1378,14 +1335,12 @@ async function rotateUnlockCode() {
                 {`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`}
               </div>
               <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`)}
+                <button onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`)}
                   className="text-xs px-3 py-1.5 rounded-lg font-medium text-white"
                   style={{ backgroundColor: RHS_GREEN }}>
                   📋 Copy URL
                 </button>
-                <button
-                  onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`)}
+                <button onClick={() => navigator.clipboard.writeText(`https://hall-pass-lime.vercel.app/kiosk?room=${teacherRoom}`)}
                   className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-200 text-gray-600 hover:bg-gray-50">
                   📲 Copy for NFC Tag
                 </button>
@@ -1395,6 +1350,7 @@ async function rotateUnlockCode() {
               </div>
             </div>
 
+            {/* Substitute Code */}
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
               <div className="mb-3">
                 <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Substitute Code</p>
@@ -1412,6 +1368,7 @@ async function rotateUnlockCode() {
               </div>
             </div>
 
+            {/* Printable Passes */}
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -1433,6 +1390,7 @@ async function rotateUnlockCode() {
               {printPassesSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
             </div>
 
+            {/* Keypad PIN */}
             <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
               <div className="mb-3">
                 <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Keypad PIN</p>
