@@ -470,11 +470,87 @@ export default function QRPage() {
               className="px-5 py-2.5 text-sm font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
               ← Back to Dashboard
             </a>
-            <button onClick={() => window.print()}
-              className="px-6 py-3 text-white rounded-lg text-sm font-medium"
-              style={{ backgroundColor: RHS_GREEN }}>
-              Print This Page
-            </button>
+            {template === 'badge' ? (
+              <button onClick={() => window.print()}
+                className="px-6 py-3 text-white rounded-lg text-sm font-medium"
+                style={{ backgroundColor: RHS_GREEN }}>
+                Print This Page
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  // Build label rows HTML
+                  const labelsHtml = students.map(s => {
+                    const photo = photoUrls[s.id]
+                      ? `<img src="${photoUrls[s.id]}" style="width:1.05in;height:1.05in;object-fit:cover;border-radius:5pt;display:block;" />`
+                      : `<div style="width:1.05in;height:1.05in;border-radius:5pt;background:#f3f4f6;display:flex;align-items:center;justify-content:center;"><img src="/RHSCOWBOYlogo.png" style="width:0.4in;height:0.4in;opacity:0.3;" /></div>`
+                    const qr = qrCodes[s.id]
+                      ? `<img src="${qrCodes[s.id]}" style="width:1.1in;height:1.1in;display:block;" />`
+                      : ''
+                    return `
+                      <div style="
+                        width:3in;height:2in;box-sizing:border-box;overflow:hidden;
+                        display:flex;flex-direction:column;
+                        padding:0.1in 0.12in 0.08in 0.12in;
+                        background:white;
+                      ">
+                        <div style="display:flex;flex-direction:row;align-items:center;gap:0.1in;flex:1;min-height:0;">
+                          <div style="display:flex;flex-direction:column;align-items:center;gap:4pt;width:1.1in;flex-shrink:0;">
+                            ${photo}
+                            <p style="font-size:9pt;font-weight:800;text-align:center;color:#111;line-height:1.2;margin:0;max-width:1.1in;">${s.full_name}</p>
+                          </div>
+                          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4pt;">
+                            ${qr}
+                            <p style="font-size:8pt;font-weight:600;color:#444;text-align:center;margin:0;line-height:1.3;">${badgeSubtitle}</p>
+                          </div>
+                        </div>
+                        <div style="flex-shrink:0;border-top:0.5pt solid #d1d5db;padding-top:3pt;margin-top:4pt;">
+                          <p style="font-size:11pt;font-weight:800;letter-spacing:0.04em;color:#006938;white-space:nowrap;margin:0;">
+                            Scan Out. Scan In. <span style="color:#9ca3af;font-weight:400;">PassAble MultiPass</span>
+                          </p>
+                        </div>
+                      </div>`
+                  }).join('')
+
+                  const html = `<!DOCTYPE html>
+<html>
+<head>
+<title>PassAble Sticker Labels</title>
+<style>
+  @page { size: 8.5in 11in; margin: 0; }
+  html, body { margin: 0; padding: 0; width: 8.5in; height: 11in; }
+  .sheet {
+    width: 8.5in;
+    height: 11in;
+    padding-top: 0.25in;
+    padding-left: 1.1875in;
+    padding-right: 1.1875in;
+    box-sizing: border-box;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 3in 3in;
+    grid-template-rows: repeat(5, 2in);
+    column-gap: 0.125in;
+    row-gap: 0.125in;
+  }
+</style>
+</head>
+<body>
+<div class="sheet"><div class="grid">${labelsHtml}</div></div>
+<script>window.onload = function() { window.print(); }<\/script>
+</body>
+</html>`
+
+                  const win = window.open('', '_blank', 'width=900,height=700')
+                  win.document.write(html)
+                  win.document.close()
+                }}
+                className="px-6 py-3 text-white rounded-lg text-sm font-medium"
+                style={{ backgroundColor: RHS_GREEN }}>
+                🖨️ Print Sticker Labels
+              </button>
+            )}
           </div>
         </div>
       </div>
