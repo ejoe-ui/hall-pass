@@ -26,6 +26,19 @@ export default function AdminPanel() {
   const [teacherError, setTeacherError] = useState('')
   const fileRef = useRef(null)
 
+  // ── Teacher pass stats ─────────────────────────────────────────────────────
+  const [teacherStats, setTeacherStats] = useState({}) // { [teacher_id]: { todayCount, lastActive } }
+
+  // ── Teacher pass log modal ────────────────────────────────────────────────
+  const [logModalTeacher, setLogModalTeacher] = useState(null) // teacher object
+  const [logModalPasses, setLogModalPasses] = useState([])
+  const [logModalLoading, setLogModalLoading] = useState(false)
+  const [logModalFilter, setLogModalFilter] = useState('today')
+
+  // ── Demo reset ────────────────────────────────────────────────────────────
+  const [resettingDemo, setResettingDemo] = useState(false)
+  const [demoResetMsg, setDemoResetMsg] = useState('')
+
   const emptyForm = { name: '', email: '', room: '', department: '', pin: '', is_admin: false, is_active: true, periods: ['1','4','6'], period_labels: {} }
   const [form, setForm] = useState(emptyForm)
 
@@ -78,12 +91,43 @@ export default function AdminPanel() {
 
   async function handleSignOut() { await supabase.auth.signOut() }
 
+  // ── Teacher stats ─────────────────────────────────────────────────────────
+  async function loadTeacherStats(teacherList) {
+    const list = teacherList || teachers
+    if (!list.length) return
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const { data: passData } = await supabase
+      .from('passes')
+      .select('teacher_id, time_out')
+      .gte('time_out', today.toISOString())
+      .not('teacher_id', 'is', null)
+
+    const { data: allPasses } = await supabase
+      .from('passes')
+      .select('teacher_id, time_out')
+      .not('teacher_id', 'is', null)
+      .order('time_out', { ascending: false })
+
+    const stats = {}
+    list.forEach(t => {
+      const todayPasses = passData?.filter(p => p.teacher_id === t.id) || []
+      const allTeacherPasses = allPasses?.filter(p => p.teacher_id === t.id) || []
+      stats[t.id] = {
+        todayCount: todayPasses.length,
+        lastActive: allTeacherPasses[0]?.time_out || null,
+      }
+    })
+    setTeacherStats(stats)
+  }
+
   // ── Teacher functions ─────────────────────────────────────────────────────
   async function loadTeachers() {
     setTeachersLoading(true)
     const { data } = await supabase.from('teachers').select('*').order('name')
-    setTeachers(data || [])
+    const list = data || []
+    setTeachers(list)
     setTeachersLoading(false)
+    loadTeacherStats(list)
   }
 
   async function handleSave() {
@@ -191,6 +235,65 @@ export default function AdminPanel() {
     setImporting(false)
   }
 
+  // ── Teacher pass log modal ────────────────────────────────────────────────
+  async function openTeacherLog(teacher) {
+    setLogModalTeacher(teacher)
+    setLogModalFilter('today')
+    setLogModalPasses([])
+    setLogModalLoading(true)
+    await fetchTeacherLog(teacher, 'today')
+  }
+
+  async function fetchTeacherLog(teacher, filter) {
+    setLogModalLoading(true)
+    let query = supabase
+      .from('passes')
+      .select('*')
+      .eq('teacher_id', teacher.id)
+      .order('time_out', { ascending: false })
+    if (filter === 'today') {
+      const today = new Date(); today.setHours(0, 0, 0, 0)
+      query = query.gte('time_out', today.toISOString())
+    }
+    const { data: passData } = await query.limit(100)
+    if (!passData) { setLogModalLoading(false); return }
+    const studentIds = [...new Set(passData.map(p => p.student_id))]
+    const { data: studs } = studentIds.length > 0
+      ? await supabase.from('students').select('id, full_name').in('id', studentIds)
+      : { data: [] }
+    const studMap = {}
+    if (studs) studs.forEach(s => studMap[s.id] = s.full_name)
+    setLogModalPasses(passData.map(p => ({ ...p, studentName: studMap[p.student_id] || 'Unknown' })))
+    setLogModalLoading(false)
+  }
+
+  function closeTeacherLog() {
+    setLogModalTeacher(null)
+    setLogModalPasses([])
+  }
+
+  // ── Demo reset ────────────────────────────────────────────────────────────
+  async function handleDemoReset(teacher) {
+    const confirmed = window.confirm(
+      `Delete ALL pass records for ${teacher.name} (Room ${teacher.room})?\n\nThis cannot be undone. Use this only to reset demo data.`
+    )
+    if (!confirmed) return
+    setResettingDemo(true)
+    setDemoResetMsg('')
+    const { error, count } = await supabase
+      .from('passes')
+      .delete({ count: 'exact' })
+      .eq('teacher_id', teacher.id)
+    if (error) {
+      setDemoResetMsg(`Error: ${error.message}`)
+    } else {
+      setDemoResetMsg(`✅ Demo reset — all pass records for ${teacher.name} cleared.`)
+      loadTeacherStats()
+      setTimeout(() => setDemoResetMsg(''), 5000)
+    }
+    setResettingDemo(false)
+  }
+
   // ── Student functions ─────────────────────────────────────────────────────
   async function loadStudents() {
     const { data } = await supabase.from('students').select('*').order('last_name')
@@ -219,10 +322,7 @@ export default function AdminPanel() {
     setCheckingIn(passId)
     const pass = passes.find(p => p.id === passId)
     const mins = pass ? Math.floor((new Date() - new Date(pass.time_out)) / 60000) : 0
-    await supabase.from('passes').update({
-      time_in: new Date().toISOString(),
-      duration_minutes: mins,
-    }).eq('id', passId)
+    await supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', passId)
     setCheckingIn(null)
     loadPasses()
   }
@@ -332,6 +432,26 @@ export default function AdminPanel() {
     setDnloSearchResults(results)
   }, [dnloSearch, students, dnloList])
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function formatLastActive(iso) {
+    if (!iso) return null
+    const d = new Date(iso)
+    const now = new Date()
+    const diffMs = now - d
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+    if (diffMins < 1) return 'just now'
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays === 1) return 'yesterday'
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+
+  function isDemoTeacher(t) {
+    return t.room?.toLowerCase() === '11w' || t.email === 'connect.joe@gmail.com'
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────
   const filteredStudents = students.filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()))
   const memberSearchResults = students.filter(s => s.full_name?.toLowerCase().includes(memberSearch.toLowerCase())).slice(0, 8)
@@ -375,6 +495,84 @@ export default function AdminPanel() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+
+      {/* ── Teacher Pass Log Modal ── */}
+      {logModalTeacher && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-base font-semibold text-gray-800">{logModalTeacher.name}</h2>
+                <p className="text-xs text-gray-400">
+                  Room {logModalTeacher.room || '—'}{logModalTeacher.department ? ` · ${logModalTeacher.department}` : ''} · Pass Log
+                </p>
+              </div>
+              <button onClick={closeTeacherLog} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+
+            {/* Filter */}
+            <div className="flex gap-2 px-5 pt-4 pb-2">
+              {['today', 'all'].map(f => (
+                <button key={f}
+                  onClick={() => { setLogModalFilter(f); fetchTeacherLog(logModalTeacher, f) }}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${logModalFilter === f ? 'text-white border-transparent' : 'text-gray-500 bg-white border-gray-200'}`}
+                  style={logModalFilter === f ? { backgroundColor: RHS_GREEN } : {}}>
+                  {f === 'today' ? 'Today' : 'All Time'}
+                </button>
+              ))}
+              <span className="ml-auto text-xs text-gray-400 self-center">
+                {logModalLoading ? 'Loading...' : `${logModalPasses.length} pass${logModalPasses.length !== 1 ? 'es' : ''}`}
+              </span>
+            </div>
+
+            {/* Pass list */}
+            <div className="overflow-y-auto flex-1 px-2 pb-4">
+              {logModalLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="w-5 h-5 border-2 border-gray-200 rounded-full animate-spin" style={{ borderTopColor: RHS_GREEN }} />
+                </div>
+              ) : logModalPasses.length === 0 ? (
+                <div className="text-center text-gray-400 text-sm py-12">No passes found</div>
+              ) : logModalPasses.map(p => {
+                const isOut = !p.time_in
+                const duration = p.duration_minutes != null ? `${p.duration_minutes}m` : isOut ? 'Out' : '—'
+                return (
+                  <div key={p.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                      style={{ backgroundColor: isOut ? '#dc2626' : RHS_GREEN }}>
+                      {p.studentName?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-800 truncate">{p.studentName}</div>
+                      <div className="text-xs text-gray-400 truncate">
+                        {p.reason} · P{p.period} · {new Date(p.time_out).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} {new Date(p.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${isOut ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-700'}`}>
+                      {duration}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-between items-center">
+              <a href={`/log?teacher_id=${logModalTeacher.id}`}
+                className="text-xs hover:underline" style={{ color: RHS_GREEN }}>
+                Full Log & Export →
+              </a>
+              <button onClick={closeTeacherLog}
+                className="px-4 py-2 text-sm border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Header ── */}
       <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
         <div className="flex items-center gap-3">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
@@ -406,6 +604,7 @@ export default function AdminPanel() {
           <>
             {teacherError && <div className="bg-red-50 text-red-700 px-4 py-3 rounded-xl text-sm mb-4">⚠️ {teacherError}</div>}
             {teacherMsg && <div className="bg-green-50 text-green-700 px-4 py-3 rounded-xl text-sm mb-4">{teacherMsg}</div>}
+            {demoResetMsg && <div className="bg-green-50 text-green-700 px-4 py-3 rounded-xl text-sm mb-4">{demoResetMsg}</div>}
 
             {!showForm && !showImport && (
               <div className="flex justify-end gap-3 mb-4">
@@ -545,46 +744,84 @@ export default function AdminPanel() {
 
             {/* Teacher List */}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                 <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Teachers ({teachers.length})</p>
+                <p className="text-xs text-gray-400">Click a name to view pass log</p>
               </div>
               {teachersLoading ? (
                 <div className="p-8 text-center text-gray-400 text-sm">Loading...</div>
               ) : teachers.length === 0 ? (
                 <div className="p-8 text-center text-gray-400 text-sm">No teachers yet</div>
-              ) : teachers.map((t, i) => (
-                <div key={t.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0" style={{ opacity: t.is_active ? 1 : 0.5 }}>
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
-                    style={{ background: t.is_admin ? '#FEF3C7' : '#f0fdf4' }}>
-                    {t.is_admin ? '⭐' : '👤'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-gray-800 flex items-center gap-2 flex-wrap">
-                      {t.name}
-                      {t.is_admin && <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">ADMIN</span>}
-                      {!t.is_active && <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-400 rounded-full font-bold">INACTIVE</span>}
-                      {!t.auth_id && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full font-bold">NO AUTH</span>}
+              ) : teachers.map((t) => {
+                const stats = teacherStats[t.id] || { todayCount: 0, lastActive: null }
+                const isDemo = isDemoTeacher(t)
+                return (
+                  <div key={t.id}
+                    className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0"
+                    style={{ opacity: t.is_active ? 1 : 0.5 }}>
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
+                      style={{ background: isDemo ? '#FEE2E2' : t.is_admin ? '#FEF3C7' : '#f0fdf4' }}>
+                      {isDemo ? '🎬' : t.is_admin ? '⭐' : '👤'}
                     </div>
-                    <div className="text-xs text-gray-400 mt-0.5">{t.email}{t.room ? ` · Room ${t.room}` : ''}{t.department ? ` · ${t.department}` : ''}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* Clickable name */}
+                        <button
+                          onClick={() => openTeacherLog(t)}
+                          className="text-sm font-semibold hover:underline text-left"
+                          style={{ color: RHS_GREEN }}>
+                          {t.name}
+                        </button>
+                        {t.is_admin && <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">ADMIN</span>}
+                        {isDemo && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full font-bold">DEMO</span>}
+                        {!t.is_active && <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-400 rounded-full font-bold">INACTIVE</span>}
+                        {!t.auth_id && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full font-bold">NO AUTH</span>}
+                        {/* Today pass count badge */}
+                        {stats.todayCount > 0 && (
+                          <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold"
+                            style={{ backgroundColor: '#dcfce7', color: RHS_GREEN }}>
+                            {stats.todayCount} today
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                        <span>{t.email}{t.room ? ` · Room ${t.room}` : ''}{t.department ? ` · ${t.department}` : ''}</span>
+                        {stats.lastActive && (
+                          <span className="text-gray-300">·</span>
+                        )}
+                        {stats.lastActive && (
+                          <span className="text-gray-400">last active {formatLastActive(stats.lastActive)}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+                      {isDemo && (
+                        <button
+                          onClick={() => handleDemoReset(t)}
+                          disabled={resettingDemo}
+                          className="text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-40"
+                          style={{ background: '#FEE2E2', color: '#DC2626' }}>
+                          {resettingDemo ? '...' : '🗑 Reset Demo'}
+                        </button>
+                      )}
+                      <button onClick={() => handleSendInvite(t)} disabled={!!inviting[t.id]}
+                        className="text-xs px-3 py-1.5 rounded-lg font-medium"
+                        style={{ background: inviting[t.id] === 'sent' ? '#f0fdf4' : inviting[t.id] === 'error' ? '#FEE2E2' : '#EFF6FF', color: inviting[t.id] === 'sent' ? '#166534' : inviting[t.id] === 'error' ? '#DC2626' : '#1D4ED8' }}>
+                        {inviting[t.id] === 'sending' ? 'Sending...' : inviting[t.id] === 'sent' ? '✓ Sent' : inviting[t.id] === 'error' ? 'Failed' : '✉️ Invite'}
+                      </button>
+                      <button onClick={() => handleEdit(t)}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
+                        Edit
+                      </button>
+                      <button onClick={() => handleToggleActive(t)}
+                        className="text-xs px-3 py-1.5 rounded-lg font-medium"
+                        style={{ background: t.is_active ? '#FEE2E2' : '#f0fdf4', color: t.is_active ? '#DC2626' : '#166534' }}>
+                        {t.is_active ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <button onClick={() => handleSendInvite(t)} disabled={!!inviting[t.id]}
-                      className="text-xs px-3 py-1.5 rounded-lg font-medium"
-                      style={{ background: inviting[t.id] === 'sent' ? '#f0fdf4' : inviting[t.id] === 'error' ? '#FEE2E2' : '#EFF6FF', color: inviting[t.id] === 'sent' ? '#166534' : inviting[t.id] === 'error' ? '#DC2626' : '#1D4ED8' }}>
-                      {inviting[t.id] === 'sending' ? 'Sending...' : inviting[t.id] === 'sent' ? '✓ Sent' : inviting[t.id] === 'error' ? 'Failed' : '✉️ Invite'}
-                    </button>
-                    <button onClick={() => handleEdit(t)}
-                      className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
-                      Edit
-                    </button>
-                    <button onClick={() => handleToggleActive(t)}
-                      className="text-xs px-3 py-1.5 rounded-lg font-medium"
-                      style={{ background: t.is_active ? '#FEE2E2' : '#f0fdf4', color: t.is_active ? '#DC2626' : '#166534' }}>
-                      {t.is_active ? 'Deactivate' : 'Activate'}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
             <div className="mt-4 px-4 py-3 bg-green-50 rounded-xl text-xs text-green-700">
               💡 After adding a teacher, click <strong>✉️ Invite</strong> to send them a magic sign-in link. Their account links automatically on first sign-in.
@@ -822,9 +1059,7 @@ export default function AdminPanel() {
                       {duration}
                     </span>
                     {isOut && (
-                      <button
-                        onClick={() => checkInPass(p.id)}
-                        disabled={checkingIn === p.id}
+                      <button onClick={() => checkInPass(p.id)} disabled={checkingIn === p.id}
                         className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-40"
                         style={{ backgroundColor: RHS_GREEN }}>
                         {checkingIn === p.id ? '...' : 'Check In'}
