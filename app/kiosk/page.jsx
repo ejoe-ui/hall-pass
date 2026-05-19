@@ -66,7 +66,13 @@ function StudentScanner({ onScan, deviceId }) {
         for (const code of codes) {
           const url = new URL(code.rawValue)
           const studentId = url.searchParams.get('student')
-          if (studentId) onScan(studentId)
+const uid = url.searchParams.get('uid')
+if (studentId) {
+  onScan(studentId)
+} else if (uid) {
+  // Look up student by their UUID directly
+  onScan(uid)
+}
         }
       } catch (e) {}
     }
