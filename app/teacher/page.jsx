@@ -355,6 +355,14 @@ function TeacherInner() {
   }, [session])
 
   useEffect(() => {
+  if (!currentTeacher) return
+  if (currentTeacher.unlock_code) {
+    setUnlockCode(currentTeacher.unlock_code)
+    const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${currentTeacher.unlock_code}&room=${currentTeacher.room || '27'}`
+    QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
+  }
+}, [currentTeacher])
+  useEffect(() => {
     supabase.from('settings').select('value').eq('key', 'teacher_unlock_code').maybeSingle()
       .then(({ data }) => { if (data) setUnlockCode(data.value) })
   }, [])
@@ -429,12 +437,12 @@ function TeacherInner() {
       .in('key', ['teacher_unlock_code', 'teacher_pin', 'sub_code', 'teacher_checkout_code', 'kiosk_return_required', 'print_passes'])
     if (!data) return
     const get = (key) => data.find(r => r.key === key)?.value
-    const unlockVal = get('teacher_unlock_code')
-    if (unlockVal) {
-      setUnlockCode(unlockVal)
-      const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${unlockVal}&room=${teacherRoom}`
-      QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
-    }
+const teacherUnlockVal = currentTeacher?.unlock_code || get('teacher_unlock_code')
+if (teacherUnlockVal) {
+  setUnlockCode(teacherUnlockVal)
+  const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${teacherUnlockVal}&room=${teacherRoom}`
+  QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
+}
     if (get('teacher_pin')) setCurrentPin(get('teacher_pin'))
     if (get('sub_code')) setSubCode(get('sub_code'))
     if (get('teacher_checkout_code')) setSelfCheckoutCode(get('teacher_checkout_code'))
