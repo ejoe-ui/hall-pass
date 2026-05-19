@@ -111,10 +111,30 @@ export default function QRPage() {
         /* ─────────────────────────────────────────
            PRINT STYLES
         ───────────────────────────────────────── */
+        @page {
+          size: 8.5in 11in;
+          margin: 0;
+        }
+
         @media print {
-          .no-print { display: none !important; }
-          body { margin: 0 !important; padding: 0 !important; width: 8.5in; }
-          .max-w-5xl { max-width: none !important; padding: 0 !important; margin: 0 !important; }
+          html, body {
+            width: 8.5in !important;
+            height: 11in !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .min-h-screen,
+          .max-w-5xl {
+            margin: 0 !important;
+            padding: 0 !important;
+            max-width: none !important;
+            min-height: 0 !important;
+            background: white !important;
+          }
 
           /* Badge 3-up */
           .badge-print-grid {
@@ -141,48 +161,41 @@ export default function QRPage() {
           .badge-print-card .sub { font-size: 8px; color: #9ca3af; margin-bottom: 4px; }
           .badge-print-card .label { font-size: 7px; color: #d1d5db; margin-top: 2px; }
 
-          /* ── Spartan R011 sticker sheet
-             Sheet:        8.5" × 11"
-             Top margin:   0.25"
-             Side margin:  1.1875"
-             Label:        3" × 2"
-             Col gap:      0.125" (pitch 3.125" - width 3")
-             Row gap:      0.125" (pitch 2.125" - height 2")
+          /* ── Spartan R011
+             Top: 0.25"  Side: 1.1875"
+             Label: 3"×2"  Gap: 0.125"
           ── */
-          @page {
-            size: 8.5in 11in;
-            margin: 0in;
-          }
-
           .sticker-sheet {
-            width: 8.5in;
-            height: 11in;
-            box-sizing: border-box;
-            padding-top: 0.25in;
-            padding-left: 1.1875in;
-            padding-right: 1.1875in;
-            padding-bottom: 0;
+            width: 8.5in !important;
+            height: 11in !important;
+            margin: 0 !important;
+            padding-top: 0.25in !important;
+            padding-left: 1.1875in !important;
+            padding-right: 1.1875in !important;
+            padding-bottom: 0 !important;
+            box-sizing: border-box !important;
           }
-
           .sticker-grid {
-            display: grid;
-            grid-template-columns: 3in 3in;
-            grid-template-rows: repeat(5, 2in);
-            column-gap: 0.125in;
-            row-gap: 0.125in;
+            display: grid !important;
+            grid-template-columns: 3in 3in !important;
+            grid-template-rows: repeat(5, 2in) !important;
+            column-gap: 0.125in !important;
+            row-gap: 0.125in !important;
+            width: 6.125in !important;
+            height: 10.5in !important;
           }
-
-          /* Each label is exactly 3" × 2", flex column */
           .sticker-label {
-            width: 3in;
-            height: 2in;
-            box-sizing: border-box;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            padding: 0.1in 0.12in 0.08in 0.12in;
-            page-break-inside: avoid;
-            break-inside: avoid;
+            width: 3in !important;
+            height: 2in !important;
+            box-sizing: border-box !important;
+            overflow: hidden !important;
+            border: none !important;
+            background: white !important;
+            padding: 0.1in 0.12in 0.08in 0.12in !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            display: flex !important;
+            flex-direction: column !important;
           }
 
           /* Top content row fills remaining height above brand strip */
