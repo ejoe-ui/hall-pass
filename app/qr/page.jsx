@@ -19,8 +19,8 @@ export default function QRPage() {
   const [qrCodes, setQrCodes] = useState({})
   const [photoUrls, setPhotoUrls] = useState({})
   const [activePeriod, setActivePeriod] = useState(null)
+  const [template, setTemplate] = useState('badge') // 'badge' | 'sticker'
 
-  // Load teacher on mount
   useEffect(() => {
     async function loadTeacher() {
       const { data: { session } } = await supabase.auth.getSession()
@@ -109,15 +109,16 @@ export default function QRPage() {
       <style>{`
         @media print {
           .no-print { display: none !important; }
-          body { margin: 0; }
-          @page { margin: 8mm; size: letter; }
-          .print-grid {
+          body { margin: 0; padding: 0; }
+
+          /* ── Badge template (3-up) ── */
+          .badge-print-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 6px;
             padding: 6px;
           }
-          .print-card {
+          .badge-print-card {
             border: 1px solid #e5e7eb;
             border-radius: 8px;
             padding: 6px;
@@ -127,19 +128,117 @@ export default function QRPage() {
             page-break-inside: avoid;
             break-inside: avoid;
           }
-          .print-card .photo { width: 80px; height: 80px; object-fit: cover; border-radius: 6px; margin-bottom: 4px; }
-          .print-card .placeholder { width: 80px; height: 80px; border-radius: 6px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
-          .print-card img.logo { width: 24px; height: 24px; object-fit: contain; }
-          .print-card img.qr { width: 100px; height: 100px; }
-          .print-card .name { font-size: 10px; font-weight: 600; text-align: center; margin-bottom: 1px; }
-          .print-card .sub { font-size: 8px; color: #9ca3af; margin-bottom: 4px; }
-          .print-card .label { font-size: 7px; color: #d1d5db; margin-top: 2px; }
+          .badge-print-card .photo { width: 80px; height: 80px; object-fit: cover; border-radius: 6px; margin-bottom: 4px; }
+          .badge-print-card .placeholder { width: 80px; height: 80px; border-radius: 6px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; margin-bottom: 4px; }
+          .badge-print-card img.logo { width: 24px; height: 24px; object-fit: contain; }
+          .badge-print-card img.qr { width: 100px; height: 100px; }
+          .badge-print-card .name { font-size: 10px; font-weight: 600; text-align: center; margin-bottom: 1px; }
+          .badge-print-card .sub { font-size: 8px; color: #9ca3af; margin-bottom: 4px; }
+          .badge-print-card .label { font-size: 7px; color: #d1d5db; margin-top: 2px; }
+
+          /* ── Sticker template (Spartan R011 — 3"×2", 2×5, 10/sheet) ── */
+          /* 
+            Sheet: 8.5" × 11"
+            Top margin: 0.25" = 18pt
+            Side margin: 1.1875" = 85.5pt
+            Label: 3" × 2" = 216pt × 144pt
+            H pitch: 3.125" = 225pt (gap = 9pt)
+            V pitch: 2.125" = 153pt (gap = 9pt)
+          */
+          @page { size: 8.5in 11in; margin: 0; }
+
+          .sticker-sheet {
+            width: 8.5in;
+            min-height: 11in;
+            padding-top: 0.25in;
+            padding-left: 1.1875in;
+            padding-right: 1.1875in;
+            box-sizing: border-box;
+          }
+          .sticker-grid {
+            display: grid;
+            grid-template-columns: 3in 3in;
+            grid-template-rows: repeat(5, 2in);
+            column-gap: 0.125in;
+            row-gap: 0.125in;
+          }
+          .sticker-label {
+            width: 3in;
+            height: 2in;
+            overflow: hidden;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.1in 0.12in;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          .sticker-label .sticker-left {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4pt;
+            flex-shrink: 0;
+          }
+          .sticker-label .sticker-photo {
+            width: 0.7in;
+            height: 0.7in;
+            object-fit: cover;
+            border-radius: 4pt;
+          }
+          .sticker-label .sticker-placeholder {
+            width: 0.7in;
+            height: 0.7in;
+            border-radius: 4pt;
+            background: #f3f4f6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .sticker-label .sticker-logo {
+            width: 0.35in;
+            height: 0.35in;
+            object-fit: contain;
+            opacity: 0.3;
+          }
+          .sticker-label .sticker-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding-left: 0.08in;
+          }
+          .sticker-label .sticker-qr {
+            width: 1in;
+            height: 1in;
+          }
+          .sticker-label .sticker-name {
+            font-size: 7pt;
+            font-weight: 700;
+            text-align: center;
+            color: #111;
+            margin-top: 3pt;
+            line-height: 1.2;
+            max-width: 1.1in;
+          }
+          .sticker-label .sticker-sub {
+            font-size: 6pt;
+            color: #9ca3af;
+            text-align: center;
+            margin-top: 1pt;
+          }
         }
       `}</style>
 
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-between mb-6 no-print">
+
+          {/* ── Header ── */}
+          <div className="flex items-center justify-between mb-4 no-print">
             <div>
               <h1 className="text-2xl font-semibold text-gray-800">Student QR Badges</h1>
               <p className="text-gray-500 text-sm">Room {room} · {teacherName} · Print and cut — one badge per student</p>
@@ -155,18 +254,41 @@ export default function QRPage() {
             </div>
           </div>
 
+          {/* ── Template toggle ── */}
+          <div className="no-print mb-4 flex items-center gap-3">
+            <span className="text-sm text-gray-500 font-medium">Template:</span>
+            <div className="flex gap-2">
+              {[
+                { id: 'badge', label: '🪪 Badge Cards', sub: '3-up, cut & laminate' },
+                { id: 'sticker', label: '🏷️ Sticker Labels', sub: 'Spartan R011 · 3"×2" · 10/sheet' },
+              ].map(t => (
+                <button key={t.id} onClick={() => setTemplate(t.id)}
+                  className={`px-4 py-2.5 rounded-xl border text-left transition-colors ${template === t.id ? 'text-white border-transparent' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                  style={template === t.id ? { backgroundColor: RHS_GREEN } : {}}>
+                  <div className="text-sm font-semibold">{t.label}</div>
+                  <div className={`text-xs mt-0.5 ${template === t.id ? 'text-green-200' : 'text-gray-400'}`}>{t.sub}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Print tip ── */}
           <div className="no-print mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
-            ⚠ Before printing: set printer to <strong>single-sided</strong> and <strong>fit to page</strong>.
+            {template === 'badge'
+              ? '⚠ Before printing: set printer to <strong>single-sided</strong> and <strong>fit to page</strong>.'
+              : '⚠ Before printing: set printer to <strong>actual size</strong> (not fit to page) and <strong>single-sided</strong>. Load Spartan R011 label sheets.'}
           </div>
 
           {students.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-400 text-sm no-print">
               No students in this period
             </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-3 print-grid">
+          ) : template === 'badge' ? (
+
+            /* ── Badge template ── */
+            <div className="grid grid-cols-3 gap-3 badge-print-grid">
               {students.map(s => (
-                <div key={s.id} className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col items-center print-card">
+                <div key={s.id} className="bg-white border border-gray-200 rounded-xl p-3 flex flex-col items-center badge-print-card">
                   {photoUrls[s.id] ? (
                     <img src={photoUrls[s.id]} alt={s.full_name} className="photo w-20 h-20 object-cover rounded-lg mb-2" />
                   ) : (
@@ -181,8 +303,36 @@ export default function QRPage() {
                 </div>
               ))}
             </div>
+
+          ) : (
+
+            /* ── Sticker template ── */
+            <div className="sticker-sheet">
+              <div className="sticker-grid">
+                {students.map(s => (
+                  <div key={s.id} className="sticker-label" style={{ border: '0.5pt dashed #e5e7eb' }}>
+                    <div className="sticker-left">
+                      {photoUrls[s.id] ? (
+                        <img src={photoUrls[s.id]} alt={s.full_name} className="sticker-photo" />
+                      ) : (
+                        <div className="sticker-placeholder">
+                          <img src="/RHSCOWBOYlogo.png" alt="RHS" className="sticker-logo" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="sticker-right">
+                      {qrCodes[s.id] && <img src={qrCodes[s.id]} alt={s.full_name} className="sticker-qr" />}
+                      <p className="sticker-name">{s.full_name}</p>
+                      <p className="sticker-sub">{badgeSubtitle}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
           )}
 
+          {/* ── Footer ── */}
           <div className="mt-8 flex justify-between items-center no-print">
             <a href="/teacher"
               className="px-5 py-2.5 text-sm font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
