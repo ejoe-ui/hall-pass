@@ -147,6 +147,21 @@ export default function QRPage() {
           */
           @page { size: 8.5in 11in; margin: 0; }
 
+          .sticker-header {
+            width: 6.125in;
+            text-align: center;
+            margin-bottom: 0.15in;
+          }
+          .sticker-header .sticker-title {
+            font-size: 18pt;
+            font-weight: 900;
+            letter-spacing: 0.05em;
+            color: #006938;
+          }
+          .sticker-header .sticker-title span {
+            color: #9ca3af;
+            font-weight: 400;
+          }
           .sticker-sheet {
             width: 8.5in;
             min-height: 11in;
@@ -182,14 +197,15 @@ export default function QRPage() {
             justify-content: center;
             gap: 4pt;
             flex-shrink: 0;
+            width: 1in;
           }
-          .sticker-label .sticker-photo {
+          .sticker-label .sticker-photo { width: 1in; height: 1in; object-fit: cover; border-radius: 4pt; }
             width: 0.7in;
             height: 0.7in;
             object-fit: cover;
             border-radius: 4pt;
           }
-          .sticker-label .sticker-placeholder {
+          .sticker-label .sticker-placeholder { width: 1in; height: 1in; border-radius: 4pt; background: #f3f4f6; display: flex; align-items: center; justify-content: center; }
             width: 0.7in;
             height: 0.7in;
             border-radius: 4pt;
@@ -231,6 +247,24 @@ export default function QRPage() {
             text-align: center;
             margin-top: 1pt;
           }
+        }
+
+        /* Screen styles for sticker header */
+        .sticker-header {
+          width: 6.125in;
+          text-align: center;
+          margin-bottom: 0.15in;
+          padding-top: 4px;
+        }
+        .sticker-title {
+          font-size: 22px;
+          font-weight: 900;
+          letter-spacing: 0.04em;
+          color: #006938;
+        }
+        .sticker-title span {
+          color: #9ca3af;
+          font-weight: 400;
         }
       `}</style>
 
@@ -308,6 +342,9 @@ export default function QRPage() {
 
             /* ── Sticker template ── */
             <div className="sticker-sheet">
+              <div className="sticker-header">
+                <div className="sticker-title">Scan Out. Scan In. <span>PassAble.</span></div>
+              </div>
               <div className="sticker-grid">
                 {students.map(s => (
                   <div key={s.id} className="sticker-label" style={{ border: '0.5pt dashed #e5e7eb' }}>
