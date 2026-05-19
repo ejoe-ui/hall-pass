@@ -154,7 +154,11 @@ export default function QRPage() {
           }
 
           .sticker-sheet {
+            position: fixed;
+            top: 0;
+            left: 0;
             width: 8.5in;
+            height: 11in;
             box-sizing: border-box;
             padding-top: 0.25in;
             padding-left: 1.1875in;
