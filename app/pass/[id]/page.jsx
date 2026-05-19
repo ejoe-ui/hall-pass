@@ -244,11 +244,20 @@ async function loadPass() {
           </div>
         )}
 
-        {/* Check in reminder */}
-        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm text-center">
-          <p className="text-xs text-gray-400">To check back in, scan your badge at the</p>
-          <p className="text-sm font-semibold text-gray-700">Room 27 Kiosk</p>
-        </div>
+{/* Check in reminder + student QR */}
+<div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm text-center">
+  <p className="text-xs text-gray-400">To check back in, scan your badge at the</p>
+  <p className="text-sm font-semibold text-gray-700 mb-4">Room {pass.room} Kiosk</p>
+  <p className="text-xs text-gray-400 mb-3">Or scan this QR at the kiosk</p>
+  {student?.id && (
+    <img
+      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`https://hall-pass-lime.vercel.app/mobile.html?uid=${student.id}`)}`}
+      alt="Scan to check in"
+      className="w-40 h-40 mx-auto rounded-xl"
+    />
+  )}
+  <p className="text-xs text-gray-300 mt-3">{student?.full_name}</p>
+</div>
 
       </div>
     </div>
