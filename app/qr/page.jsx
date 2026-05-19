@@ -113,7 +113,8 @@ export default function QRPage() {
         ───────────────────────────────────────── */
         @media print {
           .no-print { display: none !important; }
-          body { margin: 0; padding: 0; width: 8.5in; }
+          body { margin: 0 !important; padding: 0 !important; width: 8.5in; }
+          .max-w-5xl { max-width: none !important; padding: 0 !important; margin: 0 !important; }
 
           /* Badge 3-up */
           .badge-print-grid {
@@ -150,13 +151,10 @@ export default function QRPage() {
           ── */
           @page {
             size: 8.5in 11in;
-            margin: 0;
+            margin: 0in;
           }
 
           .sticker-sheet {
-            position: fixed;
-            top: 0;
-            left: 0;
             width: 8.5in;
             height: 11in;
             box-sizing: border-box;
