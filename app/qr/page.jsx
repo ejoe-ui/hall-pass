@@ -522,7 +522,7 @@ export default function QRPage() {
   .sheet {
     width: 8.5in;
     height: 11in;
-    padding-top: 0.25in;
+    padding-top: 0.1in;
     padding-left: 1.1875in;
     padding-right: 1.1875in;
     box-sizing: border-box;
