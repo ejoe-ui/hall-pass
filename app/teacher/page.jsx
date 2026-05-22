@@ -10,15 +10,15 @@ const TIME_LIMIT = 10
 
 const REASONS = [
   'Restroom', 'Library', 'Office', 'Counselor', 'Lockers',
-  'Errand', 'On Assignment', 'School Store', 'Other',
+  'Errand', 'On Assignment', 'Career Counselor', 'Other',
 ]
 
 const TEACHERS = [
   'Castro', 'Simpson', 'Tiller',
   'Aguiniga', 'Anders', 'Banuelos', 'Bettencourt', 'Bianchi', 'Bishop',
-  'Carrion', 'Ceballos', 'Chavez', 'Chavira', 'Cuiriz', 'De La Pena',
+  'Carrion', 'Ceballos', 'Chavez', 'Chavira', 'Cozad', 'Cuiriz', 'De La Pena',
   'Edlund', 'Farris', 'Garibaldi', 'Gerling', 'Gjoshe', 'Gonzalez',
-  'Hughes', 'Jessup', 'Kang', 'Kellogg', 'Mendoza Sanchez', 'Mullane',
+  'Hughes', 'Jessup', 'Joe', 'Kang', 'Kellogg', 'Mendoza Sanchez', 'Mullane',
   'Nemeth', 'Reyes', 'Sunamoto', 'Warden', 'Weibert', 'Welch', 'Yehl',
 ]
 
@@ -513,7 +513,7 @@ function TeacherInner() {
       const newIds = passes.map(p => p.student_id)
       const returned = prevActiveIds.current.filter(id => !newIds.includes(id))
       if (returned.length > 0 && holds?.length > 0) playClearAlert()
-      const LABEL_REASONS = ['Library', 'Office', 'Errand', 'On Assignment']
+      const LABEL_REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'Career Counselor', 'Other']
       passes.filter(p => !prevActiveIds.current.includes(p.student_id)).forEach(p => {
         const base = p.reason?.split(' — ')[0]
         if (printPasses && LABEL_REASONS.includes(base)) window.open(`/pass/${p.id}/label`, '_blank')
