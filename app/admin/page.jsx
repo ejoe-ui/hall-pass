@@ -68,6 +68,10 @@ export default function AdminPanel() {
   const [dnloReason, setDnloReason] = useState('')
   const [dnloMsg, setDnloMsg] = useState('')
 
+  // ── School settings ────────────────────────────────────────────────────────
+  const [blockFirstLast15, setBlockFirstLast15] = useState(true)
+  const [schoolSettingsSaved, setSchoolSettingsSaved] = useState(false)
+
   // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); setAuthLoading(false) })
@@ -82,7 +86,24 @@ export default function AdminPanel() {
     loadStudents().then(data => { loadGroups(data); loadConflictAnalytics(data) })
     loadPasses()
     loadDnlo()
+    loadSchoolSettings()
   }, [isAdmin])
+
+  async function loadSchoolSettings() {
+    const { data } = await supabase.from('settings').select('key, value')
+      .in('key', ['block_first_last_15'])
+    if (data) {
+      const block = data.find(r => r.key === 'block_first_last_15')
+      if (block) setBlockFirstLast15(block.value !== 'false')
+    }
+  }
+
+  async function saveBlockFirstLast15(val) {
+    await supabase.from('settings').upsert({ key: 'block_first_last_15', value: val ? 'true' : 'false' }, { onConflict: 'key' })
+    setBlockFirstLast15(val)
+    setSchoolSettingsSaved(true)
+    setTimeout(() => setSchoolSettingsSaved(false), 2500)
+  }
 
   async function checkAdmin() {
     const { data } = await supabase.from('teachers').select('is_admin').eq('email', session.user.email).single()
@@ -491,6 +512,7 @@ export default function AdminPanel() {
     { id: 'dnlo', label: 'Do Not Let Out' },
     { id: 'students', label: 'Students' },
     { id: 'log', label: 'Pass Log' },
+    { id: 'settings', label: '⚙️ School Settings' },
   ]
 
   return (
@@ -1071,6 +1093,41 @@ export default function AdminPanel() {
             </div>
           </>
         )}
+
+        {/* ── SCHOOL SETTINGS ── */}
+        {activeTab === 'settings' && (
+          <>
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-5">
+              <div className="flex items-center justify-between mb-1">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">First & Last 15-Minute Rule</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Shows a warning on the kiosk during the first and last 15 minutes of each period.
+                    Students can still check out — this is a reminder only.
+                  </p>
+                </div>
+                <button
+                  onClick={() => saveBlockFirstLast15(!blockFirstLast15)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ml-4 ${blockFirstLast15 ? 'bg-green-600' : 'bg-gray-200'}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${blockFirstLast15 ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+              {schoolSettingsSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <p className="text-sm font-semibold text-gray-800 mb-1">Period Auto-Detection</p>
+              <p className="text-xs text-gray-400 mb-3">
+                The kiosk automatically detects the current period using the school bell schedule and Google Calendar.
+                Special schedules (Block Day, Minimum Day, Foggy) are detected from calendar event titles.
+              </p>
+              <div className="bg-green-50 border border-green-100 rounded-lg p-3 text-xs text-green-700">
+                ✅ Auto-detection is always active. No configuration required.
+              </div>
+            </div>
+          </>
+        )}
+
       </div>
     </div>
   )
