@@ -426,12 +426,24 @@ function KioskInner() {
     return () => clearInterval(t)
   }, [])
 
-  async function detectSchedule() {
+async function detectSchedule() {
     const now = new Date()
-    const result = await fetchTodayScheduleType(now)
-    setScheduleType(result.type)
-    setCurrentSchedule(result.schedule)
-    updatePeriodInfo(result.schedule, now)
+    try {
+      const result = await fetchTodayScheduleType(now)
+      setScheduleType(result.type)
+      setCurrentSchedule(result.schedule)
+      updatePeriodInfo(result.schedule, now)
+    } catch(e) {
+      // Fallback to regular schedule if calendar fetch fails
+      const { SCHEDULES } = await import('../../lib/schedule')
+      const dow = new Date().getDay()
+      const fallback = dow === 1 ? SCHEDULES.earlyRelease :
+                       dow === 3 ? SCHEDULES.blockWed :
+                       dow === 4 ? SCHEDULES.blockThu : SCHEDULES.regular
+      setScheduleType('regular')
+      setCurrentSchedule(fallback)
+      updatePeriodInfo(fallback, now)
+    }
   }
 
   function updatePeriodInfo(schedule, now = new Date()) {
