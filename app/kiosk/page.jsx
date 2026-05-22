@@ -841,7 +841,7 @@ function KioskInner() {
     setPin(next)
     if (next.length === 4) {
       if (next === pinCode) {
-        setUnlocked(true); setPinError(false); setPinAttempts(0)
+        setUnlocked(true); setPinError(false); setPinAttempts(0); setPin(''); setShowPeriodChangePIN(false); setActivePeriod(null)
       } else {
         const newAttempts = pinAttempts + 1
         setPinAttempts(newAttempts); setPinError(true)
@@ -1005,15 +1005,14 @@ function KioskInner() {
     </div>
   )
 
-  // ── Lock screen ───────────────────────────────────────────────────────────
-  if (!unlocked) return (
+  // ── Period Change PIN Modal ───────────────────────────────────────────────
+  if (showPeriodChangePIN) return (
     <div className="min-h-screen flex flex-col items-center justify-center"
       style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-4"
         style={{ filter: 'brightness(0) invert(1)' }} />
-      <h1 className="text-2xl font-bold text-white mb-1">RHS PassAble</h1>
-      <p className="text-green-200 text-sm mb-2">{teacherPeriods.find(p => p.value === activePeriod)?.label}</p>
-      <p className="text-green-100 mb-4 text-sm">Enter teacher PIN to unlock</p>
+      <h1 className="text-2xl font-bold text-white mb-1">Change Period</h1>
+      <p className="text-green-100 mb-4 text-sm">Enter teacher PIN to change period</p>
       {lockedUntil ? (
         <div className="flex flex-col items-center gap-3 mb-8">
           <div className="text-6xl">🔒</div>
@@ -1039,19 +1038,8 @@ function KioskInner() {
           </div>
         </>
       )}
-      <div className="mb-2 text-xs text-green-200">— or scan teacher QR —</div>
-      {cameras.length > 1 && (
-        <select className="mb-2 w-48 rounded-lg bg-green-900 text-green-100 text-xs px-2 py-1 border border-green-600"
-          value={selectedCamera}
-          onChange={e => { setSelectedCamera(e.target.value); localStorage.setItem('kiosk_camera', e.target.value) }}>
-          <option value="">Default camera</option>
-          {cameras.map((c, i) => <option key={c.deviceId} value={c.deviceId}>{c.label || `Camera ${i + 1}`}</option>)}
-        </select>
-      )}
-      <QRScanner onUnlock={() => { setUnlocked(true); setPinAttempts(0); setLockedUntil(null) }}
-        unlockCode={unlockCode} deviceId={selectedCamera} />
-      <button onClick={() => { setPin(''); setPinError(false); setUnlocked(false); setActivePeriod(null) }}
-        className="mt-6 text-sm text-green-200 hover:text-white">← Change period</button>
+      <button onClick={() => { setPin(''); setPinError(false); setShowPeriodChangePIN(false) }}
+        className="mt-2 text-sm text-green-200 hover:text-white">← Cancel</button>
     </div>
   )
 
@@ -1304,7 +1292,7 @@ function KioskInner() {
           Check Out
         </button>
 
-        <button onClick={() => { setPin(''); setPinError(false); setUnlocked(false); setActivePeriod(null) }}
+        <button onClick={() => { setPin(''); setPinError(false); setShowPeriodChangePIN(true) }}
           className="mt-4 text-sm hover:opacity-70" style={{ color: RHS_GREEN }}>
           ← Change period
         </button>
