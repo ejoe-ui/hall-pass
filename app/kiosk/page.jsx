@@ -205,25 +205,18 @@ function normalizeUid(uid) {
 }
 
 // ── Period status bar component ───────────────────────────────────────────────
-function PeriodStatusBar({ periodInfo, checkoutStatus, scheduleType, blockMinsEnabled }) {
+function PeriodStatusBar({ periodInfo, checkoutStatus, blockMinsEnabled }) {
   if (!periodInfo || periodInfo.status === 'noSchool') return null
 
-  function formatMins(m) {
-    if (m <= 0) return '0:00'
-    const mins = Math.floor(m)
-    const secs = 0
-    return `${mins}:${String(secs).padStart(2, '0')}`
-  }
-
-  // Break / passing period
+  // Break / passing
   if (periodInfo.status === 'break' || periodInfo.status === 'passing') {
     const label = periodInfo.current?.label || 'Passing Period'
     const next = periodInfo.next
     return (
       <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
-        style={{ backgroundColor: '#f59e0b', color: 'white' }}>
+        style={{ backgroundColor: '#1d4ed8', color: 'white' }}>
         <span>⏸ {label}</span>
-        {next && <span>Next: {next.label} in {formatMins(periodInfo.minutesUntilNext)} min</span>}
+        {next && <span>Next: {next.label} in {periodInfo.minutesUntilNext} min</span>}
       </div>
     )
   }
@@ -233,7 +226,7 @@ function PeriodStatusBar({ periodInfo, checkoutStatus, scheduleType, blockMinsEn
       <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
         style={{ backgroundColor: '#6b7280', color: 'white' }}>
         <span>🏫 School starts soon</span>
-        {periodInfo.next && <span>{periodInfo.next.label} in {formatMins(periodInfo.minutesUntilNext)} min</span>}
+        {periodInfo.next && <span>{periodInfo.next.label} in {periodInfo.minutesUntilNext} min</span>}
       </div>
     )
   }
@@ -247,44 +240,60 @@ function PeriodStatusBar({ periodInfo, checkoutStatus, scheduleType, blockMinsEn
     )
   }
 
-  // Active period — show 15-min rule status if enabled
-  if (periodInfo.status === 'period' && blockMinsEnabled) {
+  if (periodInfo.status === 'period') {
+    const left = periodInfo.minutesLeftInCurrent
+
+    // Always show period bar — color depends on blockMinsEnabled
+    if (!blockMinsEnabled) {
+      return (
+        <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
+          style={{ backgroundColor: '#166534', color: 'white' }}>
+          <span>{periodInfo.current?.label}</span>
+          <span>{left} min remaining</span>
+        </div>
+      )
+    }
+
+    // 🔴 First 15
     if (checkoutStatus === 'first15') {
-      const minsLeft = 15 - (toMinutesFromPeriodStart(periodInfo))
+      const minsLeft = Math.max(0, 15 - toMinutesFromPeriodStart(periodInfo))
       return (
         <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
           style={{ backgroundColor: '#dc2626', color: 'white' }}>
           <span>🔴 First 15 min — Hold students</span>
-          <span>OK to send out in ~{Math.max(0, minsLeft)} min</span>
+          <span>Green in ~{minsLeft} min</span>
         </div>
       )
     }
+
+    // 🟡 Warning — 16-20 min left
+    if (checkoutStatus === 'warning20') {
+      return (
+        <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
+          style={{ backgroundColor: '#d97706', color: 'white' }}>
+          <span>🟡 Last chance — {left} min left</span>
+          <span>Red in {left - 15} min</span>
+        </div>
+      )
+    }
+
+    // 🔴 Last 15
     if (checkoutStatus === 'last15') {
       return (
         <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
-          style={{ backgroundColor: '#f59e0b', color: 'white' }}>
-          <span>🟡 Last {periodInfo.minutesLeftInCurrent} min — Avoid sending students out</span>
-          <span>Period ends soon</span>
+          style={{ backgroundColor: '#dc2626', color: 'white' }}>
+          <span>🔴 Last 15 min — Hold students</span>
+          <span>{left} min until bell</span>
         </div>
       )
     }
-    // OK window
+
+    // 🟢 Safe window
     return (
       <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
         style={{ backgroundColor: '#166534', color: 'white' }}>
         <span>🟢 OK to send students out</span>
-        <span>{periodInfo.minutesLeftInCurrent} min left in {periodInfo.current?.label}</span>
-      </div>
-    )
-  }
-
-  // Period active, rule disabled — just show time left
-  if (periodInfo.status === 'period') {
-    return (
-      <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
-        style={{ backgroundColor: '#166534', color: 'white' }}>
-        <span>{periodInfo.current?.label}</span>
-        <span>{periodInfo.minutesLeftInCurrent} min remaining</span>
+        <span>{left} min left in {periodInfo.current?.label}</span>
       </div>
     )
   }
@@ -983,7 +992,6 @@ function KioskInner() {
           <PeriodStatusBar
             periodInfo={periodInfo}
             checkoutStatus={checkoutStatus}
-            scheduleType={scheduleType}
             blockMinsEnabled={blockMinsEnabled}
           />
         </div>
@@ -1010,13 +1018,13 @@ function KioskInner() {
         {blockMinsEnabled && checkoutStatus !== 'ok' && (
           <div className="w-full max-w-sm mb-3 p-3 rounded-xl text-sm font-medium text-center"
             style={{
-              backgroundColor: checkoutStatus === 'first15' ? '#fef2f2' : '#fffbeb',
-              color: checkoutStatus === 'first15' ? '#dc2626' : '#92400e',
-              border: `1px solid ${checkoutStatus === 'first15' ? '#fca5a5' : '#fcd34d'}`,
+              backgroundColor: checkoutStatus === 'warning20' ? '#fffbeb' : '#fef2f2',
+              color: checkoutStatus === 'warning20' ? '#92400e' : '#dc2626',
+              border: `1px solid ${checkoutStatus === 'warning20' ? '#fcd34d' : '#fca5a5'}`,
             }}>
-            {checkoutStatus === 'first15'
-              ? '🔴 First 15 minutes — teacher discretion advised before sending students out'
-              : '🟡 Last 15 minutes — consider holding students until next period'}
+            {checkoutStatus === 'first15' && '🔴 First 15 minutes — teacher discretion before sending students out'}
+            {checkoutStatus === 'warning20' && `🟡 Last chance — ${periodInfo?.minutesLeftInCurrent} min left. Students should check out now or wait until next period.`}
+            {checkoutStatus === 'last15' && '🔴 Last 15 minutes — hold students until next period'}
           </div>
         )}
 
