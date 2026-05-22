@@ -6,14 +6,14 @@ import QRCode from 'qrcode'
 
 const RHS_GREEN = '#006938'
 
-const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'School Store', 'Other']
+const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'Career Counselor', 'Other']
 
 const TEACHERS = [
   'Castro', 'Simpson', 'Tiller',
   'Aguiniga', 'Anders', 'Banuelos', 'Bettencourt', 'Bianchi', 'Bishop',
-  'Carrion', 'Ceballos', 'Chavez', 'Chavira', 'Cuiriz', 'De La Pena',
+  'Carrion', 'Ceballos', 'Chavez', 'Chavira', 'Cozad', 'Cuiriz', 'De La Pena',
   'Edlund', 'Farris', 'Garibaldi', 'Gerling', 'Gjoshe', 'Gonzalez',
-  'Hughes', 'Jessup', 'Kang', 'Kellogg', 'Mendoza Sanchez', 'Mullane',
+  'Hughes', 'Jessup', 'Joe', 'Kang', 'Kellogg', 'Mendoza Sanchez', 'Mullane',
   'Nemeth', 'Reyes', 'Sunamoto', 'Warden', 'Weibert', 'Welch', 'Yehl',
 ]
 
