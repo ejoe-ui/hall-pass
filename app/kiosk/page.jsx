@@ -3,15 +3,19 @@ import { useState, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import QRCode from 'qrcode'
+import { fetchTodayScheduleType, getCurrentPeriodInfo, getCheckoutStatus } from '../../lib/schedule'
 
 const RHS_GREEN = '#006938'
 
-const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'Career Counselor', 'Other']
+const REASONS = [
+  'Restroom', 'Library', 'Office', 'Counselor', 'Lockers',
+  'Errand', 'On Assignment', 'Career Counselor', 'Other',
+]
 
 const TEACHERS = [
   'Castro', 'Simpson', 'Tiller',
   'Aguiniga', 'Anders', 'Banuelos', 'Bettencourt', 'Bianchi', 'Bishop',
-  'Carrion', 'Ceballos', 'Chavez', 'Chavira', 'Cozad', 'Cuiriz', 'De La Pena',
+  'Carrion', 'Ceballos', 'Chavez', 'Chavira', 'Cuiriz', 'De La Pena',
   'Edlund', 'Farris', 'Garibaldi', 'Gerling', 'Gjoshe', 'Gonzalez',
   'Hughes', 'Jessup', 'Joe', 'Kang', 'Kellogg', 'Mendoza Sanchez', 'Mullane',
   'Nemeth', 'Reyes', 'Sunamoto', 'Warden', 'Weibert', 'Welch', 'Yehl',
@@ -31,16 +35,13 @@ const DEFAULT_PERIODS = [
   { label: 'Period 7', value: '7' },
 ]
 
-function buildPeriodLabel(value) {
-  return `Period ${value}`
-}
+function buildPeriodLabel(value) { return `Period ${value}` }
 
 function StudentScanner({ onScan, deviceId }) {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   useEffect(() => {
-    let stream
-    let interval
+    let stream, interval
     async function start() {
       try {
         const constraints = deviceId
@@ -66,13 +67,9 @@ function StudentScanner({ onScan, deviceId }) {
         for (const code of codes) {
           const url = new URL(code.rawValue)
           const studentId = url.searchParams.get('student')
-const uid = url.searchParams.get('uid')
-if (studentId) {
-  onScan(studentId)
-} else if (uid) {
-  // Look up student by their UUID directly
-  onScan(uid)
-}
+          const uid = url.searchParams.get('uid')
+          if (studentId) onScan(studentId)
+          else if (uid) onScan(uid)
         }
       } catch (e) {}
     }
@@ -101,8 +98,7 @@ function QRScanner({ onUnlock, unlockCode, deviceId }) {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   useEffect(() => {
-    let stream
-    let interval
+    let stream, interval
     async function start() {
       try {
         const constraints = deviceId
@@ -155,13 +151,9 @@ function PassQRCode({ passId, studentName, reason, onDismiss }) {
   const [countdown, setCountdown] = useState(20)
   const [qrDataUrl, setQrDataUrl] = useState('')
   const passUrl = `${window.location.origin}/pass/${passId}`
-
   useEffect(() => {
-    QRCode.toDataURL(passUrl, { width: 200, margin: 1 })
-      .then(url => setQrDataUrl(url))
-      .catch(() => {})
+    QRCode.toDataURL(passUrl, { width: 200, margin: 1 }).then(url => setQrDataUrl(url)).catch(() => {})
   }, [passUrl])
-
   useEffect(() => {
     const interval = setInterval(() => {
       setCountdown(c => {
@@ -171,7 +163,6 @@ function PassQRCode({ passId, studentName, reason, onDismiss }) {
     }, 1000)
     return () => clearInterval(interval)
   }, [])
-
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6"
       style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
@@ -205,14 +196,164 @@ function PassQRCode({ passId, studentName, reason, onDismiss }) {
 }
 
 const QUEUE_KEY = 'hall_pass_offline_queue'
-function loadQueue() {
-  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]') } catch { return [] }
-}
+function loadQueue() { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]') } catch { return [] } }
 function saveQueue(q) { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)) }
 
 function normalizeUid(uid) {
   const clean = uid.trim().toLowerCase().replace(/[^0-9a-f]/g, '')
   return clean.slice(-6)
+}
+
+// ── Period status bar component ───────────────────────────────────────────────
+function PeriodStatusBar({ periodInfo, checkoutStatus, scheduleType, blockMinsEnabled }) {
+  if (!periodInfo || periodInfo.status === 'noSchool') return null
+
+  function formatMins(m) {
+    if (m <= 0) return '0:00'
+    const mins = Math.floor(m)
+    const secs = 0
+    return `${mins}:${String(secs).padStart(2, '0')}`
+  }
+
+  // Break / passing period
+  if (periodInfo.status === 'break' || periodInfo.status === 'passing') {
+    const label = periodInfo.current?.label || 'Passing Period'
+    const next = periodInfo.next
+    return (
+      <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
+        style={{ backgroundColor: '#f59e0b', color: 'white' }}>
+        <span>⏸ {label}</span>
+        {next && <span>Next: {next.label} in {formatMins(periodInfo.minutesUntilNext)} min</span>}
+      </div>
+    )
+  }
+
+  if (periodInfo.status === 'before') {
+    return (
+      <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
+        style={{ backgroundColor: '#6b7280', color: 'white' }}>
+        <span>🏫 School starts soon</span>
+        {periodInfo.next && <span>{periodInfo.next.label} in {formatMins(periodInfo.minutesUntilNext)} min</span>}
+      </div>
+    )
+  }
+
+  if (periodInfo.status === 'after') {
+    return (
+      <div className="w-full px-4 py-2 text-center text-sm font-medium"
+        style={{ backgroundColor: '#6b7280', color: 'white' }}>
+        🏁 School day complete
+      </div>
+    )
+  }
+
+  // Active period — show 15-min rule status if enabled
+  if (periodInfo.status === 'period' && blockMinsEnabled) {
+    if (checkoutStatus === 'first15') {
+      const minsLeft = 15 - (toMinutesFromPeriodStart(periodInfo))
+      return (
+        <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
+          style={{ backgroundColor: '#dc2626', color: 'white' }}>
+          <span>🔴 First 15 min — Hold students</span>
+          <span>OK to send out in ~{Math.max(0, minsLeft)} min</span>
+        </div>
+      )
+    }
+    if (checkoutStatus === 'last15') {
+      return (
+        <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
+          style={{ backgroundColor: '#f59e0b', color: 'white' }}>
+          <span>🟡 Last {periodInfo.minutesLeftInCurrent} min — Avoid sending students out</span>
+          <span>Period ends soon</span>
+        </div>
+      )
+    }
+    // OK window
+    return (
+      <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
+        style={{ backgroundColor: '#166534', color: 'white' }}>
+        <span>🟢 OK to send students out</span>
+        <span>{periodInfo.minutesLeftInCurrent} min left in {periodInfo.current?.label}</span>
+      </div>
+    )
+  }
+
+  // Period active, rule disabled — just show time left
+  if (periodInfo.status === 'period') {
+    return (
+      <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
+        style={{ backgroundColor: '#166534', color: 'white' }}>
+        <span>{periodInfo.current?.label}</span>
+        <span>{periodInfo.minutesLeftInCurrent} min remaining</span>
+      </div>
+    )
+  }
+
+  return null
+}
+
+function toMinutesFromPeriodStart(periodInfo) {
+  if (!periodInfo?.current) return 0
+  const now = new Date()
+  const currentMins = now.getHours() * 60 + now.getMinutes()
+  const [h, m] = periodInfo.current.start.split(':').map(Number)
+  return currentMins - (h * 60 + m)
+}
+
+// ── Passing period / break screen ─────────────────────────────────────────────
+function BreakScreen({ periodInfo, kioskRoom, kioskTeacherName }) {
+  const [now, setNow] = useState(new Date())
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  const label = periodInfo.current?.label || 'Passing Period'
+  const next = periodInfo.next
+  const mins = periodInfo.minutesUntilNext
+  const secs = next
+    ? Math.max(0, (new Date(now.getFullYear(), now.getMonth(), now.getDate(),
+        ...next.start.split(':').map(Number)).getTime() - now.getTime()) / 1000)
+    : 0
+  const displayMins = Math.floor(secs / 60)
+  const displaySecs = Math.floor(secs % 60)
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-6"
+      style={{ background: `linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%)` }}>
+      <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-4"
+        style={{ filter: 'brightness(0) invert(1)' }} />
+      <p className="text-blue-200 text-sm uppercase tracking-widest mb-2">Room {kioskRoom}</p>
+      <h1 className="text-4xl font-bold text-white mb-2">{label}</h1>
+      {next && (
+        <>
+          <p className="text-blue-200 text-lg mb-6">{next.label} starts in</p>
+          <div className="text-7xl font-mono font-black text-white mb-8">
+            {String(displayMins).padStart(2, '0')}:{String(displaySecs).padStart(2, '0')}
+          </div>
+        </>
+      )}
+      <p className="text-blue-300 text-sm">{kioskTeacherName}</p>
+    </div>
+  )
+}
+
+// ── Period changed banner ─────────────────────────────────────────────────────
+function PeriodChangeBanner({ label, onDismiss }) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 6000)
+    return () => clearTimeout(t)
+  }, [])
+  return (
+    <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center py-4 shadow-lg"
+      style={{ backgroundColor: RHS_GREEN }}>
+      <div className="text-white text-center">
+        <p className="text-xs uppercase tracking-widest text-green-200 mb-1">Period Changed</p>
+        <p className="text-2xl font-bold">Now {label}</p>
+      </div>
+      <button onClick={onDismiss} className="absolute right-4 text-green-200 hover:text-white text-xl">×</button>
+    </div>
+  )
 }
 
 function KioskInner() {
@@ -248,29 +389,85 @@ function KioskInner() {
   const [cameras, setCameras] = useState([])
   const [teacherPeriods, setTeacherPeriods] = useState(DEFAULT_PERIODS)
   const [selectedCamera, setSelectedCamera] = useState('')
-
-  // Teacher context — loaded from URL param (room) or settings
   const [kioskRoom, setKioskRoom] = useState('27')
   const [kioskTeacherId, setKioskTeacherId] = useState(null)
   const [kioskTeacherName, setKioskTeacherName] = useState('Teacher')
+
+  // ── Schedule & period state ───────────────────────────────────────────────
+  const [scheduleType, setScheduleType] = useState(null)
+  const [currentSchedule, setCurrentSchedule] = useState(null)
+  const [periodInfo, setPeriodInfo] = useState(null)
+  const [checkoutStatus, setCheckoutStatus] = useState('ok')
+  const [showBreakScreen, setShowBreakScreen] = useState(false)
+  const [periodChangeBanner, setPeriodChangeBanner] = useState(null)
+  const [blockMinsEnabled, setBlockMinsEnabled] = useState(true)
+  const [suggestedPeriod, setSuggestedPeriod] = useState(null)
+  const lastDetectedPeriodId = useRef(null)
 
   const nfcBufferRef = useRef('')
   const nfcTimerRef = useRef(null)
   const activePassesRef = useRef([])
 
-  useEffect(() => {
-    activePassesRef.current = activePasses
-  }, [activePasses])
+  useEffect(() => { activePassesRef.current = activePasses }, [activePasses])
 
+  // ── Schedule detection ────────────────────────────────────────────────────
+  useEffect(() => {
+    detectSchedule()
+    const t = setInterval(detectSchedule, 60000)
+    return () => clearInterval(t)
+  }, [])
+
+  async function detectSchedule() {
+    const now = new Date()
+    const result = await fetchTodayScheduleType(now)
+    setScheduleType(result.type)
+    setCurrentSchedule(result.schedule)
+    updatePeriodInfo(result.schedule, now)
+  }
+
+  function updatePeriodInfo(schedule, now = new Date()) {
+    const info = getCurrentPeriodInfo(schedule, now)
+    setPeriodInfo(info)
+
+    const status = getCheckoutStatus(info)
+    setCheckoutStatus(status)
+
+    // Auto-suggest period on period selection screen
+    if (!activePeriod && info.current && !info.current.break) {
+      setSuggestedPeriod(info.current.id)
+    }
+
+    // Show break screen when kiosk is active and we're on a break
+    if (unlocked && activePeriod && (info.status === 'break' || info.status === 'passing')) {
+      setShowBreakScreen(true)
+    } else {
+      setShowBreakScreen(false)
+    }
+
+    // Detect period change and show banner
+    if (info.current && !info.current.break && info.current.id !== lastDetectedPeriodId.current) {
+      if (lastDetectedPeriodId.current !== null && unlocked) {
+        setPeriodChangeBanner(info.current.label)
+      }
+      lastDetectedPeriodId.current = info.current.id
+    }
+  }
+
+  // Update period info every 30 seconds
+  useEffect(() => {
+    if (!currentSchedule) return
+    const t = setInterval(() => updatePeriodInfo(currentSchedule), 30000)
+    return () => clearInterval(t)
+  }, [currentSchedule, unlocked, activePeriod])
+
+  // ── Auth & settings ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!lockedUntil) return
     const interval = setInterval(() => {
       const remaining = Math.ceil((lockedUntil - Date.now()) / 1000)
       if (remaining <= 0) {
         setLockedUntil(null); setLockoutRemaining(0); setPinAttempts(0); clearInterval(interval)
-      } else {
-        setLockoutRemaining(remaining)
-      }
+      } else { setLockoutRemaining(remaining) }
     }, 1000)
     return () => clearInterval(interval)
   }, [lockedUntil])
@@ -391,28 +588,27 @@ function KioskInner() {
 
   async function loadSettings() {
     const { data: settingsData } = await supabase.from('settings').select('key, value')
-      .in('key', ['teacher_unlock_code', 'teacher_pin'])
+      .in('key', ['teacher_unlock_code', 'teacher_pin', 'block_first_last_15'])
     if (settingsData) {
       const unlockRow = settingsData.find(r => r.key === 'teacher_unlock_code')
       const pinRow = settingsData.find(r => r.key === 'teacher_pin')
+      const blockRow = settingsData.find(r => r.key === 'block_first_last_15')
       if (unlockRow) setUnlockCode(unlockRow.value)
       if (pinRow) setPinCode(pinRow.value)
+      if (blockRow) setBlockMinsEnabled(blockRow.value !== 'false')
     }
-
-    // Load teacher by room from URL param
     const roomParam = searchParams.get('room') || '27'
     setKioskRoom(roomParam)
-
     const { data: teacher } = await supabase
       .from('teachers')
-      .select('id, name, room, periods, period_labels')
+      .select('id, name, room, periods, period_labels, unlock_code')
       .eq('room', roomParam)
       .eq('is_active', true)
       .maybeSingle()
-
     if (teacher) {
       setKioskTeacherId(teacher.id || null)
       setKioskTeacherName(teacher.name || 'Teacher')
+      if (teacher.unlock_code) setUnlockCode(teacher.unlock_code)
       if (teacher.periods?.length > 0) {
         const labels = teacher.period_labels || {}
         setTeacherPeriods(
@@ -425,19 +621,13 @@ function KioskInner() {
     }
   }
 
-async function loadStudents() {
+  async function loadStudents() {
     const { data: spRows } = await supabase
-      .from('student_periods')
-      .select('student_id')
-      .eq('period', activePeriod)
-      .eq('room', kioskRoom)
+      .from('student_periods').select('student_id').eq('period', activePeriod).eq('room', kioskRoom)
     const studentIds = spRows?.map(r => r.student_id) || []
     if (studentIds.length === 0) { setStudents([]); return }
     const { data } = await supabase
-      .from('students')
-      .select('id, full_name, last_name, nfc_uid')
-      .in('id', studentIds)
-      .order('first_name')
+      .from('students').select('id, full_name, last_name, nfc_uid').in('id', studentIds).order('first_name')
     if (data) setStudents(data)
     const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
     if (passes) setActivePasses(passes)
@@ -522,24 +712,17 @@ async function loadStudents() {
     } else if (reason === 'Other' && otherText) {
       finalReason = `Other — ${otherText}`
     }
-
     const passData = {
-      student_id: selected,
-      reason: finalReason,
-      room: kioskRoom,
-      period: activePeriod,
-      teacher_id: kioskTeacherId,
-      time_out: new Date().toISOString(),
+      student_id: selected, reason: finalReason, room: kioskRoom,
+      period: activePeriod, teacher_id: kioskTeacherId, time_out: new Date().toISOString(),
     }
     const name = students.find(s => s.id === selected)?.full_name
-
     if (!isOnline) {
       const queue = loadQueue()
       queue.push(passData); saveQueue(queue); setOfflineQueue(queue)
       setMessage({ text: name, sub: finalReason })
       setNewPassId(null); setStage('done'); return
     }
-
     const { data, error } = await supabase.from('passes').insert(passData).select().single()
     if (!error) {
       setMessage({ text: name, sub: finalReason })
@@ -587,24 +770,47 @@ async function loadStudents() {
   const periodLabel = teacherPeriods.find(p => p.value === activePeriod)?.label
   const studentName = students.find(s => s.id === selected)?.full_name
 
+  // ── Period selection screen ───────────────────────────────────────────────
   if (!activePeriod) return (
-    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
-      <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-24 h-24 object-contain mb-4" style={{ filter: 'brightness(0) invert(1)' }} />
+    <div className="min-h-screen flex flex-col items-center justify-center"
+      style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
+      <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-24 h-24 object-contain mb-4"
+        style={{ filter: 'brightness(0) invert(1)' }} />
       <h1 className="text-2xl font-bold text-white mb-1">Room {kioskRoom}</h1>
-      <p className="text-green-200 text-sm mb-8 uppercase tracking-widest">Select the current period</p>
+      {scheduleType && scheduleType !== 'noSchool' && currentSchedule && (
+        <p className="text-green-200 text-xs mb-1 uppercase tracking-widest">{currentSchedule.name}</p>
+      )}
+      <p className="text-green-200 text-sm mb-6 uppercase tracking-widest">Select the current period</p>
       <div className="flex flex-col gap-3 w-full max-w-xs">
         {teacherPeriods.map(p => (
           <button key={p.value} onClick={() => setActivePeriod(p.value)}
-            className="py-4 text-lg font-bold bg-white rounded-xl shadow-md hover:bg-green-50"
-            style={{ color: RHS_GREEN }}>{p.label}</button>
+            className="py-4 text-lg font-bold rounded-xl shadow-md hover:opacity-90 transition-opacity relative"
+            style={{
+              backgroundColor: p.value === suggestedPeriod ? 'white' : 'rgba(255,255,255,0.15)',
+              color: p.value === suggestedPeriod ? RHS_GREEN : 'white',
+            }}>
+            {p.label}
+            {p.value === suggestedPeriod && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium px-2 py-0.5 rounded-full"
+                style={{ backgroundColor: RHS_GREEN, color: 'white' }}>
+                Now
+              </span>
+            )}
+          </button>
         ))}
       </div>
+      {scheduleType === 'noSchool' && (
+        <p className="text-green-300 text-sm mt-6">No school today</p>
+      )}
     </div>
   )
 
+  // ── Lock screen ───────────────────────────────────────────────────────────
   if (!unlocked) return (
-    <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
-      <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-4" style={{ filter: 'brightness(0) invert(1)' }} />
+    <div className="min-h-screen flex flex-col items-center justify-center"
+      style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
+      <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-4"
+        style={{ filter: 'brightness(0) invert(1)' }} />
       <h1 className="text-2xl font-bold text-white mb-1">RHS PassAble</h1>
       <p className="text-green-200 text-sm mb-2">{teacherPeriods.find(p => p.value === activePeriod)?.label}</p>
       <p className="text-green-100 mb-4 text-sm">Enter teacher PIN to unlock</p>
@@ -642,9 +848,21 @@ async function loadStudents() {
           {cameras.map((c, i) => <option key={c.deviceId} value={c.deviceId}>{c.label || `Camera ${i + 1}`}</option>)}
         </select>
       )}
-      <QRScanner onUnlock={() => { setUnlocked(true); setPinAttempts(0); setLockedUntil(null) }} unlockCode={unlockCode} deviceId={selectedCamera} />
-      <button onClick={() => { setPin(''); setPinError(false); setUnlocked(false); setActivePeriod(null) }} className="mt-6 text-sm text-green-200 hover:text-white">← Change period</button>
+      <QRScanner onUnlock={() => { setUnlocked(true); setPinAttempts(0); setLockedUntil(null) }}
+        unlockCode={unlockCode} deviceId={selectedCamera} />
+      <button onClick={() => { setPin(''); setPinError(false); setUnlocked(false); setActivePeriod(null) }}
+        className="mt-6 text-sm text-green-200 hover:text-white">← Change period</button>
     </div>
+  )
+
+  // ── Break screen ──────────────────────────────────────────────────────────
+  if (showBreakScreen && periodInfo) return (
+    <>
+      {periodChangeBanner && (
+        <PeriodChangeBanner label={periodChangeBanner} onDismiss={() => setPeriodChangeBanner(null)} />
+      )}
+      <BreakScreen periodInfo={periodInfo} kioskRoom={kioskRoom} kioskTeacherName={kioskTeacherName} />
+    </>
   )
 
   if (stage === 'done' && newPassId) {
@@ -737,8 +955,14 @@ async function loadStudents() {
     )
   }
 
+  // ── Main checkout screen ──────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
+      {/* Period change banner */}
+      {periodChangeBanner && (
+        <PeriodChangeBanner label={periodChangeBanner} onDismiss={() => setPeriodChangeBanner(null)} />
+      )}
+
       {showLibraryAlert && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-6 max-w-xs mx-4 text-center shadow-xl">
@@ -752,103 +976,140 @@ async function loadStudents() {
           </div>
         </div>
       )}
-      {!isOnline && (
-        <div className="w-full max-w-sm mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs text-center">
-          ⚠ Offline — passes will sync when connected ({offlineQueue.length} queued)
+
+      {/* Period status bar */}
+      {periodInfo && (
+        <div className="w-full fixed top-0 left-0 right-0 z-40">
+          <PeriodStatusBar
+            periodInfo={periodInfo}
+            checkoutStatus={checkoutStatus}
+            scheduleType={scheduleType}
+            blockMinsEnabled={blockMinsEnabled}
+          />
         </div>
       )}
-      {syncing && (
-        <div className="w-full max-w-sm mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-xs text-center">
-          ↑ Syncing offline passes...
+
+      <div className={`w-full flex flex-col items-center ${periodInfo ? 'pt-10' : ''}`}>
+        {!isOnline && (
+          <div className="w-full max-w-sm mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs text-center">
+            ⚠ Offline — passes will sync when connected ({offlineQueue.length} queued)
+          </div>
+        )}
+        {syncing && (
+          <div className="w-full max-w-sm mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-800 text-xs text-center">
+            ↑ Syncing offline passes...
+          </div>
+        )}
+        {syncedCount > 0 && (
+          <div className="w-full max-w-sm mb-3 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-center" style={{ color: RHS_GREEN }}>
+            ✓ Back online — {syncedCount} {syncedCount === 1 ? 'pass' : 'passes'} synced
+          </div>
+        )}
+
+        {/* 15-min warning on checkout */}
+        {blockMinsEnabled && checkoutStatus !== 'ok' && (
+          <div className="w-full max-w-sm mb-3 p-3 rounded-xl text-sm font-medium text-center"
+            style={{
+              backgroundColor: checkoutStatus === 'first15' ? '#fef2f2' : '#fffbeb',
+              color: checkoutStatus === 'first15' ? '#dc2626' : '#92400e',
+              border: `1px solid ${checkoutStatus === 'first15' ? '#fca5a5' : '#fcd34d'}`,
+            }}>
+            {checkoutStatus === 'first15'
+              ? '🔴 First 15 minutes — teacher discretion advised before sending students out'
+              : '🟡 Last 15 minutes — consider holding students until next period'}
+          </div>
+        )}
+
+        <div className="w-full max-w-sm flex items-center justify-between mb-4">
+          <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-36 h-36 object-contain" />
+          <div className="flex flex-col items-end gap-2">
+            <StudentScanner onScan={handleStudentSelect} deviceId={selectedCamera} />
+            {cameras.length > 1 && (
+              <select value={selectedCamera}
+                onChange={e => { setSelectedCamera(e.target.value); localStorage.setItem('kiosk_camera', e.target.value) }}
+                className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                <option value="">Default camera</option>
+                {cameras.map((c, i) => <option key={c.deviceId} value={c.deviceId}>{c.label || `Camera ${i + 1}`}</option>)}
+              </select>
+            )}
+          </div>
         </div>
-      )}
-      {syncedCount > 0 && (
-        <div className="w-full max-w-sm mb-3 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-center" style={{ color: RHS_GREEN }}>
-          ✓ Back online — {syncedCount} {syncedCount === 1 ? 'pass' : 'passes'} synced
+
+        <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>RHS PassAble</h1>
+        <p className="text-sm font-medium mb-1" style={{ color: RHS_GREEN }}>Room {kioskRoom} · {periodLabel}</p>
+        <p className="text-gray-500 mb-6">Scan badge or select your name</p>
+
+        <div className="w-full max-w-sm mb-4">
+          <select value={selected} onChange={e => handleStudentSelect(e.target.value)}
+            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800"
+            style={{ borderColor: RHS_GREEN }}>
+            <option value="">— Choose your name —</option>
+            {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+          </select>
         </div>
-      )}
-      <div className="w-full max-w-sm flex items-center justify-between mb-4">
-        <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-36 h-36 object-contain" />
-        <div className="flex flex-col items-end gap-2">
-          <StudentScanner onScan={handleStudentSelect} deviceId={selectedCamera} />
-          {cameras.length > 1 && (
-            <select value={selectedCamera}
-              onChange={e => { setSelectedCamera(e.target.value); localStorage.setItem('kiosk_camera', e.target.value) }}
-              className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2 py-1 bg-white">
-              <option value="">Default camera</option>
-              {cameras.map((c, i) => <option key={c.deviceId} value={c.deviceId}>{c.label || `Camera ${i + 1}`}</option>)}
+
+        {weekCount >= PASS_LIMIT && (
+          <div className="w-full max-w-sm mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
+            ⚠ This is {studentName}'s {weekCount + 1}th pass this week
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-3 w-full max-w-sm mb-4">
+          {REASONS.map(r => (
+            <button key={r} onClick={() => handleReasonSelect(r)}
+              className="py-3 text-sm font-medium rounded-xl border-2 transition-colors"
+              style={reason === r
+                ? { backgroundColor: RHS_GREEN, color: 'white', borderColor: RHS_GREEN }
+                : { backgroundColor: 'white', color: '#374151', borderColor: '#e5e7eb' }}>
+              {r}
+            </button>
+          ))}
+        </div>
+
+        {reason === 'On Assignment' && (
+          <div className="w-full max-w-sm flex flex-col gap-2 mb-6">
+            <select value={assignedTeacher} onChange={e => setAssignedTeacher(e.target.value)}
+              className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
+              <option value="">— Select a teacher —</option>
+              {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
-          )}
-        </div>
+            <input type="text" placeholder="Purpose (e.g. picking up worksheets)"
+              value={purposeText} onChange={e => setPurposeText(e.target.value)}
+              className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
+          </div>
+        )}
+        {reason === 'Errand' && (
+          <div className="w-full max-w-sm flex flex-col gap-2 mb-6">
+            <select value={errandTeacher} onChange={e => setErrandTeacher(e.target.value)}
+              className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
+              <option value="">— Select a teacher (optional) —</option>
+              {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input type="text" placeholder="Purpose (e.g. returning equipment)"
+              value={purposeText} onChange={e => setPurposeText(e.target.value)}
+              className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
+          </div>
+        )}
+        {reason === 'Other' && (
+          <div className="w-full max-w-sm mb-6">
+            <input type="text" placeholder="Where are you going?"
+              value={otherText} onChange={e => setOtherText(e.target.value)}
+              className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} autoFocus />
+          </div>
+        )}
+        {reason !== 'On Assignment' && reason !== 'Errand' && reason !== 'Other' && <div className="mb-6" />}
+
+        <button onClick={handleCheckout} disabled={checkoutDisabled}
+          className="px-8 py-4 text-white text-lg font-bold rounded-xl disabled:opacity-30 shadow-md"
+          style={{ backgroundColor: RHS_GREEN }}>
+          Check Out
+        </button>
+
+        <button onClick={() => { setPin(''); setPinError(false); setUnlocked(false); setActivePeriod(null) }}
+          className="mt-4 text-sm hover:opacity-70" style={{ color: RHS_GREEN }}>
+          ← Change period
+        </button>
       </div>
-      <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>RHS PassAble</h1>
-      <p className="text-sm font-medium mb-1" style={{ color: RHS_GREEN }}>Room {kioskRoom} · {periodLabel}</p>
-      <p className="text-gray-500 mb-6">Scan badge or select your name</p>
-      <div className="w-full max-w-sm mb-4">
-        <select value={selected} onChange={e => handleStudentSelect(e.target.value)}
-          className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800"
-          style={{ borderColor: RHS_GREEN }}>
-          <option value="">— Choose your name —</option>
-          {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-        </select>
-      </div>
-      {weekCount >= PASS_LIMIT && (
-        <div className="w-full max-w-sm mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
-          ⚠ This is {studentName}'s {weekCount + 1}th pass this week
-        </div>
-      )}
-      <div className="grid grid-cols-3 gap-3 w-full max-w-sm mb-4">
-        {REASONS.map(r => (
-          <button key={r} onClick={() => handleReasonSelect(r)}
-            className="py-3 text-sm font-medium rounded-xl border-2 transition-colors"
-            style={reason === r
-              ? { backgroundColor: RHS_GREEN, color: 'white', borderColor: RHS_GREEN }
-              : { backgroundColor: 'white', color: '#374151', borderColor: '#e5e7eb' }}>
-            {r}
-          </button>
-        ))}
-      </div>
-      {reason === 'On Assignment' && (
-        <div className="w-full max-w-sm flex flex-col gap-2 mb-6">
-          <select value={assignedTeacher} onChange={e => setAssignedTeacher(e.target.value)}
-            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
-            <option value="">— Select a teacher —</option>
-            {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <input type="text" placeholder="Purpose (e.g. picking up worksheets)"
-            value={purposeText} onChange={e => setPurposeText(e.target.value)}
-            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
-        </div>
-      )}
-      {reason === 'Errand' && (
-        <div className="w-full max-w-sm flex flex-col gap-2 mb-6">
-          <select value={errandTeacher} onChange={e => setErrandTeacher(e.target.value)}
-            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
-            <option value="">— Select a teacher (optional) —</option>
-            {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <input type="text" placeholder="Purpose (e.g. returning equipment)"
-            value={purposeText} onChange={e => setPurposeText(e.target.value)}
-            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
-        </div>
-      )}
-      {reason === 'Other' && (
-        <div className="w-full max-w-sm mb-6">
-          <input type="text" placeholder="Where are you going?"
-            value={otherText} onChange={e => setOtherText(e.target.value)}
-            className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} autoFocus />
-        </div>
-      )}
-      {reason !== 'On Assignment' && reason !== 'Errand' && reason !== 'Other' && <div className="mb-6" />}
-      <button onClick={handleCheckout} disabled={checkoutDisabled}
-        className="px-8 py-4 text-white text-lg font-bold rounded-xl disabled:opacity-30 shadow-md"
-        style={{ backgroundColor: RHS_GREEN }}>
-        Check Out
-      </button>
-      <button onClick={() => { setPin(''); setPinError(false); setUnlocked(false); setActivePeriod(null) }}
-        className="mt-4 text-sm hover:opacity-70" style={{ color: RHS_GREEN }}>
-        ← Change period
-      </button>
     </div>
   )
 }
