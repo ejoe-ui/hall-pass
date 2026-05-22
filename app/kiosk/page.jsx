@@ -605,9 +605,36 @@ function KioskInner() {
     const status = getCheckoutStatus(info)
     setCheckoutStatus(status)
 
-    // Auto-suggest period on period selection screen
-    if (!activePeriod && info.current && !info.current.break) {
-      setSuggestedPeriod(info.current.id)
+    // Auto-suggest AND auto-set period based on current time
+    if (info.current && !info.current.break) {
+      const nowMins = new Date().getHours() * 60 + new Date().getMinutes()
+      let bestMatch = null, bestDiff = Infinity
+      teacherPeriods.forEach(tp => {
+        if (tp.value === info.current.id) { bestMatch = tp.value; bestDiff = 0 }
+      })
+      if (!bestMatch && currentSchedule) {
+        teacherPeriods.forEach(tp => {
+          const schedPeriod = currentSchedule.periods.find(p => p.id === tp.value)
+          if (schedPeriod) {
+            const [h, m] = schedPeriod.start.split(':').map(Number)
+            const diff = Math.abs(nowMins - (h * 60 + m))
+            if (diff < bestDiff) { bestDiff = diff; bestMatch = tp.value }
+          }
+        })
+        if (!bestMatch && teacherPeriods.length > 0) {
+          const activePeriods = currentSchedule.periods.filter(p => !p.break)
+          const periodIndex = activePeriods.findIndex(p => p.id === info.current.id)
+          if (periodIndex >= 0 && periodIndex < teacherPeriods.length) {
+            bestMatch = teacherPeriods[periodIndex].value
+          } else {
+            bestMatch = teacherPeriods[0].value
+          }
+        }
+      }
+      if (bestMatch) {
+        setSuggestedPeriod(bestMatch)
+        if (unlocked && !activePeriod) setActivePeriod(bestMatch)
+      }
     }
 
     // Show break screen when kiosk is active and we're on a break
