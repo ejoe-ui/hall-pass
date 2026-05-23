@@ -585,7 +585,7 @@ function TeacherInner() {
 
   async function handleSendMagicLink() {
     setSigningIn(true); setAuthError('')
-    if (!email.endsWith('@rjusd.org') && email !== 'connect.joe@gmail.com') { setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return }
+    if (!email.endsWith('@rjusd.org') && !email.endsWith('@demo.passable.app') && email !== 'connect.joe@gmail.com') { setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return }
     const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' } })
     if (error) setAuthError('Could not send link. Try again.')
     else { setMagicSent(true); setMagicEmail(email) }
@@ -594,7 +594,7 @@ function TeacherInner() {
 
   async function handlePasswordSignIn() {
     setSigningIn(true); setAuthError('')
-    if (!email.endsWith('@rjusd.org') && email !== 'connect.joe@gmail.com') { setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return }
+    if (!email.endsWith('@rjusd.org') && !email.endsWith('@demo.passable.app') && email !== 'connect.joe@gmail.com') { setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return }
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) setAuthError('Invalid email or password.')
     setSigningIn(false)
