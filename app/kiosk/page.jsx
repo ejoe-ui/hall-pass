@@ -829,7 +829,7 @@ function KioskInner() {
     if (studentIds.length === 0) { setStudents([]); return }
     const { data } = await supabase
       .from('students').select('id, full_name, last_name, nfc_uid').in('id', studentIds).order('first_name')
-    if (data) setStudents(data)
+    if (data) setStudents(data.filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i))
     const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
     if (passes) setActivePasses(passes)
     const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
