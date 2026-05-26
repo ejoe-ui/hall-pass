@@ -123,7 +123,7 @@ async function fetchTodayScheduleType(date=new Date()) {
     const data=await res.json();
     if(data.status==='ok') calendarEvents=data.events||[];
   } catch(e) {}
-  const titles=calendarEvents.map(e=>(e.title||'').toLowerCase());
+  const titles = calendarEvents.filter(e => e.start && e.start.substring(0, 10) === dateStr).map(e => (e.title || '').toLowerCase());
   const has=kw=>titles.some(t=>t.includes(kw));
   if(has('foggy')||has('late arrival')) return {type:'foggy',schedule:SCHEDULES.foggy};
   if(has('minimum')) return {type:'minimum',schedule:SCHEDULES.minimum};
