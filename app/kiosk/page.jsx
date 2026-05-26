@@ -574,6 +574,7 @@ function KioskInner() {
   const [showBreakScreen, setShowBreakScreen] = useState(false)
   const [periodChangeBanner, setPeriodChangeBanner] = useState(null)
   const [blockMinsEnabled, setBlockMinsEnabled] = useState(true)
+  const [showPeriodChangePIN, setShowPeriodChangePIN] = useState(false)
   const [suggestedPeriod, setSuggestedPeriod] = useState(null)
   const lastDetectedPeriodId = useRef(null)
 
