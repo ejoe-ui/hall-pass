@@ -64,7 +64,7 @@ async function fetchTodayScheduleType(date=new Date()){
   if(dow===0||dow===6||_NO_SCHOOL.includes(ds))return{type:'noSchool',schedule:null};
   let evts=[];
   try{const r=await fetch(`${_CAL_URL}?date=${ds}`);const d=await r.json();if(d.status==='ok')evts=d.events||[];}catch(e){}
-  const tt=evts.map(e=>(e.title||'').toLowerCase()),has=kw=>tt.some(t=>t.includes(kw));
+  const tt=evts.filter(e=>e.start&&e.start.substring(0,10)===ds).map(e=>(e.title||'').toLowerCase()),has=kw=>tt.some(t=>t.includes(kw));
   if(has('foggy')||has('late arrival'))return{type:'foggy',schedule:_SCHEDULES.foggy};
   if(has('minimum'))return{type:'minimum',schedule:_SCHEDULES.minimum};
   if(has('code day'))return{type:'codeDay',schedule:_SCHEDULES.codeDay};
