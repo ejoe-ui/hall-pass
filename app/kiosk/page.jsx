@@ -185,7 +185,9 @@ async function fetchTodayScheduleType(date=new Date()) {
   if(has('activity')) return {type:'activity',schedule:SCHEDULES.activity};
   if(has('block')) return dow===3?{type:'blockWed',schedule:SCHEDULES.blockWed}:{type:'blockThu',schedule:SCHEDULES.blockThu};
   if(has('early release')) return {type:'earlyRelease',schedule:SCHEDULES.earlyRelease};
+  // ── Holiday week check — runs before day-of-week defaults ────────────────
   if(_schoolDaysThisWeek(date)<=4) return {type:'regular',schedule:SCHEDULES.regular};
+  // ── Normal week defaults ─────────────────────────────────────────────────
   if(dow===1) return {type:'earlyRelease',schedule:SCHEDULES.earlyRelease};
   if(dow===3) return {type:'blockWed',schedule:SCHEDULES.blockWed};
   if(dow===4) return {type:'blockThu',schedule:SCHEDULES.blockThu};
@@ -984,7 +986,7 @@ function KioskInner() {
       setMessage({ text: name, sub: finalReason })
       setNewPassId(data?.id || null)
       setStage('done')
-      const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', period)
+      const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
       if (passes) setActivePasses(passes)
     }
   }
