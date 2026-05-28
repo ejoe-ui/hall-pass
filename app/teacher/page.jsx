@@ -670,9 +670,12 @@ function TeacherInner() {
     const room = currentTeacher?.room || '27'
     const { data: spRows } = await supabase.from('student_periods').select('student_id').eq('period', activePeriod).eq('room', room)
     const studentIds = spRows?.map(r => r.student_id) || []
+
+    // ── FIX: photo_url added to student select ────────────────────────────────
     const { data: studs } = studentIds.length > 0
-      ? await supabase.from('students').select('id, full_name, last_name').in('id', studentIds).order('first_name')
+      ? await supabase.from('students').select('id, full_name, last_name, photo_url').in('id', studentIds).order('first_name')
       : { data: [] }
+
     const { data: holds } = await supabase.from('pass_holds').select('*').is('released_at', null).order('held_at')
     const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
     if (passes) {
@@ -709,7 +712,8 @@ function TeacherInner() {
     const { data: missed } = await supabase.from('passes').select('*').is('time_in', null).in('period', pastPeriods).gte('time_out', todayStart.toISOString()).lte('time_out', todayEnd.toISOString()).order('time_out')
     if (!missed) return
     const ids = [...new Set(missed.map(p => p.student_id))]
-    const { data: studs } = await supabase.from('students').select('id, full_name').in('id', ids)
+    // ── FIX: photo_url added to missed passes student select ──────────────────
+    const { data: studs } = await supabase.from('students').select('id, full_name, photo_url').in('id', ids)
     const studMap = {}
     if (studs) studs.forEach(s => studMap[s.id] = s)
     setMissedPasses(missed.map(p => ({ ...p, students: studMap[p.student_id] || null })))
@@ -1057,9 +1061,20 @@ function TeacherInner() {
             const isLatePass = pass.pass_type === 'late_pass'
             return (
               <div key={pass.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 ${isLatePass ? 'bg-blue-50' : ''}`}>
-                <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white" style={{ backgroundColor: isLatePass ? '#1d4ed8' : RHS_GREEN }}>
-                  {student?.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
-                </div>
+                {/* ── FIX: Show photo if available, fall back to initials ── */}
+                {student?.photo_url
+                  ? <img
+                      src={student.photo_url}
+                      alt={student.full_name}
+                      className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                    />
+                  : <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white"
+                      style={{ backgroundColor: isLatePass ? '#1d4ed8' : RHS_GREEN }}
+                    >
+                      {student?.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                    </div>
+                }
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-800">{student?.full_name}</span>
@@ -1158,7 +1173,15 @@ function TeacherInner() {
               const timeOut = new Date(pass.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               return (
                 <div key={pass.id} className="flex items-center gap-3 px-4 py-3 border-b border-orange-50 last:border-0">
-                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white bg-orange-400">{initials}</div>
+                  {/* ── FIX: Show photo if available, fall back to initials ── */}
+                  {pass.students?.photo_url
+                    ? <img
+                        src={pass.students.photo_url}
+                        alt={name}
+                        className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                      />
+                    : <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white bg-orange-400">{initials}</div>
+                  }
                   <div className="flex-1">
                     <div className="flex items-center gap-2"><span className="text-sm font-medium text-gray-800">{name}</span><span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-600 rounded font-medium">P{pass.period}</span></div>
                     <div className="text-xs text-gray-400">{pass.reason} · out at {timeOut} · {mins}m ago</div>
