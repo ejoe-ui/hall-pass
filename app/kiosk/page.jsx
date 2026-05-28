@@ -864,7 +864,8 @@ function KioskInner() {
 
   async function loadStudents() {
     // Use searchParams directly to avoid stale kioskRoom state
-    const roomParam = searchParams.get('room') || '27'
+    const roomParam = searchParams.get('room') || ''
+if (!roomParam) return
     const { data: spRows } = await supabase
       .from('student_periods').select('student_id').eq('period', activePeriod).eq('room', roomParam)
     const studentIds = spRows?.map(r => r.student_id) || []
