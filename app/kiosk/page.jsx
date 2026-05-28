@@ -86,6 +86,53 @@ const SCHEDULES = {
     { id:'6', label:'Period 6', start:'13:43', end:'14:27' },
     { id:'7', label:'Period 7', start:'14:31', end:'15:15' },
   ]},
+  // ── Finals Week (June 8–12, 2026) — REMOVE AFTER JUNE 12 ─────────────────
+  finals1: { name: 'Finals — Day 1', periods: [
+    { id:'1', label:'Period 1 (Review)', start:'08:10', end:'08:48' },
+    { id:'2', label:'Period 2 (Review)', start:'08:52', end:'09:28' },
+    { id:'3', label:'Period 3 (Review)', start:'09:32', end:'10:08' },
+    { id:'brunch', label:'Brunch', start:'10:08', end:'10:23', break:true },
+    { id:'4', label:'Period 4 (Review)', start:'10:27', end:'11:03' },
+    { id:'5', label:'Period 5 (Review)', start:'11:07', end:'11:43' },
+    { id:'lunch', label:'Lunch', start:'11:43', end:'12:18', break:true },
+    { id:'6', label:'Period 6 (Review)', start:'12:22', end:'12:58' },
+    { id:'final6', label:'Final — Period 6', start:'13:02', end:'14:35' },
+    { id:'7', label:'Period 7 (Review)', start:'14:39', end:'15:15' },
+  ]},
+  finals2: { name: 'Finals — Day 2', periods: [
+    { id:'1', label:'Period 1 (Review)', start:'08:10', end:'08:54' },
+    { id:'final1', label:'Final — Period 1', start:'08:58', end:'10:31' },
+    { id:'brunch', label:'Brunch', start:'10:31', end:'10:46', break:true },
+    { id:'6', label:'Period 6 (Review)', start:'10:50', end:'11:32' },
+    { id:'2', label:'Period 2 (Review)', start:'11:36', end:'12:18' },
+    { id:'lunch', label:'Lunch', start:'12:18', end:'12:53', break:true },
+    { id:'final2', label:'Final — Period 2', start:'12:57', end:'14:30' },
+    { id:'mtg', label:'Class Meetings', start:'14:34', end:'15:15', break:true },
+  ]},
+  finals3: { name: 'Finals — Day 3', periods: [
+    { id:'3', label:'Period 3 (Review)', start:'08:10', end:'08:40' },
+    { id:'final3', label:'Final — Period 3', start:'08:44', end:'10:17' },
+    { id:'4', label:'Period 4 (Review)', start:'10:21', end:'10:51' },
+    { id:'lunch', label:'Lunch', start:'10:51', end:'11:24', break:true },
+    { id:'final4', label:'Final — Period 4', start:'11:28', end:'13:01' },
+  ]},
+  finals4: { name: 'Finals — Day 4', periods: [
+    { id:'5', label:'Period 5 (Review)', start:'08:10', end:'08:40' },
+    { id:'final5', label:'Final — Period 5', start:'08:44', end:'10:17' },
+    { id:'7', label:'Period 7 (Review)', start:'10:21', end:'10:51' },
+    { id:'lunch', label:'Lunch', start:'10:51', end:'11:24', break:true },
+    { id:'final7', label:'Final — Period 7', start:'11:28', end:'13:01' },
+  ]},
+  // finals5 = minimum day (June 12) — already handled by 'minimum' schedule
+}
+
+// ── Finals dates hardcoded — REMOVE AFTER JUNE 12, 2026 ─────────────────────
+const FINALS_DATES = {
+  '2026-06-08': 'finals1',
+  '2026-06-09': 'finals2',
+  '2026-06-10': 'finals3',
+  '2026-06-11': 'finals4',
+  '2026-06-12': 'minimum',
 }
 
 const NO_SCHOOL_DATES = [
@@ -117,6 +164,13 @@ async function fetchTodayScheduleType(date=new Date()) {
   const dateStr=_dateStr(date), dow=date.getDay();
   if(dow===0||dow===6) return {type:'noSchool',schedule:null};
   if(_isNoSchool(dateStr)) return {type:'noSchool',schedule:null};
+
+  // ── Finals week hardcode — REMOVE AFTER JUNE 12, 2026 ───────────────────
+  if(FINALS_DATES[dateStr]) {
+    const type = FINALS_DATES[dateStr]
+    return { type, schedule: SCHEDULES[type] }
+  }
+
   let calendarEvents=[];
   try {
     const res=await fetch(`${CALENDAR_URL}?date=${dateStr}`);
@@ -372,7 +426,6 @@ function normalizeUid(uid) {
 function PeriodStatusBar({ periodInfo, checkoutStatus, blockMinsEnabled }) {
   if (!periodInfo || periodInfo.status === 'noSchool') return null
 
-  // Break / passing
   if (periodInfo.status === 'break' || periodInfo.status === 'passing') {
     const label = periodInfo.current?.label || 'Passing Period'
     const next = periodInfo.next
@@ -407,7 +460,6 @@ function PeriodStatusBar({ periodInfo, checkoutStatus, blockMinsEnabled }) {
   if (periodInfo.status === 'period') {
     const left = periodInfo.minutesLeftInCurrent
 
-    // Always show period bar — color depends on blockMinsEnabled
     if (!blockMinsEnabled) {
       return (
         <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
@@ -418,7 +470,6 @@ function PeriodStatusBar({ periodInfo, checkoutStatus, blockMinsEnabled }) {
       )
     }
 
-    // 🔴 First 15
     if (checkoutStatus === 'first15') {
       const minsLeft = Math.max(0, 15 - toMinutesFromPeriodStart(periodInfo))
       return (
@@ -430,7 +481,6 @@ function PeriodStatusBar({ periodInfo, checkoutStatus, blockMinsEnabled }) {
       )
     }
 
-    // 🟡 Warning — 16-20 min left
     if (checkoutStatus === 'warning20') {
       return (
         <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
@@ -441,7 +491,6 @@ function PeriodStatusBar({ periodInfo, checkoutStatus, blockMinsEnabled }) {
       )
     }
 
-    // 🔴 Last 15
     if (checkoutStatus === 'last15') {
       return (
         <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
@@ -452,7 +501,6 @@ function PeriodStatusBar({ periodInfo, checkoutStatus, blockMinsEnabled }) {
       )
     }
 
-    // 🟢 Safe window
     return (
       <div className="w-full px-4 py-2 flex items-center justify-between text-sm font-medium"
         style={{ backgroundColor: '#166534', color: 'white' }}>
@@ -473,7 +521,6 @@ function toMinutesFromPeriodStart(periodInfo) {
   return currentMins - (h * 60 + m)
 }
 
-// ── Passing period / break screen ─────────────────────────────────────────────
 function BreakScreen({ periodInfo, kioskRoom, kioskTeacherName }) {
   const [now, setNow] = useState(new Date())
   useEffect(() => {
@@ -483,7 +530,6 @@ function BreakScreen({ periodInfo, kioskRoom, kioskTeacherName }) {
 
   const label = periodInfo.current?.label || 'Passing Period'
   const next = periodInfo.next
-  const mins = periodInfo.minutesUntilNext
   const secs = next
     ? Math.max(0, (new Date(now.getFullYear(), now.getMonth(), now.getDate(),
         ...next.start.split(':').map(Number)).getTime() - now.getTime()) / 1000)
@@ -511,7 +557,6 @@ function BreakScreen({ periodInfo, kioskRoom, kioskTeacherName }) {
   )
 }
 
-// ── Period changed banner ─────────────────────────────────────────────────────
 function PeriodChangeBanner({ label, onDismiss }) {
   useEffect(() => {
     const t = setTimeout(onDismiss, 6000)
@@ -562,11 +607,10 @@ function KioskInner() {
   const [cameras, setCameras] = useState([])
   const [teacherPeriods, setTeacherPeriods] = useState(DEFAULT_PERIODS)
   const [selectedCamera, setSelectedCamera] = useState('')
-  const [kioskRoom, setKioskRoom] = useState('27')
+  const [kioskRoom, setKioskRoom] = useState('')
   const [kioskTeacherId, setKioskTeacherId] = useState(null)
   const [kioskTeacherName, setKioskTeacherName] = useState('Teacher')
 
-  // ── Schedule & period state ───────────────────────────────────────────────
   const [scheduleType, setScheduleType] = useState(null)
   const [currentSchedule, setCurrentSchedule] = useState(null)
   const [periodInfo, setPeriodInfo] = useState(null)
@@ -584,7 +628,6 @@ function KioskInner() {
 
   useEffect(() => { activePassesRef.current = activePasses }, [activePasses])
 
-  // ── Schedule detection ────────────────────────────────────────────────────
   useEffect(() => {
     detectSchedule()
     const t = setInterval(detectSchedule, 60000)
@@ -602,11 +645,9 @@ function KioskInner() {
   function updatePeriodInfo(schedule, now = new Date()) {
     const info = getCurrentPeriodInfo(schedule, now)
     setPeriodInfo(info)
-
     const status = getCheckoutStatus(info)
     setCheckoutStatus(status)
 
-    // Auto-suggest AND auto-set period based on current time
     if (info.current && !info.current.break) {
       const nowMins = new Date().getHours() * 60 + new Date().getMinutes()
       let bestMatch = null, bestDiff = Infinity
@@ -638,14 +679,12 @@ function KioskInner() {
       }
     }
 
-    // Show break screen when kiosk is active and we're on a break
     if (unlocked && activePeriod && (info.status === 'break' || info.status === 'passing')) {
       setShowBreakScreen(true)
     } else {
       setShowBreakScreen(false)
     }
 
-    // Detect period change and show banner
     if (info.current && !info.current.break && info.current.id !== lastDetectedPeriodId.current) {
       if (lastDetectedPeriodId.current !== null && unlocked) {
         setPeriodChangeBanner(info.current.label)
@@ -654,14 +693,12 @@ function KioskInner() {
     }
   }
 
-  // Update period info every 30 seconds
   useEffect(() => {
     if (!currentSchedule) return
     const t = setInterval(() => updatePeriodInfo(currentSchedule), 30000)
     return () => clearInterval(t)
   }, [currentSchedule, unlocked, activePeriod])
 
-  // ── Auth & settings ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!lockedUntil) return
     const interval = setInterval(() => {
@@ -714,7 +751,10 @@ function KioskInner() {
     if (synced > 0) { setSyncedCount(synced); setTimeout(() => setSyncedCount(0), 4000) }
   }
 
-  useEffect(() => { if (unlocked && activePeriod && kioskRoom) loadStudents() }, [unlocked, activePeriod, kioskRoom])
+  // ── KEY FIX: use searchParams directly, not kioskRoom state ─────────────
+  useEffect(() => {
+    if (unlocked && activePeriod) loadStudents()
+  }, [unlocked, activePeriod])
 
   useEffect(() => {
     const studentId = searchParams.get('student')
@@ -823,8 +863,10 @@ function KioskInner() {
   }
 
   async function loadStudents() {
+    // Use searchParams directly to avoid stale kioskRoom state
+    const roomParam = searchParams.get('room') || '27'
     const { data: spRows } = await supabase
-      .from('student_periods').select('student_id').eq('period', activePeriod).eq('room', kioskRoom)
+      .from('student_periods').select('student_id').eq('period', activePeriod).eq('room', roomParam)
     const studentIds = spRows?.map(r => r.student_id) || []
     if (studentIds.length === 0) { setStudents([]); return }
     const { data } = await supabase
@@ -913,8 +955,9 @@ function KioskInner() {
     } else if (reason === 'Other' && otherText) {
       finalReason = `Other — ${otherText}`
     }
+    const roomParam = searchParams.get('room') || '27'
     const passData = {
-      student_id: selected, reason: finalReason, room: kioskRoom,
+      student_id: selected, reason: finalReason, room: roomParam,
       period: activePeriod, teacher_id: kioskTeacherId, time_out: new Date().toISOString(),
     }
     const name = students.find(s => s.id === selected)?.full_name
@@ -970,6 +1013,7 @@ function KioskInner() {
 
   const periodLabel = teacherPeriods.find(p => p.value === activePeriod)?.label
   const studentName = students.find(s => s.id === selected)?.full_name
+  const roomDisplay = searchParams.get('room') || kioskRoom || '27'
 
   // ── Period selection screen ───────────────────────────────────────────────
   if (!activePeriod) return (
@@ -977,7 +1021,7 @@ function KioskInner() {
       style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-24 h-24 object-contain mb-4"
         style={{ filter: 'brightness(0) invert(1)' }} />
-      <h1 className="text-2xl font-bold text-white mb-1">Room {kioskRoom}</h1>
+      <h1 className="text-2xl font-bold text-white mb-1">Room {roomDisplay}</h1>
       {scheduleType && scheduleType !== 'noSchool' && currentSchedule && (
         <p className="text-green-200 text-xs mb-1 uppercase tracking-widest">{currentSchedule.name}</p>
       )}
@@ -1050,7 +1094,7 @@ function KioskInner() {
       {periodChangeBanner && (
         <PeriodChangeBanner label={periodChangeBanner} onDismiss={() => setPeriodChangeBanner(null)} />
       )}
-      <BreakScreen periodInfo={periodInfo} kioskRoom={kioskRoom} kioskTeacherName={kioskTeacherName} />
+      <BreakScreen periodInfo={periodInfo} kioskRoom={roomDisplay} kioskTeacherName={kioskTeacherName} />
     </>
   )
 
@@ -1147,7 +1191,6 @@ function KioskInner() {
   // ── Main checkout screen ──────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4">
-      {/* Period change banner */}
       {periodChangeBanner && (
         <PeriodChangeBanner label={periodChangeBanner} onDismiss={() => setPeriodChangeBanner(null)} />
       )}
@@ -1166,7 +1209,6 @@ function KioskInner() {
         </div>
       )}
 
-      {/* Period status bar */}
       {periodInfo && (
         <div className="w-full fixed top-0 left-0 right-0 z-40">
           <PeriodStatusBar
@@ -1194,7 +1236,6 @@ function KioskInner() {
           </div>
         )}
 
-        {/* 15-min warning on checkout */}
         {blockMinsEnabled && checkoutStatus !== 'ok' && (
           <div className="w-full max-w-sm mb-3 p-3 rounded-xl text-sm font-medium text-center"
             style={{
@@ -1224,7 +1265,7 @@ function KioskInner() {
         </div>
 
         <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>RHS PassAble</h1>
-        <p className="text-sm font-medium mb-1" style={{ color: RHS_GREEN }}>Room {kioskRoom} · {periodLabel}</p>
+        <p className="text-sm font-medium mb-1" style={{ color: RHS_GREEN }}>Room {roomDisplay} · {periodLabel}</p>
         <p className="text-gray-500 mb-6">Scan badge or select your name</p>
 
         <div className="w-full max-w-sm mb-4">
