@@ -714,7 +714,7 @@ function KioskInner() {
     if (synced > 0) { setSyncedCount(synced); setTimeout(() => setSyncedCount(0), 4000) }
   }
 
-  useEffect(() => { if (unlocked && activePeriod) loadStudents() }, [unlocked, activePeriod])
+  useEffect(() => { if (unlocked && activePeriod && kioskRoom) loadStudents() }, [unlocked, activePeriod, kioskRoom])
 
   useEffect(() => {
     const studentId = searchParams.get('student')
