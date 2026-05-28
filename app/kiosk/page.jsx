@@ -753,8 +753,8 @@ function KioskInner() {
 
   // ── KEY FIX: use searchParams directly, not kioskRoom state ─────────────
   useEffect(() => {
-    if (unlocked && activePeriod) loadStudents()
-  }, [unlocked, activePeriod])
+  if (unlocked && activePeriod && kioskRoom) loadStudents()
+}, [unlocked, activePeriod, kioskRoom])
 
   useEffect(() => {
     const studentId = searchParams.get('student')
