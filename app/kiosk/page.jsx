@@ -676,7 +676,6 @@ function KioskInner() {
       }
       if (bestMatch) {
         setSuggestedPeriod(bestMatch)
-        
       }
     }
 
@@ -752,10 +751,18 @@ function KioskInner() {
     if (synced > 0) { setSyncedCount(synced); setTimeout(() => setSyncedCount(0), 4000) }
   }
 
-  // ── KEY FIX: wait for settingsLoaded before querying students ───────────
+  // ── Auto-select period after settings load, then load students ──────────
   useEffect(() => {
-    if (unlocked && activePeriod && settingsLoaded) loadStudents()
-  }, [unlocked, activePeriod, settingsLoaded])
+    if (settingsLoaded && suggestedPeriod && !activePeriod) {
+      setActivePeriod(suggestedPeriod)
+      loadStudents(suggestedPeriod)
+    }
+  }, [settingsLoaded, suggestedPeriod])
+
+  // Also re-load students if activePeriod changes via PIN flow
+  useEffect(() => {
+    if (activePeriod && settingsLoaded) loadStudents(activePeriod)
+  }, [activePeriod])
 
   useEffect(() => {
     const studentId = searchParams.get('student')
@@ -864,17 +871,20 @@ function KioskInner() {
     setSettingsLoaded(true)
   }
 
-  async function loadStudents() {
-    // Use searchParams directly to avoid stale kioskRoom state
-    const roomParam = searchParams.get('room') || '27'
+  async function loadStudents(periodOverride) {
+    // Accept periodOverride to bypass React state timing issues
+    const period = periodOverride || activePeriod
+    if (!period) return
+    const roomParam = searchParams.get('room') || ''
+    if (!roomParam) return
     const { data: spRows } = await supabase
-      .from('student_periods').select('student_id').eq('period', activePeriod).eq('room', roomParam)
+      .from('student_periods').select('student_id').eq('period', period).eq('room', roomParam)
     const studentIds = spRows?.map(r => r.student_id) || []
     if (studentIds.length === 0) { setStudents([]); return }
     const { data } = await supabase
       .from('students').select('id, full_name, last_name, nfc_uid').in('id', studentIds).order('first_name')
     if (data) setStudents(data.filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i))
-    const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
+    const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', period)
     if (passes) setActivePasses(passes)
     const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
     if (dnlo) setDnloList(dnlo.map(d => d.student_id))
@@ -974,7 +984,7 @@ function KioskInner() {
       setMessage({ text: name, sub: finalReason })
       setNewPassId(data?.id || null)
       setStage('done')
-      const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
+      const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', period)
       if (passes) setActivePasses(passes)
     }
   }
@@ -1030,7 +1040,7 @@ function KioskInner() {
       <p className="text-green-200 text-sm mb-6 uppercase tracking-widest">Select the current period</p>
       <div className="flex flex-col gap-3 w-full max-w-xs">
         {teacherPeriods.map(p => (
-          <button key={p.value} onClick={() => setActivePeriod(p.value)}
+          <button key={p.value} onClick={() => { setActivePeriod(p.value); loadStudents(p.value) }}
             className="py-4 text-lg font-bold rounded-xl shadow-md hover:opacity-90 transition-opacity relative"
             style={{
               backgroundColor: p.value === suggestedPeriod ? 'white' : 'rgba(255,255,255,0.15)',
