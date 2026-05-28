@@ -608,6 +608,7 @@ function KioskInner() {
   const [teacherPeriods, setTeacherPeriods] = useState(DEFAULT_PERIODS)
   const [selectedCamera, setSelectedCamera] = useState('')
   const [kioskRoom, setKioskRoom] = useState('')
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [kioskTeacherId, setKioskTeacherId] = useState(null)
   const [kioskTeacherName, setKioskTeacherName] = useState('Teacher')
 
@@ -751,10 +752,10 @@ function KioskInner() {
     if (synced > 0) { setSyncedCount(synced); setTimeout(() => setSyncedCount(0), 4000) }
   }
 
-  // ── KEY FIX: use searchParams directly, not kioskRoom state ─────────────
+  // ── KEY FIX: wait for settingsLoaded before querying students ───────────
   useEffect(() => {
-  if (unlocked && activePeriod && kioskRoom) loadStudents()
-}, [unlocked, activePeriod, kioskRoom])
+    if (unlocked && activePeriod && settingsLoaded) loadStudents()
+  }, [unlocked, activePeriod, settingsLoaded])
 
   useEffect(() => {
     const studentId = searchParams.get('student')
@@ -860,12 +861,12 @@ function KioskInner() {
         )
       }
     }
+    setSettingsLoaded(true)
   }
 
   async function loadStudents() {
     // Use searchParams directly to avoid stale kioskRoom state
-    const roomParam = searchParams.get('room') || ''
-if (!roomParam) return
+    const roomParam = searchParams.get('room') || '27'
     const { data: spRows } = await supabase
       .from('student_periods').select('student_id').eq('period', activePeriod).eq('room', roomParam)
     const studentIds = spRows?.map(r => r.student_id) || []
