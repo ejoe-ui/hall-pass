@@ -676,7 +676,7 @@ function KioskInner() {
       }
       if (bestMatch) {
         setSuggestedPeriod(bestMatch)
-        if (unlocked && !activePeriod) setActivePeriod(bestMatch)
+        
       }
     }
 
