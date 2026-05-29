@@ -669,7 +669,7 @@ function TeacherInner() {
     const { data: passes } = await passQuery
     const room = currentTeacher?.room || '27'
     const { data: spRows } = await supabase.from('student_periods').select('student_id').eq('period', activePeriod).eq('room', room)
-    const studentIds = spRows?.map(r => r.student_id) || []
+    const studentIds = [...new Set(spRows?.map(r => r.student_id) || [])]
 
     // ── FIX: photo_url added to student select ────────────────────────────────
     const { data: studs } = studentIds.length > 0
