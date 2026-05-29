@@ -690,7 +690,7 @@ function TeacherInner() {
       prevActiveIds.current = newIds
       setActivePasses(passes)
     }
-    if (studs) { setAllStudents(studs); const map = {}; studs.forEach(s => map[s.id] = s); setStudents(map) }
+    if (studs) { const deduped = studs.filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i); setAllStudents(deduped); const map = {}; deduped.forEach(s => map[s.id] = s); setStudents(map) }
     if (holds) {
       const newIds = holds.map(h => h.id)
       if (newIds.some(id => !prevHeldIds.current.includes(id)) && holds.length > 0) playAlert()
