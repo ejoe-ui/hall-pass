@@ -10,6 +10,7 @@ export default function Log() {
   const [loading, setLoading] = useState(true)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [checkingIn, setCheckingIn] = useState(null)
 
   useEffect(() => {
     async function init() {
@@ -34,7 +35,6 @@ export default function Log() {
   async function loadPasses(teacher) {
     setLoading(true)
 
-    // Get student IDs for this teacher's room
     const { data: spRows } = await supabase
       .from('student_periods')
       .select('student_id')
@@ -52,13 +52,8 @@ export default function Log() {
       passData = data || []
     }
 
-    const { data: studData } = await supabase
-      .from('students')
-      .select('id, full_name')
-
-    const { data: teacherData } = await supabase
-      .from('teachers')
-      .select('id, name, room')
+    const { data: studData } = await supabase.from('students').select('id, full_name')
+    const { data: teacherData } = await supabase.from('teachers').select('id, name, room')
 
     const studMap = {}
     if (studData) studData.forEach(s => studMap[s.id] = s)
@@ -73,6 +68,18 @@ export default function Log() {
 
     setPasses(enriched)
     setLoading(false)
+  }
+
+  async function checkInPass(passId) {
+    setCheckingIn(passId)
+    const pass = passes.find(p => p.id === passId)
+    const mins = pass ? Math.floor((new Date() - new Date(pass.time_out)) / 60000) : 0
+    await supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', passId)
+    setPasses(prev => prev.map(p => p.id === passId
+      ? { ...p, time_in: new Date().toISOString(), duration_minutes: mins }
+      : p
+    ))
+    setCheckingIn(null)
   }
 
   async function confirmDelete() {
@@ -192,7 +199,6 @@ export default function Log() {
 
         <div className="p-6 max-w-6xl mx-auto">
 
-          {/* Print header — only shows when printing */}
           <div className="print-header hidden print:block mb-4">
             <h1 className="text-lg font-bold">Room {teacherRoom} · {teacherName} — RHS PassAble Log</h1>
             <p className="text-xs text-gray-500">Printed {new Date().toLocaleDateString()} · {passes.length} total passes</p>
@@ -210,12 +216,14 @@ export default function Log() {
                     {['Student', 'Date', 'Reason', 'Out', 'In', 'Duration', 'From', 'Status'].map((h, i) => (
                       <th key={i} className="text-left text-xs font-medium text-gray-500 px-4 py-3 whitespace-nowrap">{h}</th>
                     ))}
+                    <th className="no-print px-4 py-3" />
                     <th className="delete-col no-print" />
                   </tr>
                 </thead>
                 <tbody>
                   {passes.map(p => {
                     const isLatePass = p.pass_type === 'late_pass'
+                    const isOut = !p.time_in
                     const fromLabel = p.teacher
                       ? `${p.teacher.name} · Rm ${p.teacher.room}`
                       : p.teacher_id ? 'Teacher' : 'Kiosk'
@@ -241,10 +249,22 @@ export default function Log() {
                         <td className="px-4 py-3">
                           {isLatePass ? (
                             <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-md text-xs font-medium">Late Pass</span>
-                          ) : p.time_in ? (
-                            <span className="status-returned px-2 py-1 bg-green-50 text-green-700 rounded-md text-xs font-medium">Returned</span>
-                          ) : (
+                          ) : isOut ? (
                             <span className="status-out px-2 py-1 bg-red-50 text-red-600 rounded-md text-xs font-medium">Out</span>
+                          ) : (
+                            <span className="status-returned px-2 py-1 bg-green-50 text-green-700 rounded-md text-xs font-medium">Returned</span>
+                          )}
+                        </td>
+                        {/* Check In button — only for active Out passes, not late passes */}
+                        <td className="no-print px-2 py-3 whitespace-nowrap">
+                          {isOut && !isLatePass && (
+                            <button
+                              onClick={() => checkInPass(p.id)}
+                              disabled={checkingIn === p.id}
+                              className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-40"
+                              style={{ backgroundColor: RHS_GREEN }}>
+                              {checkingIn === p.id ? '...' : 'Check In'}
+                            </button>
                           )}
                         </td>
                         <td className="delete-col no-print px-2 py-3">
