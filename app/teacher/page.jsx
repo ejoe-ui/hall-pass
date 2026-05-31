@@ -474,6 +474,12 @@ function TeacherInner() {
   const [subCode, setSubCode] = useState('')
   const [newSubCode, setNewSubCode] = useState('')
   const [subCodeSaved, setSubCodeSaved] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordSaved, setPasswordSaved] = useState(false)
+  const [passwordError, setPasswordError] = useState('')
+  const [savingPassword, setSavingPassword] = useState(false)
   const [printPasses, setPrintPasses] = useState(false)
   const [printPassesSaved, setPrintPassesSaved] = useState(false)
   const [rotating, setRotating] = useState(false)
@@ -656,6 +662,30 @@ function TeacherInner() {
     setTimeout(() => setKioskReturnSaved(false), 2000)
   }
 
+  async function savePassword() {
+    setPasswordError('')
+    if (newPassword.length < 8) {
+      setPasswordError('Password must be at least 8 characters.')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('Passwords do not match.')
+      return
+    }
+    setSavingPassword(true)
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) {
+      setPasswordError(error.message)
+    } else {
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setPasswordSaved(true)
+      setTimeout(() => setPasswordSaved(false), 3000)
+    }
+    setSavingPassword(false)
+  }
+
   async function generateCheckoutCode() {
     const code = Math.floor(1000 + Math.random() * 9000).toString()
     setSelfCheckoutCode(code)
@@ -669,7 +699,7 @@ function TeacherInner() {
     const { data: passes } = await passQuery
     const room = currentTeacher?.room || '27'
     const { data: spRows } = await supabase.from('student_periods').select('student_id').eq('period', activePeriod).eq('room', room)
-    const studentIds = [...new Set(spRows?.map(r => r.student_id) || [])]
+    const studentIds = spRows?.map(r => r.student_id) || []
 
     // ── FIX: photo_url added to student select ────────────────────────────────
     const { data: studs } = studentIds.length > 0
@@ -690,7 +720,7 @@ function TeacherInner() {
       prevActiveIds.current = newIds
       setActivePasses(passes)
     }
-    if (studs) { const deduped = studs.filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i); setAllStudents(deduped); const map = {}; deduped.forEach(s => map[s.id] = s); setStudents(map) }
+    if (studs) { setAllStudents(studs); const map = {}; studs.forEach(s => map[s.id] = s); setStudents(map) }
     if (holds) {
       const newIds = holds.map(h => h.id)
       if (newIds.some(id => !prevHeldIds.current.includes(id)) && holds.length > 0) playAlert()
@@ -1234,6 +1264,46 @@ function TeacherInner() {
               <div className="flex gap-2">
                 <input type="number" maxLength={4} placeholder="New 4-digit sub code" value={newSubCode} onChange={e => setNewSubCode(e.target.value.slice(0, 4))} className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
                 <button onClick={saveSubCode} disabled={newSubCode.length !== 4} className={`px-4 py-2 text-sm font-medium rounded-lg ${subCodeSaved ? 'bg-green-50 border border-green-200 text-green-700' : 'text-white disabled:opacity-30'}`} style={!subCodeSaved ? { backgroundColor: RHS_GREEN } : {}}>{subCodeSaved ? '✓ Saved' : 'Save Code'}</button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="mb-3">
+                <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Change Password</p>
+                <p className="text-xs text-gray-400">For teachers who prefer signing in with email and password</p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <input
+                  type="password"
+                  placeholder="New password (min 8 characters)"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }}
+                />
+                <input
+                  type="password"
+                  placeholder="Confirm new password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }}
+                />
+                {passwordError && (
+                  <p className="text-xs text-red-500">{passwordError}</p>
+                )}
+                <button
+                  onClick={savePassword}
+                  disabled={!newPassword || !confirmPassword || savingPassword}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg ${
+                    passwordSaved
+                      ? 'bg-green-50 border border-green-200 text-green-700'
+                      : 'text-white disabled:opacity-30'
+                  }`}
+                  style={!passwordSaved ? { backgroundColor: RHS_GREEN } : {}}
+                >
+                  {savingPassword ? 'Saving...' : passwordSaved ? '✓ Password Updated' : 'Save Password'}
+                </button>
               </div>
             </div>
 
