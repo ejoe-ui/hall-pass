@@ -539,11 +539,27 @@ function TeacherInner() {
   useEffect(() => {
     const saved = localStorage.getItem('teacher_camera')
     if (saved) setSelectedCamera(saved)
-    navigator.mediaDevices?.getUserMedia({ video: true })
-      .then(() => navigator.mediaDevices.enumerateDevices())
-      .then(devices => setCameras(devices.filter(d => d.kind === 'videoinput')))
+    // Only enumerate if not already signed in — avoids holding camera after login
+    if (session) return
+    navigator.mediaDevices?.enumerateDevices()
+      .then(devices => {
+        const videoDevices = devices.filter(d => d.kind === 'videoinput')
+        if (videoDevices.length > 0 && videoDevices[0].label) {
+          // Labels available without getUserMedia — no stream needed
+          setCameras(videoDevices)
+        } else {
+          // Labels require a stream — request briefly then release
+          navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+              stream.getTracks().forEach(t => t.stop())
+              return navigator.mediaDevices.enumerateDevices()
+            })
+            .then(devices => setCameras(devices.filter(d => d.kind === 'videoinput')))
+            .catch(() => {})
+        }
+      })
       .catch(() => {})
-  }, [])
+  }, [session])
 
   useEffect(() => {
     if (session) { loadSettings(); loadCurrentTeacher() }
