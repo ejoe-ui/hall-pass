@@ -572,6 +572,9 @@ function TeacherInner() {
       const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${currentTeacher.unlock_code}&room=${currentTeacher.room || '27'}`
       QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
     }
+    // ── Per-teacher settings from teachers table ──────────────────────────────
+    if (currentTeacher.pin) setCurrentPin(currentTeacher.pin)
+    if (currentTeacher.print_passes !== undefined) setPrintPasses(!!currentTeacher.print_passes)
   }, [currentTeacher])
 
   useEffect(() => {
@@ -640,11 +643,11 @@ function TeacherInner() {
       const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${teacherUnlockVal}&room=${teacherRoom}`
       QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
     }
-    if (get('teacher_pin')) setCurrentPin(get('teacher_pin'))
+    if (get('teacher_pin') && !currentTeacher?.pin) setCurrentPin(get('teacher_pin'))
     if (get('sub_code')) setSubCode(get('sub_code'))
     if (get('teacher_checkout_code')) setSelfCheckoutCode(get('teacher_checkout_code'))
     if (get('kiosk_return_required')) setKioskReturnRequired(get('kiosk_return_required') !== 'false')
-    if (get('print_passes')) setPrintPasses(get('print_passes') === 'true')
+    if (!currentTeacher?.print_passes && get('print_passes')) setPrintPasses(get('print_passes') === 'true')
     if (get('block_first_last_15')) setBlockMinsEnabled(get('block_first_last_15') !== 'false')
   }
 
@@ -660,7 +663,11 @@ function TeacherInner() {
 
   async function savePin() {
     if (newPin.length !== 4 || isNaN(newPin)) return
-    await supabase.from('settings').update({ value: newPin }).eq('key', 'teacher_pin')
+    if (currentTeacher?.id) {
+      await supabase.from('teachers').update({ pin: newPin }).eq('id', currentTeacher.id)
+    } else {
+      await supabase.from('settings').update({ value: newPin }).eq('key', 'teacher_pin')
+    }
     setCurrentPin(newPin); setNewPin(''); setPinSaved(true)
     setTimeout(() => setPinSaved(false), 3000)
   }
@@ -1298,7 +1305,17 @@ function TeacherInner() {
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
               <div className="flex items-center justify-between">
                 <div><p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Printable Passes</p><p className="text-xs text-gray-400">Auto-open a printable pass when a student is checked out</p></div>
-                <button onClick={async () => { const newVal = !printPasses; setPrintPasses(newVal); await supabase.from('settings').upsert({ key: 'print_passes', value: String(newVal) }, { onConflict: 'key' }); setPrintPassesSaved(true); setTimeout(() => setPrintPassesSaved(false), 2000) }} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${printPasses ? 'bg-green-600' : 'bg-gray-200'}`}>
+                <button onClick={async () => { 
+                  const newVal = !printPasses; 
+                  setPrintPasses(newVal); 
+                  if (currentTeacher?.id) {
+                    await supabase.from('teachers').update({ print_passes: newVal }).eq('id', currentTeacher.id)
+                  } else {
+                    await supabase.from('settings').upsert({ key: 'print_passes', value: String(newVal) }, { onConflict: 'key' })
+                  }
+                  setPrintPassesSaved(true); 
+                  setTimeout(() => setPrintPassesSaved(false), 2000) 
+                }} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${printPasses ? 'bg-green-600' : 'bg-gray-200'}`}>
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${printPasses ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
