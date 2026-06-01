@@ -34,7 +34,6 @@ export default function StudentsAdmin() {
   const [photoUrl, setPhotoUrl] = useState(null)
   const photoRef = useRef()
 
-  // Load teacher on mount
   useEffect(() => {
     async function loadTeacher() {
       const { data: { session } } = await supabase.auth.getSession()
@@ -49,8 +48,6 @@ export default function StudentsAdmin() {
         setCurrentTeacher(data)
         const teacherRoom = data.room || '27'
         setRoom(teacherRoom)
-
-        // Build period list from teacher's configured periods
         if (data.periods?.length) {
           const sorted = [...data.periods].sort()
           const builtPeriods = sorted.map(p => ({
@@ -86,16 +83,25 @@ export default function StudentsAdmin() {
       setLoading(false)
       return
     }
+    // ── Include photo_url in query ────────────────────────────────────────────
     const { data } = await supabase
       .from('students')
-      .select('id, first_name, last_name, full_name, period, nfc_uid, photo_file')
+      .select('id, first_name, last_name, full_name, period, nfc_uid, photo_file, photo_url')
       .in('id', studentIds)
       .order('first_name')
     if (data) setStudents(data)
     setLoading(false)
   }
 
-  function getPhotoUrl(photo_file) {
+  function getPhotoUrl(student) {
+    // Prefer photo_url (Aeries/direct URL), fall back to storage file
+    if (student.photo_url) return student.photo_url
+    if (!student.photo_file) return null
+    const { data } = supabase.storage.from('student-photos').getPublicUrl(student.photo_file)
+    return data?.publicUrl || null
+  }
+
+  function getStorageUrl(photo_file) {
     if (!photo_file) return null
     const { data } = supabase.storage.from('student-photos').getPublicUrl(photo_file)
     return data?.publicUrl || null
@@ -126,16 +132,13 @@ export default function StudentsAdmin() {
       .eq('student_id', studentId)
       .eq('period', activePeriod)
       .eq('room', room)
-
     const { data: remaining } = await supabase
       .from('student_periods')
       .select('id')
       .eq('student_id', studentId)
-
     if (!remaining || remaining.length === 0) {
       await supabase.from('students').delete().eq('id', studentId)
     }
-
     setConfirmDelete(null)
     loadStudents()
   }
@@ -148,7 +151,6 @@ export default function StudentsAdmin() {
       .eq('period', activePeriod)
       .eq('room', room)
       .maybeSingle()
-
     if (existing) {
       await supabase.from('student_periods')
         .update({ period: newPeriod })
@@ -168,7 +170,7 @@ export default function StudentsAdmin() {
     setEditLast(s.last_name || '')
     setEditDisplay(s.full_name || '')
     setEditId('')
-    setPhotoUrl(getPhotoUrl(s.photo_file))
+    setPhotoUrl(getPhotoUrl(s))
   }
 
   async function saveEdit() {
@@ -176,7 +178,6 @@ export default function StudentsAdmin() {
     setSaving(true)
     const full_name = editDisplay.trim() || `${editFirst.trim()} ${editLast.trim()}`
     const newId = editId.trim()
-
     if (newId && newId !== editStudent.id) {
       let photoFile = editStudent.photo_file || null
       if (photoFile && photoFile.startsWith(editStudent.id)) {
@@ -190,6 +191,7 @@ export default function StudentsAdmin() {
         period: editStudent.period,
         nfc_uid: editStudent.nfc_uid || null,
         photo_file: photoFile,
+        photo_url: editStudent.photo_url || null,
       })
       const { data: oldPeriods } = await supabase
         .from('student_periods')
@@ -209,7 +211,6 @@ export default function StudentsAdmin() {
         full_name,
       }).eq('id', editStudent.id)
     }
-
     setSaving(false)
     setEditStudent(null)
     loadStudents()
@@ -397,9 +398,10 @@ export default function StudentsAdmin() {
             <div className="p-8 text-center text-gray-400 text-sm">No students in this period</div>
           ) : (
             students.map(s => {
-              const url = getPhotoUrl(s.photo_file)
+              const url = getPhotoUrl(s)
               return (
                 <div key={s.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+                  {/* ── Photo: prefer photo_url, fall back to storage, then initials ── */}
                   <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center text-xs font-medium text-white"
                     style={{ backgroundColor: RHS_GREEN }}>
                     {url
@@ -415,7 +417,7 @@ export default function StudentsAdmin() {
                     </a>
                     <div className="flex gap-2 mt-0.5">
                       {s.nfc_uid && <p className="text-xs text-gray-400">📲 NFC</p>}
-                      {s.photo_file && <p className="text-xs text-gray-400">📷 Photo</p>}
+                      {(s.photo_file || s.photo_url) && <p className="text-xs text-gray-400">📷 Photo</p>}
                     </div>
                   </div>
                   <select
