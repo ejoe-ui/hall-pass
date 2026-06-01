@@ -575,6 +575,8 @@ function TeacherInner() {
     // ── Per-teacher settings from teachers table ──────────────────────────────
     if (currentTeacher.pin) setCurrentPin(currentTeacher.pin)
     if (currentTeacher.print_passes !== undefined) setPrintPasses(!!currentTeacher.print_passes)
+    if (currentTeacher.sub_code) setSubCode(currentTeacher.sub_code)
+    if (currentTeacher.block_first_last_15 !== undefined) setBlockMinsEnabled(!!currentTeacher.block_first_last_15)
   }, [currentTeacher])
 
   useEffect(() => {
@@ -644,11 +646,11 @@ function TeacherInner() {
       QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
     }
     if (get('teacher_pin') && !currentTeacher?.pin) setCurrentPin(get('teacher_pin'))
-    if (get('sub_code')) setSubCode(get('sub_code'))
+    if (!currentTeacher?.sub_code && get('sub_code')) setSubCode(get('sub_code'))
     if (get('teacher_checkout_code')) setSelfCheckoutCode(get('teacher_checkout_code'))
     if (get('kiosk_return_required')) setKioskReturnRequired(get('kiosk_return_required') !== 'false')
     if (!currentTeacher?.print_passes && get('print_passes')) setPrintPasses(get('print_passes') === 'true')
-    if (get('block_first_last_15')) setBlockMinsEnabled(get('block_first_last_15') !== 'false')
+    if (currentTeacher?.block_first_last_15 === undefined && get('block_first_last_15')) setBlockMinsEnabled(get('block_first_last_15') !== 'false')
   }
 
   async function rotateUnlockCode() {
@@ -674,7 +676,11 @@ function TeacherInner() {
 
   async function saveSubCode() {
     if (newSubCode.length !== 4 || isNaN(newSubCode)) return
-    await supabase.from('settings').update({ value: newSubCode }).eq('key', 'sub_code')
+    if (currentTeacher?.id) {
+      await supabase.from('teachers').update({ sub_code: newSubCode }).eq('id', currentTeacher.id)
+    } else {
+      await supabase.from('settings').update({ value: newSubCode }).eq('key', 'sub_code')
+    }
     setSubCode(newSubCode); setNewSubCode(''); setSubCodeSaved(true)
     setTimeout(() => setSubCodeSaved(false), 3000)
   }
@@ -1298,6 +1304,23 @@ function TeacherInner() {
                 {passwordError && <p className="text-xs text-red-500">{passwordError}</p>}
                 <button onClick={savePassword} disabled={!newPassword || !confirmPassword || savingPassword} className={`px-4 py-2 text-sm font-medium rounded-lg ${passwordSaved ? 'bg-green-50 border border-green-200 text-green-700' : 'text-white disabled:opacity-30'}`} style={!passwordSaved ? { backgroundColor: RHS_GREEN } : {}}>
                   {savingPassword ? 'Saving...' : passwordSaved ? '✓ Password Updated' : 'Save Password'}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="flex items-center justify-between">
+                <div><p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Block First &amp; Last 15 Min</p><p className="text-xs text-gray-400">Prevent students from leaving in the first and last 15 minutes of each period</p></div>
+                <button onClick={async () => {
+                  const newVal = !blockMinsEnabled
+                  setBlockMinsEnabled(newVal)
+                  if (currentTeacher?.id) {
+                    await supabase.from('teachers').update({ block_first_last_15: newVal }).eq('id', currentTeacher.id)
+                  } else {
+                    await supabase.from('settings').upsert({ key: 'block_first_last_15', value: String(newVal) }, { onConflict: 'key' })
+                  }
+                }} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${blockMinsEnabled ? 'bg-green-600' : 'bg-gray-200'}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${blockMinsEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
             </div>
