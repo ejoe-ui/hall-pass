@@ -911,6 +911,10 @@ function TeacherInner() {
             <div className="flex-1 h-px bg-gray-200" />
           </div>
           <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-1">
+              <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: RHS_GREEN }}></span>
+              Camera active — scan your teacher QR badge to sign in
+            </div>
             <QRScanner onUnlock={handleQRScan} unlockCode={unlockCode} deviceId={selectedCamera} />
             {cameras.length > 1 && (
               <select value={selectedCamera} onChange={e => { setSelectedCamera(e.target.value); localStorage.setItem('teacher_camera', e.target.value) }} className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2 py-1 bg-white w-48">
