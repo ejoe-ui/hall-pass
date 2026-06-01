@@ -706,9 +706,9 @@ function TeacherInner() {
       ? await supabase.from('students').select('id, full_name, last_name, photo_url').in('id', studentIds).order('first_name')
       : { data: [] }
 
-    // ── FIX: scope holds to this teacher's room only ──────────────────────────
+    // ── FIX: filter holds by teacher_id, not room (room col doesn't exist on pass_holds) ─
     let holdsQuery = supabase.from('pass_holds').select('*').is('released_at', null).order('held_at')
-    if (currentTeacher?.room) holdsQuery = holdsQuery.eq('room', currentTeacher.room)
+    if (currentTeacher?.id) holdsQuery = holdsQuery.eq('teacher_id', currentTeacher.id)
     const { data: holds } = await holdsQuery
 
     const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
