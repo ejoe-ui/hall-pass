@@ -628,9 +628,18 @@ function TeacherInner() {
     const { data: spRows } = await supabase.from('student_periods').select('student_id').eq('period', activePeriod).eq('room', room)
     const studentIds = spRows?.map(r => r.student_id) || []
 
-    const { data: studs } = studentIds.length > 0
+    const { data: rawStuds } = studentIds.length > 0
       ? await supabase.from('students').select('id, full_name, last_name, photo_url').in('id', studentIds).order('first_name')
       : { data: [] }
+
+    // Deduplicate by id — prefer row with photo_url
+    const seenStuds = new Map()
+    for (const s of rawStuds || []) {
+      if (!seenStuds.has(s.id) || (!seenStuds.get(s.id).photo_url && s.photo_url)) {
+        seenStuds.set(s.id, s)
+      }
+    }
+    const studs = Array.from(seenStuds.values())
 
     const { data: holds } = await supabase.from('pass_holds').select('*').order('created_at')
     const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
