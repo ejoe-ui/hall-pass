@@ -694,19 +694,23 @@ function TeacherInner() {
 
   // ── Data ───────────────────────────────────────────────────────────────────
   async function loadData() {
+    // ── FIX: scope passes to this teacher only ────────────────────────────────
     let passQuery = supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod).order('time_out')
-    if (currentTeacher?.id) passQuery = passQuery.or(`teacher_id.eq.${currentTeacher.id},teacher_id.is.null`)
+    if (currentTeacher?.id) passQuery = passQuery.eq('teacher_id', currentTeacher.id)
     const { data: passes } = await passQuery
     const room = currentTeacher?.room || '27'
     const { data: spRows } = await supabase.from('student_periods').select('student_id').eq('period', activePeriod).eq('room', room)
     const studentIds = spRows?.map(r => r.student_id) || []
 
-    // ── FIX: photo_url added to student select ────────────────────────────────
     const { data: studs } = studentIds.length > 0
       ? await supabase.from('students').select('id, full_name, last_name, photo_url').in('id', studentIds).order('first_name')
       : { data: [] }
 
-    const { data: holds } = await supabase.from('pass_holds').select('*').is('released_at', null).order('held_at')
+    // ── FIX: scope holds to this teacher's room only ──────────────────────────
+    let holdsQuery = supabase.from('pass_holds').select('*').is('released_at', null).order('held_at')
+    if (currentTeacher?.room) holdsQuery = holdsQuery.eq('room', currentTeacher.room)
+    const { data: holds } = await holdsQuery
+
     const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
     if (passes) {
       const newIds = passes.map(p => p.student_id)
@@ -739,10 +743,12 @@ function TeacherInner() {
     const pastPeriods = Array.from({ length: currentPeriodNum - 1 }, (_, i) => i + 1)
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
     const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999)
-    const { data: missed } = await supabase.from('passes').select('*').is('time_in', null).in('period', pastPeriods).gte('time_out', todayStart.toISOString()).lte('time_out', todayEnd.toISOString()).order('time_out')
+    // ── FIX: scope missed passes to this teacher only ─────────────────────────
+    let missedQuery = supabase.from('passes').select('*').is('time_in', null).in('period', pastPeriods).gte('time_out', todayStart.toISOString()).lte('time_out', todayEnd.toISOString()).order('time_out')
+    if (currentTeacher?.id) missedQuery = missedQuery.eq('teacher_id', currentTeacher.id)
+    const { data: missed } = await missedQuery
     if (!missed) return
     const ids = [...new Set(missed.map(p => p.student_id))]
-    // ── FIX: photo_url added to missed passes student select ──────────────────
     const { data: studs } = await supabase.from('students').select('id, full_name, photo_url').in('id', ids)
     const studMap = {}
     if (studs) studs.forEach(s => studMap[s.id] = s)
@@ -1016,16 +1022,18 @@ function TeacherInner() {
       )}
 
       {/* ── Header ── */}
+      {/* ── PATCH 1: Renamed to The Relay Station ── */}
       <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
         <div className="flex items-center gap-3">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
           <div>
-            <h1 className="text-lg font-bold text-white">RHS PassAble · Teacher</h1>
+            <h1 className="text-lg font-bold text-white">RHS PassAble · The Relay Station</h1>
             <p className="text-green-200 text-xs">Room {teacherRoom} · {periodLabel} · {teacherDisplayName}</p>
           </div>
         </div>
         <div className="flex gap-4 items-center">
-          <a href="/analytics" className="text-sm text-green-200 hover:text-white">Analytics</a>
+          {/* ── PATCH 2: Analytics scoped to this teacher ── */}
+          <a href={`/analytics?teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-green-200 hover:text-white">Analytics</a>
           {currentTeacher?.is_admin && <a href="/admin" className="text-sm text-green-200 hover:text-white">Admin</a>}
           <button onClick={() => setActivePeriod(null)} className="text-sm text-green-200 hover:text-white">← Period</button>
           <button onClick={handleSignOut} className="text-sm text-green-200 hover:text-white">Sign Out</button>
@@ -1091,17 +1099,9 @@ function TeacherInner() {
             const isLatePass = pass.pass_type === 'late_pass'
             return (
               <div key={pass.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 ${isLatePass ? 'bg-blue-50' : ''}`}>
-                {/* ── FIX: Show photo if available, fall back to initials ── */}
                 {student?.photo_url
-                  ? <img
-                      src={student.photo_url}
-                      alt={student.full_name}
-                      className="w-9 h-9 rounded-full object-cover flex-shrink-0"
-                    />
-                  : <div
-                      className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white"
-                      style={{ backgroundColor: isLatePass ? '#1d4ed8' : RHS_GREEN }}
-                    >
+                  ? <img src={student.photo_url} alt={student.full_name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                  : <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white" style={{ backgroundColor: isLatePass ? '#1d4ed8' : RHS_GREEN }}>
                       {student?.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
                     </div>
                 }
@@ -1203,13 +1203,8 @@ function TeacherInner() {
               const timeOut = new Date(pass.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               return (
                 <div key={pass.id} className="flex items-center gap-3 px-4 py-3 border-b border-orange-50 last:border-0">
-                  {/* ── FIX: Show photo if available, fall back to initials ── */}
                   {pass.students?.photo_url
-                    ? <img
-                        src={pass.students.photo_url}
-                        alt={name}
-                        className="w-9 h-9 rounded-full object-cover flex-shrink-0"
-                      />
+                    ? <img src={pass.students.photo_url} alt={name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
                     : <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white bg-orange-400">{initials}</div>
                   }
                   <div className="flex-1">
@@ -1273,35 +1268,10 @@ function TeacherInner() {
                 <p className="text-xs text-gray-400">For teachers who prefer signing in with email and password</p>
               </div>
               <div className="flex flex-col gap-2">
-                <input
-                  type="password"
-                  placeholder="New password (min 8 characters)"
-                  value={newPassword}
-                  onChange={e => setNewPassword(e.target.value)}
-                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }}
-                />
-                <input
-                  type="password"
-                  placeholder="Confirm new password"
-                  value={confirmPassword}
-                  onChange={e => setConfirmPassword(e.target.value)}
-                  className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }}
-                />
-                {passwordError && (
-                  <p className="text-xs text-red-500">{passwordError}</p>
-                )}
-                <button
-                  onClick={savePassword}
-                  disabled={!newPassword || !confirmPassword || savingPassword}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg ${
-                    passwordSaved
-                      ? 'bg-green-50 border border-green-200 text-green-700'
-                      : 'text-white disabled:opacity-30'
-                  }`}
-                  style={!passwordSaved ? { backgroundColor: RHS_GREEN } : {}}
-                >
+                <input type="password" placeholder="New password (min 8 characters)" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
+                <input type="password" placeholder="Confirm new password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
+                {passwordError && <p className="text-xs text-red-500">{passwordError}</p>}
+                <button onClick={savePassword} disabled={!newPassword || !confirmPassword || savingPassword} className={`px-4 py-2 text-sm font-medium rounded-lg ${passwordSaved ? 'bg-green-50 border border-green-200 text-green-700' : 'text-white disabled:opacity-30'}`} style={!passwordSaved ? { backgroundColor: RHS_GREEN } : {}}>
                   {savingPassword ? 'Saving...' : passwordSaved ? '✓ Password Updated' : 'Save Password'}
                 </button>
               </div>
