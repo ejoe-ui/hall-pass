@@ -722,8 +722,8 @@ function TeacherInner() {
       ? await supabase.from('students').select('id, full_name, last_name, photo_url').in('id', studentIds).order('first_name')
       : { data: [] }
 
-    // pass_holds has no teacher scope column — fetch all open holds (short-lived, low risk)
-    const { data: holds } = await supabase.from('pass_holds').select('*').is('released_at', null).order('held_at')
+    // pass_holds columns: id, created_at, student_id, reason, period — no released_at or teacher_id
+    const { data: holds } = await supabase.from('pass_holds').select('*').order('created_at')
 
     const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
     if (passes) {
@@ -787,13 +787,13 @@ function TeacherInner() {
   }
 
   async function handleOverride(hold) {
-    await supabase.from('pass_holds').update({ released_at: new Date().toISOString(), override: true, override_by: currentTeacher?.email || session?.user?.email || 'unknown' }).eq('id', hold.id)
+    await supabase.from('pass_holds').delete().eq('id', hold.id)
     await supabase.from('passes').insert({ student_id: hold.student_id, reason: hold.reason, room: currentTeacher?.room || '27', period: hold.period, teacher_id: currentTeacher?.id || null, time_out: new Date().toISOString() })
     loadData()
   }
 
   async function handleDismissHold(holdId) {
-    await supabase.from('pass_holds').update({ released_at: new Date().toISOString() }).eq('id', holdId)
+    await supabase.from('pass_holds').delete().eq('id', holdId)
     loadData()
   }
 
@@ -1084,7 +1084,7 @@ function TeacherInner() {
               <div key={hold.id} className="px-4 py-3 border-b border-amber-100 last:border-0 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-800">{students[hold.student_id]?.full_name || hold.student_id} → {hold.reason}</p>
-                  <p className="text-xs text-amber-600 mt-0.5">Held at {new Date(hold.held_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · conflicting student still out</p>
+                  <p className="text-xs text-amber-600 mt-0.5">Held at {new Date(hold.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · conflicting student still out</p>
                 </div>
                 <div className="flex gap-2 ml-4 flex-shrink-0">
                   <button onClick={() => handleOverride(hold)} className="text-xs px-3 py-1.5 rounded-lg text-white font-medium" style={{ backgroundColor: RHS_GREEN }}>Override & Send</button>
