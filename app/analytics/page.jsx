@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 
@@ -95,8 +95,15 @@ function HeatMap({ data }) {
 }
 
 export default function Analytics() {
-  // ── FIX: read teacher_id from URL param passed by The Relay Station ──────────
-  const searchParams = useSearchParams ? useSearchParams() : null
+  return (
+    <Suspense>
+      <AnalyticsInner />
+    </Suspense>
+  )
+}
+
+function AnalyticsInner() {
+  const searchParams = useSearchParams()
   const urlTeacherId = searchParams?.get('teacher_id') || null
 
   const [session, setSession] = useState(null)
