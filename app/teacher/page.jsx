@@ -230,64 +230,6 @@ function playDnloAlert() {
   } catch (e) {}
 }
 
-// ── QR Scanner ────────────────────────────────────────────────────────────────
-function QRScanner({ onUnlock, unlockCode, deviceId }) {
-  const videoRef = useRef(null)
-  const canvasRef = useRef(null)
-  useEffect(() => {
-    let stream, interval
-    async function start() {
-      try {
-        const constraints = deviceId ? { video: { deviceId: { exact: deviceId } } } : { video: { facingMode: 'environment' } }
-        stream = await navigator.mediaDevices.getUserMedia(constraints)
-        if (videoRef.current) videoRef.current.srcObject = stream
-        interval = setInterval(scan, 500)
-      } catch (e) {}
-    }
-    async function scan() {
-      if (!videoRef.current || !canvasRef.current) return
-      const canvas = canvasRef.current
-      const ctx = canvas.getContext('2d')
-      canvas.width = videoRef.current.videoWidth
-      canvas.height = videoRef.current.videoHeight
-      ctx.drawImage(videoRef.current, 0, 0)
-      try {
-        const { BarcodeDetector } = window
-        if (!BarcodeDetector) return
-        const detector = new BarcodeDetector({ formats: ['qr_code'] })
-        const codes = await detector.detect(canvas)
-        for (const code of codes) {
-          if (code.rawValue.includes('magic=1')) {
-            const url = new URL(code.rawValue)
-            const email = url.searchParams.get('email')
-            if (email) onUnlock(email)
-            return
-          }
-          if (unlockCode && code.rawValue.includes(unlockCode)) onUnlock(null)
-        }
-      } catch (e) {}
-    }
-    start()
-    return () => {
-      if (stream) stream.getTracks().forEach(t => t.stop())
-      if (interval) clearInterval(interval)
-    }
-  }, [unlockCode, deviceId])
-  return (
-    <div className="relative w-48 h-36 rounded-xl overflow-hidden shadow-lg" style={{ border: `2px solid ${RHS_GREEN}` }}>
-      <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
-      <canvas ref={canvasRef} className="hidden" />
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-24 h-24 rounded-lg opacity-70" style={{ border: `2px solid ${RHS_GREEN}` }} />
-      </div>
-      <div className="absolute top-1.5 left-1.5 flex items-center gap-1 bg-black/50 rounded-full px-1.5 py-0.5">
-        <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: RHS_GREEN }} />
-        <span className="text-white text-xs font-medium">SCAN</span>
-      </div>
-    </div>
-  )
-}
-
 // ── Print helpers ─────────────────────────────────────────────────────────────
 const RECEIPT_STYLES = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -415,9 +357,7 @@ function TeacherInner() {
   const [magicEmail, setMagicEmail] = useState('')
   const [signingIn, setSigningIn] = useState(false)
 
-  // Camera
-  const [cameras, setCameras] = useState([])
-  const [selectedCamera, setSelectedCamera] = useState('')
+  // Unlock QR (for dashboard settings panel only)
   const [unlockCode, setUnlockCode] = useState('')
   const [unlockQR, setUnlockQR] = useState('')
 
@@ -537,31 +477,6 @@ function TeacherInner() {
   }, [searchParams])
 
   useEffect(() => {
-    const saved = localStorage.getItem('teacher_camera')
-    if (saved) setSelectedCamera(saved)
-    // Only enumerate if not already signed in — avoids holding camera after login
-    if (session) return
-    navigator.mediaDevices?.enumerateDevices()
-      .then(devices => {
-        const videoDevices = devices.filter(d => d.kind === 'videoinput')
-        if (videoDevices.length > 0 && videoDevices[0].label) {
-          // Labels available without getUserMedia — no stream needed
-          setCameras(videoDevices)
-        } else {
-          // Labels require a stream — request briefly then release
-          navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-              stream.getTracks().forEach(t => t.stop())
-              return navigator.mediaDevices.enumerateDevices()
-            })
-            .then(devices => setCameras(devices.filter(d => d.kind === 'videoinput')))
-            .catch(() => {})
-        }
-      })
-      .catch(() => {})
-  }, [session])
-
-  useEffect(() => {
     if (session) { loadSettings(); loadCurrentTeacher() }
   }, [session])
 
@@ -572,7 +487,6 @@ function TeacherInner() {
       const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${currentTeacher.unlock_code}&room=${currentTeacher.room || '27'}`
       QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
     }
-    // ── Per-teacher settings from teachers table ──────────────────────────────
     if (currentTeacher.pin) setCurrentPin(currentTeacher.pin)
     if (currentTeacher.print_passes !== undefined) setPrintPasses(!!currentTeacher.print_passes)
     if (currentTeacher.sub_code) setSubCode(currentTeacher.sub_code)
@@ -597,11 +511,6 @@ function TeacherInner() {
     if (!s) return
     const { data } = await supabase.from('teachers').select('*').eq('auth_id', s.user.id).eq('is_active', true).maybeSingle()
     if (data) setCurrentTeacher(data)
-  }
-
-  async function handleQRScan(scannedEmail) {
-    if (scannedEmail) await handleMagicLinkFromQR(scannedEmail)
-    else { const { data: { session: s } } = await supabase.auth.getSession(); if (s) setSession(s) }
   }
 
   async function handleMagicLinkFromQR(scannedEmail) {
@@ -693,24 +602,13 @@ function TeacherInner() {
 
   async function savePassword() {
     setPasswordError('')
-    if (newPassword.length < 8) {
-      setPasswordError('Password must be at least 8 characters.')
-      return
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordError('Passwords do not match.')
-      return
-    }
+    if (newPassword.length < 8) { setPasswordError('Password must be at least 8 characters.'); return }
+    if (newPassword !== confirmPassword) { setPasswordError('Passwords do not match.'); return }
     setSavingPassword(true)
     const { error } = await supabase.auth.updateUser({ password: newPassword })
-    if (error) {
-      setPasswordError(error.message)
-    } else {
-      setCurrentPassword('')
-      setNewPassword('')
-      setConfirmPassword('')
-      setPasswordSaved(true)
-      setTimeout(() => setPasswordSaved(false), 3000)
+    if (error) { setPasswordError(error.message) } else {
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
+      setPasswordSaved(true); setTimeout(() => setPasswordSaved(false), 3000)
     }
     setSavingPassword(false)
   }
@@ -723,7 +621,6 @@ function TeacherInner() {
 
   // ── Data ───────────────────────────────────────────────────────────────────
   async function loadData() {
-    // ── FIX: scope passes to this teacher only ────────────────────────────────
     let passQuery = supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod).order('time_out')
     if (currentTeacher?.id) passQuery = passQuery.eq('teacher_id', currentTeacher.id)
     const { data: passes } = await passQuery
@@ -735,10 +632,9 @@ function TeacherInner() {
       ? await supabase.from('students').select('id, full_name, last_name, photo_url').in('id', studentIds).order('first_name')
       : { data: [] }
 
-    // pass_holds columns: id, created_at, student_id, reason, period — no released_at or teacher_id
     const { data: holds } = await supabase.from('pass_holds').select('*').order('created_at')
-
     const { data: dnlo } = await supabase.from('do_not_let_out').select('student_id').eq('active', true)
+
     if (passes) {
       const newIds = passes.map(p => p.student_id)
       const returned = prevActiveIds.current.filter(id => !newIds.includes(id))
@@ -770,7 +666,6 @@ function TeacherInner() {
     const pastPeriods = Array.from({ length: currentPeriodNum - 1 }, (_, i) => i + 1)
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
     const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999)
-    // ── FIX: scope missed passes to this teacher only ─────────────────────────
     let missedQuery = supabase.from('passes').select('*').is('time_in', null).in('period', pastPeriods).gte('time_out', todayStart.toISOString()).lte('time_out', todayEnd.toISOString()).order('time_out')
     if (currentTeacher?.id) missedQuery = missedQuery.eq('teacher_id', currentTeacher.id)
     const { data: missed } = await missedQuery
@@ -899,6 +794,7 @@ function TeacherInner() {
     </div>
   )
 
+  // ── Login screen ───────────────────────────────────────────────────────────
   if (!session) {
     if (magicSent) return (
       <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
@@ -932,24 +828,6 @@ function TeacherInner() {
               <button onClick={() => setAuthMode('magic')} className="text-xs text-center text-gray-400 hover:text-gray-600">← Send magic link instead</button>
             </>
           )}
-          <div className="flex items-center gap-3 my-1">
-            <div className="flex-1 h-px bg-gray-200" />
-            <span className="text-xs text-gray-400">or scan teacher QR</span>
-            <div className="flex-1 h-px bg-gray-200" />
-          </div>
-          <div className="flex flex-col items-center gap-2">
-            <div className="flex items-center gap-1.5 text-xs text-gray-400 mb-1">
-              <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: RHS_GREEN }}></span>
-              Camera active — scan your teacher QR badge to sign in
-            </div>
-            <QRScanner onUnlock={handleQRScan} unlockCode={unlockCode} deviceId={selectedCamera} />
-            {cameras.length > 1 && (
-              <select value={selectedCamera} onChange={e => { setSelectedCamera(e.target.value); localStorage.setItem('teacher_camera', e.target.value) }} className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2 py-1 bg-white w-48">
-                <option value="">Default camera</option>
-                {cameras.map((c, i) => <option key={c.deviceId} value={c.deviceId}>{c.label || `Camera ${i + 1}`}</option>)}
-              </select>
-            )}
-          </div>
         </div>
         <a href="/" className="mt-8 text-sm text-gray-400 hover:text-gray-600">← Home</a>
       </div>
@@ -1053,7 +931,6 @@ function TeacherInner() {
       )}
 
       {/* ── Header ── */}
-      {/* ── PATCH 1: Renamed to The Relay Station ── */}
       <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
         <div className="flex items-center gap-3">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
@@ -1063,7 +940,6 @@ function TeacherInner() {
           </div>
         </div>
         <div className="flex gap-4 items-center">
-          {/* ── PATCH 2: Analytics scoped to this teacher ── */}
           <a href={`/analytics?teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-green-200 hover:text-white">Analytics</a>
           {currentTeacher?.is_admin && <a href="/admin" className="text-sm text-green-200 hover:text-white">Admin</a>}
           <button onClick={() => setActivePeriod(null)} className="text-sm text-green-200 hover:text-white">← Period</button>
@@ -1328,16 +1204,16 @@ function TeacherInner() {
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
               <div className="flex items-center justify-between">
                 <div><p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Printable Passes</p><p className="text-xs text-gray-400">Auto-open a printable pass when a student is checked out</p></div>
-                <button onClick={async () => { 
-                  const newVal = !printPasses; 
-                  setPrintPasses(newVal); 
+                <button onClick={async () => {
+                  const newVal = !printPasses
+                  setPrintPasses(newVal)
                   if (currentTeacher?.id) {
                     await supabase.from('teachers').update({ print_passes: newVal }).eq('id', currentTeacher.id)
                   } else {
                     await supabase.from('settings').upsert({ key: 'print_passes', value: String(newVal) }, { onConflict: 'key' })
                   }
-                  setPrintPassesSaved(true); 
-                  setTimeout(() => setPrintPassesSaved(false), 2000) 
+                  setPrintPassesSaved(true)
+                  setTimeout(() => setPrintPassesSaved(false), 2000)
                 }} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${printPasses ? 'bg-green-600' : 'bg-gray-200'}`}>
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${printPasses ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
