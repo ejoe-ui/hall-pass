@@ -67,6 +67,7 @@ export default function QRPage() {
       .from('students')
       .select('id, full_name, photo_file')
       .in('id', studentIds)
+      .eq('period', activePeriod)
       .order('first_name')
     if (data) {
       setStudents(data)
