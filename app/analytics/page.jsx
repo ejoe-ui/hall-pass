@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
@@ -94,6 +95,10 @@ function HeatMap({ data }) {
 }
 
 export default function Analytics() {
+  // ── FIX: read teacher_id from URL param passed by The Relay Station ──────────
+  const searchParams = useSearchParams ? useSearchParams() : null
+  const urlTeacherId = searchParams?.get('teacher_id') || null
+
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [currentTeacher, setCurrentTeacher] = useState(null)
@@ -156,12 +161,20 @@ export default function Analytics() {
     setLoading(true)
     const dateFilter = getDateFilter()
 
-    // Filter by teacher — include explicit teacher_id matches AND null (kiosk passes)
+    // ── FIX: Strict teacher scope — no null fallback ──────────────────────────
+    // Use teacher_id from currentTeacher (auth) or fallback to URL param
+    // Admin view: no teacher filter applied (currentTeacher.is_admin && no urlTeacherId)
+    const teacherId = currentTeacher?.id || urlTeacherId
+    const isAdmin = currentTeacher?.is_admin && !urlTeacherId
+
     let query = supabase.from('passes').select('*')
     if (dateFilter) query = query.gte('time_out', dateFilter)
-    if (currentTeacher?.id) {
-      query = query.or(`teacher_id.eq.${currentTeacher.id},teacher_id.is.null`)
+    if (!isAdmin && teacherId) {
+      // ── Strict scope: only this teacher's passes ────────────────────────────
+      query = query.eq('teacher_id', teacherId)
     }
+    // Admin with no teacher filter sees everything
+
     const { data: rawPasses } = await query.order('time_out', { ascending: false })
     if (!rawPasses) { setLoading(false); return }
 
@@ -174,7 +187,6 @@ export default function Analytics() {
     const completed = passes.filter(p => p.duration_minutes != null)
     setAvgDuration(completed.length > 0 ? Math.round(completed.reduce((s, p) => s + p.duration_minutes, 0) / completed.length) : 0)
 
-    // Total passes detail
     setTotalPassesDetail(passes.slice(0, 20).map(p => ({
       name: p.students?.full_name || p.student_id,
       reason: p.reason?.split(' — ')[0] || 'Other',
@@ -291,6 +303,7 @@ export default function Analytics() {
   const maxDaily = Math.max(...dailyData.map(d => d.count), 1)
   const teacherName = currentTeacher?.name || session?.user?.email?.split('@')[0] || 'Teacher'
   const teacherRoom = currentTeacher?.room || '27'
+  const isAdmin = currentTeacher?.is_admin && !urlTeacherId
 
   if (authLoading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -301,7 +314,7 @@ export default function Analytics() {
   if (!session) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
       <p style={{ color: '#6b7280' }}>Sign in to view analytics</p>
-      <a href="/teacher" style={{ color: RHS_GREEN, fontSize: 14 }}>← Go to Teacher Dashboard</a>
+      <a href="/teacher" style={{ color: RHS_GREEN, fontSize: 14 }}>← Go to The Relay Station</a>
     </div>
   )
 
@@ -339,10 +352,7 @@ export default function Analytics() {
                 </div>
               ))}
             </div>
-            <button onClick={() => setShowTotalModal(false)}
-              style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: RHS_GREEN, color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-              Close
-            </button>
+            <button onClick={() => setShowTotalModal(false)} style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: RHS_GREEN, color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Close</button>
           </div>
         </div>
       )}
@@ -359,33 +369,20 @@ export default function Analytics() {
               <button onClick={() => setShowAvgModal(false)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: '#9ca3af', lineHeight: 1 }}>×</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
-                <span style={{ fontSize: 13, color: '#6b7280' }}>Average duration</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#3B82F6' }}>{avgDuration} min</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
-                <span style={{ fontSize: 13, color: '#6b7280' }}>Median duration</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{avgDurationDetail.median} min</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
-                <span style={{ fontSize: 13, color: '#6b7280' }}>Over 10 min</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: avgDurationDetail.over10 > 0 ? '#EF4444' : RHS_GREEN }}>
-                  {avgDurationDetail.over10} ({avgDurationDetail.pctOver10}%)
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
-                <span style={{ fontSize: 13, color: '#6b7280' }}>Longest avg reason</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{avgDurationDetail.longestReason}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
-                <span style={{ fontSize: 13, color: '#6b7280' }}>Completed passes</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{avgDurationDetail.completedCount} of {totalPasses}</span>
-              </div>
+              {[
+                ['Average duration', `${avgDuration} min`, '#3B82F6'],
+                ['Median duration', `${avgDurationDetail.median} min`, '#1f2937'],
+                ['Over 10 min', `${avgDurationDetail.over10} (${avgDurationDetail.pctOver10}%)`, avgDurationDetail.over10 > 0 ? '#EF4444' : RHS_GREEN],
+                ['Longest avg reason', avgDurationDetail.longestReason, '#1f2937'],
+                ['Completed passes', `${avgDurationDetail.completedCount} of ${totalPasses}`, '#1f2937'],
+              ].map(([label, val, color], i, arr) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: i < arr.length - 1 ? '1px solid #f3f4f6' : 'none' }}>
+                  <span style={{ fontSize: 13, color: '#6b7280' }}>{label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color }}>{val}</span>
+                </div>
+              ))}
             </div>
-            <button onClick={() => setShowAvgModal(false)}
-              style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: '#3B82F6', color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-              Close
-            </button>
+            <button onClick={() => setShowAvgModal(false)} style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: '#3B82F6', color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Close</button>
           </div>
         </div>
       )}
@@ -419,10 +416,7 @@ export default function Analytics() {
                 </div>
               ))}
             </div>
-            <button onClick={() => setShowActiveModal(false)}
-              style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: '#EF4444', color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-              Close
-            </button>
+            <button onClick={() => setShowActiveModal(false)} style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: '#EF4444', color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Close</button>
           </div>
         </div>
       )}
@@ -456,10 +450,7 @@ export default function Analytics() {
                 </div>
               ))}
             </div>
-            <button onClick={() => setShowLongestModal(false)}
-              style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: RHS_GREEN, color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-              Close
-            </button>
+            <button onClick={() => setShowLongestModal(false)} style={{ width: '100%', marginTop: 16, padding: '12px', borderRadius: 12, border: 'none', background: RHS_GREEN, color: 'white', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Close</button>
           </div>
         </div>
       )}
@@ -471,17 +462,25 @@ export default function Analytics() {
           <div>
             <h1 style={{ color: 'white', fontWeight: 700, fontSize: 18, margin: 0 }}>Pass Analytics</h1>
             <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, margin: 0 }}>
-              {teacherName} · Room {teacherRoom} · RHS PassAble
+              {isAdmin ? 'All Rooms · Admin View' : `${teacherName} · Room ${teacherRoom}`} · RHS PassAble
             </p>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <a href="/teacher" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>← Dashboard</a>
-          <a href="/admin" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>Admin</a>
+          <a href="/teacher" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>← The Relay Station</a>
+          {currentTeacher?.is_admin && <a href="/admin" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>Admin</a>}
         </div>
       </div>
 
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 16px' }}>
+
+        {/* ── Scope indicator ── */}
+        {isAdmin && (
+          <div style={{ marginBottom: 16, padding: '10px 16px', background: '#FEF3C7', borderRadius: 10, border: '1px solid #FCD34D', fontSize: 13, color: '#92400E' }}>
+            👑 Admin view — showing all rooms. To view a specific teacher, go to their Relay Station and click Analytics.
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
           <h2 style={{ margin: 0, fontSize: 16, color: '#1f2937', fontWeight: 600 }}>
             {loading ? 'Loading...' : `${totalPasses} passes · ${dateRange === 'today' ? 'Today' : dateRange === 'week' ? 'Last 7 days' : dateRange === 'month' ? 'Last 30 days' : 'All time'}`}
@@ -497,30 +496,26 @@ export default function Analytics() {
 
         {/* Stat cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
-          <div className="clickable-card" onClick={() => setShowTotalModal(true)}
-            style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: 'pointer' }}>
+          <div className="clickable-card" onClick={() => setShowTotalModal(true)} style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: 'pointer' }}>
             <div style={{ fontSize: 28, marginBottom: 4 }}>🎫</div>
             <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>Total Passes</div>
             <div style={{ fontSize: 32, fontWeight: 700, color: RHS_GREEN, lineHeight: 1 }}>{totalPasses}</div>
             <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>tap for breakdown</div>
           </div>
-          <div className="clickable-card" onClick={() => avgDurationDetail && setShowAvgModal(true)}
-            style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: avgDurationDetail ? 'pointer' : 'default' }}>
+          <div className="clickable-card" onClick={() => avgDurationDetail && setShowAvgModal(true)} style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: avgDurationDetail ? 'pointer' : 'default' }}>
             <div style={{ fontSize: 28, marginBottom: 4 }}>⏱</div>
             <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>Avg Duration</div>
             <div style={{ fontSize: 32, fontWeight: 700, color: '#3B82F6', lineHeight: 1 }}>{avgDuration}m</div>
             <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>per pass</div>
             {avgDurationDetail && <div style={{ fontSize: 11, color: '#9ca3af' }}>tap for details</div>}
           </div>
-          <div className="clickable-card" onClick={() => activeNow > 0 && setShowActiveModal(true)}
-            style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: activeNow > 0 ? 'pointer' : 'default' }}>
+          <div className="clickable-card" onClick={() => activeNow > 0 && setShowActiveModal(true)} style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: activeNow > 0 ? 'pointer' : 'default' }}>
             <div style={{ fontSize: 28, marginBottom: 4 }}>🔴</div>
             <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>Currently Out</div>
             <div style={{ fontSize: 32, fontWeight: 700, color: activeNow > 0 ? '#EF4444' : RHS_GREEN, lineHeight: 1 }}>{activeNow}</div>
             {activeNow > 0 && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>tap to see who</div>}
           </div>
-          <div className="clickable-card" onClick={() => longestPassDetail && setShowLongestModal(true)}
-            style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: longestPassDetail ? 'pointer' : 'default' }}>
+          <div className="clickable-card" onClick={() => longestPassDetail && setShowLongestModal(true)} style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', gap: 4, cursor: longestPassDetail ? 'pointer' : 'default' }}>
             <div style={{ fontSize: 28, marginBottom: 4 }}>⏰</div>
             <div style={{ fontSize: 13, color: '#6b7280', fontWeight: 500 }}>Longest Pass</div>
             <div style={{ fontSize: 32, fontWeight: 700, color: '#F59E0B', lineHeight: 1 }}>{longestPass}m</div>
