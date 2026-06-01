@@ -56,6 +56,7 @@ export default function QRPage() {
   }, [activePeriod, room])
 
   async function loadStudents() {
+    // Step 1: get student IDs for this period/room
     const { data: spRows } = await supabase
       .from('student_periods')
       .select('student_id')
@@ -63,16 +64,32 @@ export default function QRPage() {
       .eq('room', room)
     const studentIds = spRows?.map(r => r.student_id) || []
     if (studentIds.length === 0) { setStudents([]); return }
+
+    // Step 2: fetch ALL rows for these students (may have duplicates across periods)
     const { data } = await supabase
       .from('students')
       .select('id, full_name, photo_file')
       .in('id', studentIds)
-      .eq('period', activePeriod)
       .order('first_name')
+
     if (data) {
-      setStudents(data)
-      generateQRCodes(data)
-      generatePhotoUrls(data)
+      // Step 3: deduplicate by id — prefer row with photo_file over null
+      const seen = new Map()
+      for (const s of data) {
+        if (!seen.has(s.id)) {
+          seen.set(s.id, s)
+        } else {
+          // Replace existing entry only if current row has a photo and existing doesn't
+          const existing = seen.get(s.id)
+          if (!existing.photo_file && s.photo_file) {
+            seen.set(s.id, s)
+          }
+        }
+      }
+      const deduped = Array.from(seen.values())
+      setStudents(deduped)
+      generateQRCodes(deduped)
+      generatePhotoUrls(deduped)
     }
   }
 
