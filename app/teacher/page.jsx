@@ -367,9 +367,36 @@ function TeacherInner() {
   const [authError, setAuthError] = useState('')
   const [signingIn, setSigningIn] = useState(false)
 
-  // Help modal
+  // Help panel (draggable, no backdrop)
   const [showHelp, setShowHelp] = useState(false)
   const [helpSearch, setHelpSearch] = useState('')
+  const [helpPos, setHelpPos] = useState({ x: 0, y: 0 })
+  const helpPanelRef = useRef(null)
+  const helpDragOffset = useRef({ x: 0, y: 0 })
+
+  useEffect(() => {
+    if (showHelp) {
+      setHelpPos({ x: Math.max(0, window.innerWidth - 440), y: 80 })
+    }
+  }, [showHelp])
+
+  function startHelpDrag(e) {
+    if (e.button !== 0) return
+    const rect = helpPanelRef.current.getBoundingClientRect()
+    helpDragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    function onMove(e) {
+      setHelpPos({
+        x: Math.max(0, Math.min(window.innerWidth - 400, e.clientX - helpDragOffset.current.x)),
+        y: Math.max(0, Math.min(window.innerHeight - 100, e.clientY - helpDragOffset.current.y)),
+      })
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   // First-login forced password change
   const [mustChangePassword, setMustChangePassword] = useState(false)
@@ -1033,12 +1060,22 @@ function TeacherInner() {
           ? ALL_SECTIONS.map(s => ({ ...s, items: s.items.filter(i => (s.title + i.q + i.keys).toLowerCase().includes(q)) })).filter(s => s.items.length > 0)
           : ALL_SECTIONS
         return (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl max-w-md w-full shadow-xl max-h-[90vh] flex flex-col">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                <h2 className="text-lg font-semibold text-gray-800">PassAble Relay Station Help</h2>
-                <button onClick={() => { setShowHelp(false); setHelpSearch('') }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <div
+            ref={helpPanelRef}
+            className="bg-white rounded-2xl shadow-2xl flex flex-col"
+            style={{ position: 'fixed', left: helpPos.x, top: helpPos.y, width: 400, maxHeight: '85vh', zIndex: 9999, border: '1px solid #e5e7eb' }}
+          >
+            <div
+              className="flex items-center justify-between px-6 py-4 border-b border-gray-100 rounded-t-2xl select-none"
+              style={{ cursor: 'grab', backgroundColor: '#f9fafb' }}
+              onMouseDown={startHelpDrag}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-gray-300 text-sm">⠿</span>
+                <h2 className="text-sm font-semibold text-gray-800">PassAble Relay Station Help</h2>
               </div>
+              <button onClick={() => { setShowHelp(false); setHelpSearch('') }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
               <div className="px-6 pt-3 pb-2">
                 <input
                   type="search"
@@ -1071,7 +1108,6 @@ function TeacherInner() {
               <div className="px-6 py-4 border-t border-gray-100">
                 <button onClick={() => { setShowHelp(false); setHelpSearch('') }} className="w-full py-2.5 text-sm font-medium rounded-xl text-white" style={{ backgroundColor: RHS_GREEN }}>Got it</button>
               </div>
-            </div>
           </div>
         )
       })()}
