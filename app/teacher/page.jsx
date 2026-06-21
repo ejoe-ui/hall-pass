@@ -973,17 +973,17 @@ function TeacherInner() {
                 <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Getting Started</p>
                 <div className="flex flex-col gap-3">
                   <div><p className="text-sm font-medium text-gray-800">What's my passcode?</p><p className="text-xs text-gray-500 mt-0.5">Your default passcode is your room number doubled — Room 27 → <span className="font-mono">2727</span>, Room 30 → <span className="font-mono">3030</span>. You were prompted to change it on first login. If you're locked out, contact your admin.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">How do I pick a period?</p><p className="text-xs text-gray-500 mt-0.5">After signing in you'll see your periods listed. Tap the one you're currently teaching. You can go back with the ← Period link in the header.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">I don't see any students.</p><p className="text-xs text-gray-500 mt-0.5">Your roster hasn't been imported yet for this period. Use the <strong>Import Roster →</strong> link at the bottom of the page. You'll upload your Aeries class roster Excel file — it takes about 30 seconds.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">How do I switch periods?</p><p className="text-xs text-gray-500 mt-0.5">Use the period dropdown in the top-right of the header to switch between your class periods at any time — no need to sign out or go back.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">I don't see any students.</p><p className="text-xs text-gray-500 mt-0.5">Your roster hasn't been imported yet for this period. <a href={`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`} style={{ color: RHS_GREEN, textDecoration: 'underline' }}>Import your roster here →</a> — you'll upload your Aeries class roster Excel file. It takes about 30 seconds.</p></div>
                 </div>
               </div>
 
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Hall Passes</p>
                 <div className="flex flex-col gap-3">
-                  <div><p className="text-sm font-medium text-gray-800">How do I check out a student?</p><p className="text-xs text-gray-500 mt-0.5">Select the student's name and a reason from the dropdowns, then click <strong>Send</strong>. A hall pass will print automatically if Printable Passes is on.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">How do I check a student back in?</p><p className="text-xs text-gray-500 mt-0.5">Click <strong>Return</strong> next to their name in the Students Out list. Or they can scan in at the kiosk themselves.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">What does the red timer mean?</p><p className="text-xs text-gray-500 mt-0.5">A student has been out for 10+ minutes. The alert at the top of the page also lists their name.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">How do I check out a student?</p><p className="text-xs text-gray-500 mt-0.5">Select the student's name and a reason from the dropdowns, then click <strong>Send</strong>. If Printable Passes is on (in Settings), a pass will print to your default printer automatically.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">How do I check a student back in?</p><p className="text-xs text-gray-500 mt-0.5">Click <strong>Return</strong> next to their name in the Students Out list. Or they can check back in at the classroom kiosk when they return.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What does the red timer mean?</p><p className="text-xs text-gray-500 mt-0.5">A student has been out for 10+ minutes. The alert at the top of the page lists their name.</p></div>
                   <div><p className="text-sm font-medium text-gray-800">What's a Do Not Let Out (DNLO) flag?</p><p className="text-xs text-gray-500 mt-0.5">Admin or you can flag students who shouldn't leave class. If you try to check one out, a red warning appears and you'll need to confirm an override — which gets logged.</p></div>
                 </div>
               </div>
@@ -991,25 +991,26 @@ function TeacherInner() {
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Late Passes & Pull Passes</p>
                 <div className="flex flex-col gap-3">
-                  <div><p className="text-sm font-medium text-gray-800">What's a Late Pass?</p><p className="text-xs text-gray-500 mt-0.5">For students arriving late to another teacher's class. Click <strong>Issue Late Pass</strong>, select the student(s) and the destination teacher. A receipt prints — one per student. The student is NOT expected to return to your room.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">What's a Pull Pass / Request Student?</p><p className="text-xs text-gray-500 mt-0.5">Use this when you need to pull a student from another teacher's room. Fill in the student's name, who they're currently with, and your purpose. A formal release slip prints — give it to a student to carry to the other room.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What's a Late Pass?</p><p className="text-xs text-gray-500 mt-0.5">For students arriving late to another teacher's class. Click <strong>Issue Late Pass</strong>, select the student(s) and the destination teacher. A receipt prints to your default printer — one per student. The student is not expected to return to your room. If you'd like to set up a dedicated receipt printer, talk to Mr. Joe.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What's a Pull Pass / Request Student?</p><p className="text-xs text-gray-500 mt-0.5">Use this when you need to pull a student from another teacher's room. Fill in the student's name, who they're currently with, and your purpose. A formal release slip prints — send a student to deliver it to the other room.</p></div>
                 </div>
               </div>
 
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Kiosk & Self-Checkout</p>
                 <div className="flex flex-col gap-3">
-                  <div><p className="text-sm font-medium text-gray-800">What's the Kiosk?</p><p className="text-xs text-gray-500 mt-0.5">A tablet or computer at your door running <span className="font-mono">hall-pass-lime.vercel.app/kiosk?room=27</span>. Students tap their name to request a pass. You approve it on your dashboard.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">What's Self-Checkout Mode?</p><p className="text-xs text-gray-500 mt-0.5">Students go to <span className="font-mono">hall-pass-lime.vercel.app/self-checkout</span> on their phone and enter the 4-digit session code shown on your dashboard. Good for when you can't step away to approve passes.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What's the Kiosk?</p><p className="text-xs text-gray-500 mt-0.5">A tablet or dedicated computer at your classroom door where students check themselves out and back in. Students tap their name to check out — it's recorded instantly and shows up on your dashboard. When they return to class, they tap to check back in, which is also recorded. Your kiosk link is in Settings → Kiosk URL.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What's Self-Checkout Mode?</p><p className="text-xs text-gray-500 mt-0.5">Students go to <span className="font-mono text-xs">hall-pass-lime.vercel.app/self-checkout</span> and enter the 4-digit session code shown on your dashboard. Works on school laptops. Note: students may not be able to use personal phones in class under California law — we're still testing this flow.</p></div>
                 </div>
               </div>
 
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Settings</p>
                 <div className="flex flex-col gap-3">
-                  <div><p className="text-sm font-medium text-gray-800">What's the Sub Code?</p><p className="text-xs text-gray-500 mt-0.5">A 4-digit code a substitute can use to log into your dashboard without your password. Set it in Settings.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">What's Block First & Last 15 Min?</p><p className="text-xs text-gray-500 mt-0.5">When on, the status bar turns red at the start and end of each period as a reminder not to let students out. It doesn't block checkout — just warns you.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">How do I change my password?</p><p className="text-xs text-gray-500 mt-0.5">Scroll down → Show Settings → Change Password. Minimum 8 characters.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What's the Sub Code?</p><p className="text-xs text-gray-500 mt-0.5">A 4-digit code tied to your classroom that a substitute can use to log into your dashboard without your password. Set it in Settings.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What's Block First & Last 15 Min?</p><p className="text-xs text-gray-500 mt-0.5">When on, the status bar turns red at the start and end of each period as a reminder not to let students out. It doesn't block checkout — just warns you and the students.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What's Printable Passes?</p><p className="text-xs text-gray-500 mt-0.5">Off by default. When turned on in Settings, a printable pass opens automatically and sends to your default printer every time a student is checked out.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">How do I change my password?</p><p className="text-xs text-gray-500 mt-0.5">Show Settings → Change Password. Minimum 8 characters.</p></div>
                 </div>
               </div>
 
