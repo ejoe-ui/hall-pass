@@ -15,13 +15,17 @@
 import { createClient } from '@supabase/supabase-js'
 
 export async function POST(request) {
-  // Create client inside the handler so env vars are available at runtime, not build time
-  const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  )
-
   try {
+    // Validate env vars before creating client
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return Response.json({ error: 'Server misconfiguration: missing Supabase env vars. Add SUPABASE_SERVICE_ROLE_KEY to Vercel.' }, { status: 500 })
+    }
+
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    )
+
     const body = await request.json()
     const { action, email, password, auth_id } = body
 
