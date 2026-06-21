@@ -367,6 +367,9 @@ function TeacherInner() {
   const [authError, setAuthError] = useState('')
   const [signingIn, setSigningIn] = useState(false)
 
+  // Help modal
+  const [showHelp, setShowHelp] = useState(false)
+
   // First-login forced password change
   const [mustChangePassword, setMustChangePassword] = useState(false)
   const [firstPwNew, setFirstPwNew] = useState('')
@@ -956,6 +959,73 @@ function TeacherInner() {
         </div>
       )}
 
+      {/* ── Help Modal ── */}
+      {showHelp && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="text-lg font-semibold text-gray-800">PassAble Help</h2>
+              <button onClick={() => setShowHelp(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="overflow-y-auto px-6 py-4 flex flex-col gap-5">
+
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Getting Started</p>
+                <div className="flex flex-col gap-3">
+                  <div><p className="text-sm font-medium text-gray-800">What's my passcode?</p><p className="text-xs text-gray-500 mt-0.5">Your default passcode is your room number doubled — Room 27 → <span className="font-mono">2727</span>, Room 30 → <span className="font-mono">3030</span>. You were prompted to change it on first login. If you're locked out, contact your admin.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">How do I pick a period?</p><p className="text-xs text-gray-500 mt-0.5">After signing in you'll see your periods listed. Tap the one you're currently teaching. You can go back with the ← Period link in the header.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">I don't see any students.</p><p className="text-xs text-gray-500 mt-0.5">Your roster hasn't been imported yet for this period. Use the <strong>Import Roster →</strong> link at the bottom of the page. You'll upload your Aeries class roster Excel file — it takes about 30 seconds.</p></div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Hall Passes</p>
+                <div className="flex flex-col gap-3">
+                  <div><p className="text-sm font-medium text-gray-800">How do I check out a student?</p><p className="text-xs text-gray-500 mt-0.5">Select the student's name and a reason from the dropdowns, then click <strong>Send</strong>. A hall pass will print automatically if Printable Passes is on.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">How do I check a student back in?</p><p className="text-xs text-gray-500 mt-0.5">Click <strong>Return</strong> next to their name in the Students Out list. Or they can scan in at the kiosk themselves.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What does the red timer mean?</p><p className="text-xs text-gray-500 mt-0.5">A student has been out for 10+ minutes. The alert at the top of the page also lists their name.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What's a Do Not Let Out (DNLO) flag?</p><p className="text-xs text-gray-500 mt-0.5">Admin or you can flag students who shouldn't leave class. If you try to check one out, a red warning appears and you'll need to confirm an override — which gets logged.</p></div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Late Passes & Pull Passes</p>
+                <div className="flex flex-col gap-3">
+                  <div><p className="text-sm font-medium text-gray-800">What's a Late Pass?</p><p className="text-xs text-gray-500 mt-0.5">For students arriving late to another teacher's class. Click <strong>Issue Late Pass</strong>, select the student(s) and the destination teacher. A receipt prints — one per student. The student is NOT expected to return to your room.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What's a Pull Pass / Request Student?</p><p className="text-xs text-gray-500 mt-0.5">Use this when you need to pull a student from another teacher's room. Fill in the student's name, who they're currently with, and your purpose. A formal release slip prints — give it to a student to carry to the other room.</p></div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Kiosk & Self-Checkout</p>
+                <div className="flex flex-col gap-3">
+                  <div><p className="text-sm font-medium text-gray-800">What's the Kiosk?</p><p className="text-xs text-gray-500 mt-0.5">A tablet or computer at your door running <span className="font-mono">hall-pass-lime.vercel.app/kiosk?room=27</span>. Students tap their name to request a pass. You approve it on your dashboard.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What's Self-Checkout Mode?</p><p className="text-xs text-gray-500 mt-0.5">Students go to <span className="font-mono">hall-pass-lime.vercel.app/self-checkout</span> on their phone and enter the 4-digit session code shown on your dashboard. Good for when you can't step away to approve passes.</p></div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Settings</p>
+                <div className="flex flex-col gap-3">
+                  <div><p className="text-sm font-medium text-gray-800">What's the Sub Code?</p><p className="text-xs text-gray-500 mt-0.5">A 4-digit code a substitute can use to log into your dashboard without your password. Set it in Settings.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">What's Block First & Last 15 Min?</p><p className="text-xs text-gray-500 mt-0.5">When on, the status bar turns red at the start and end of each period as a reminder not to let students out. It doesn't block checkout — just warns you.</p></div>
+                  <div><p className="text-sm font-medium text-gray-800">How do I change my password?</p><p className="text-xs text-gray-500 mt-0.5">Scroll down → Show Settings → Change Password. Minimum 8 characters.</p></div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Locked Out?</p>
+                <div><p className="text-sm font-medium text-gray-800">I can't sign in.</p><p className="text-xs text-gray-500 mt-0.5">Contact your admin — they can reset your passcode from the admin panel in about 30 seconds. Your data is safe.</p></div>
+              </div>
+
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100">
+              <button onClick={() => setShowHelp(false)} className="w-full py-2.5 text-sm font-medium rounded-xl text-white" style={{ backgroundColor: RHS_GREEN }}>Got it</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Late Pass Modal ── */}
       {showLatePass && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -1021,6 +1091,7 @@ function TeacherInner() {
         <div className="flex gap-4 items-center">
           <a href={`/analytics?teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-green-200 hover:text-white">Analytics</a>
           {currentTeacher?.is_admin && <a href="/admin" className="text-sm text-green-200 hover:text-white">Admin</a>}
+          <button onClick={() => setShowHelp(true)} className="text-sm text-green-200 hover:text-white">? Help</button>
           <button onClick={() => setActivePeriod(null)} className="text-sm text-green-200 hover:text-white">← Period</button>
           <button onClick={handleSignOut} className="text-sm text-green-200 hover:text-white">Sign Out</button>
         </div>
@@ -1030,6 +1101,21 @@ function TeacherInner() {
       <PeriodStatusBar periodInfo={periodInfo} checkoutStatus={checkoutStatus} blockMinsEnabled={blockMinsEnabled} />
 
       <div className="p-6 max-w-3xl mx-auto">
+
+        {/* ── Empty roster nudge ── */}
+        {allStudents.length === 0 && (
+          <div className="mb-6 p-4 rounded-xl flex items-center justify-between gap-4" style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a' }}>
+            <div>
+              <p className="text-sm font-semibold text-amber-800">No students in this period yet</p>
+              <p className="text-xs text-amber-600 mt-0.5">Import your class roster to start tracking hall passes.</p>
+            </div>
+            <a href={`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`}
+              className="text-xs px-3 py-2 rounded-lg text-white font-semibold flex-shrink-0 whitespace-nowrap"
+              style={{ backgroundColor: '#d97706' }}>
+              Import Roster →
+            </a>
+          </div>
+        )}
 
         {/* ── Stats ── */}
         <div className="grid grid-cols-3 gap-4 mb-6">
