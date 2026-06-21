@@ -1,3 +1,16 @@
+/*
+  PassAble — RHS Hall Pass System
+  FILE:    app/admin/page.jsx
+  ROUTE:   /admin
+  PURPOSE: Admin panel — teacher management (create accounts, reset passcodes),
+           conflict groups, do-not-let-out list, pass log, school settings.
+  REPO:    hall-pass (hall-pass-lime.vercel.app)
+  BACKEND: Supabase (teachers, students, passes, conflict_groups, do_not_let_out, settings)
+  AUTH:    Password-based. Default passcode = room number doubled (room 27 → "2727").
+           Teachers must change password on first login (must_change_password flag).
+  UPDATED: 2026-06-20
+*/
+
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
@@ -11,6 +24,12 @@ export default function AdminPanel() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState('teachers')
 
+  // ── Login form ────────────────────────────────────────────────────────────
+  const [loginEmail, setLoginEmail] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
+
   // ── Teachers ──────────────────────────────────────────────────────────────
   const [teachers, setTeachers] = useState([])
   const [teachersLoading, setTeachersLoading] = useState(true)
@@ -18,7 +37,8 @@ export default function AdminPanel() {
   const [showImport, setShowImport] = useState(false)
   const [editingTeacher, setEditingTeacher] = useState(null)
   const [saving, setSaving] = useState(false)
-  const [inviting, setInviting] = useState({})
+  const [settingPasscode, setSettingPasscode] = useState({})   // { [teacher_id]: 'sending'|'sent'|'error' }
+  const [resettingPassword, setResettingPassword] = useState({}) // { [teacher_id]: true }
   const [importPreview, setImportPreview] = useState([])
   const [importErrors, setImportErrors] = useState([])
   const [importing, setImporting] = useState(false)
@@ -27,10 +47,10 @@ export default function AdminPanel() {
   const fileRef = useRef(null)
 
   // ── Teacher pass stats ─────────────────────────────────────────────────────
-  const [teacherStats, setTeacherStats] = useState({}) // { [teacher_id]: { todayCount, lastActive } }
+  const [teacherStats, setTeacherStats] = useState({})
 
   // ── Teacher pass log modal ────────────────────────────────────────────────
-  const [logModalTeacher, setLogModalTeacher] = useState(null) // teacher object
+  const [logModalTeacher, setLogModalTeacher] = useState(null)
   const [logModalPasses, setLogModalPasses] = useState([])
   const [logModalLoading, setLogModalLoading] = useState(false)
   const [logModalFilter, setLogModalFilter] = useState('today')
@@ -89,6 +109,14 @@ export default function AdminPanel() {
     loadSchoolSettings()
   }, [isAdmin])
 
+  async function handlePasswordLogin(e) {
+    e.preventDefault()
+    setLoginError(''); setLoginLoading(true)
+    const { error } = await supabase.auth.signInWithPassword({ email: loginEmail, password: loginPassword })
+    if (error) setLoginError('Invalid email or password.')
+    setLoginLoading(false)
+  }
+
   async function loadSchoolSettings() {
     const { data } = await supabase.from('settings').select('key, value')
       .in('key', ['block_first_last_15'])
@@ -111,6 +139,72 @@ export default function AdminPanel() {
   }
 
   async function handleSignOut() { await supabase.auth.signOut() }
+
+  // ── Passcode helpers ──────────────────────────────────────────────────────
+  function defaultPasscode(room) {
+    // Room 27 → "2727", Room 7 → "0707", Room 17 → "1717"
+    const r = String(room || '00').padStart(2, '0')
+    return r + r
+  }
+
+  // ── Create teacher auth account ───────────────────────────────────────────
+  async function handleSetPasscode(teacher) {
+    if (!teacher.room) {
+      setTeacherError(`${teacher.name} has no room number — add one first so we can set the default passcode.`)
+      return
+    }
+    setSettingPasscode(prev => ({ ...prev, [teacher.id]: 'sending' }))
+    const password = defaultPasscode(teacher.room)
+
+    const res = await fetch('/api/admin/teacher-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create', email: teacher.email, password })
+    })
+    const result = await res.json()
+
+    if (result.error) {
+      setSettingPasscode(prev => ({ ...prev, [teacher.id]: 'error' }))
+      setTeacherError(`Could not create account for ${teacher.name}: ${result.error}`)
+    } else {
+      // Link auth_id and flag first-login password change
+      await supabase.from('teachers')
+        .update({ auth_id: result.user_id, must_change_password: true })
+        .eq('id', teacher.id)
+      setSettingPasscode(prev => ({ ...prev, [teacher.id]: 'sent' }))
+      setTeacherMsg(`✅ Account created for ${teacher.name}. Passcode: ${password}`)
+      loadTeachers()
+      setTimeout(() => setTeacherMsg(''), 6000)
+    }
+    setTimeout(() => setSettingPasscode(prev => ({ ...prev, [teacher.id]: null })), 4000)
+  }
+
+  // ── Reset teacher password to default ────────────────────────────────────
+  async function handleResetPasscode(teacher) {
+    if (!teacher.auth_id) { setTeacherError(`${teacher.name} has no auth account yet — use Set Passcode first.`); return }
+    if (!teacher.room) { setTeacherError(`${teacher.name} has no room number set.`); return }
+    if (!confirm(`Reset ${teacher.name}'s passcode to default (${defaultPasscode(teacher.room)})?`)) return
+
+    setResettingPassword(prev => ({ ...prev, [teacher.id]: true }))
+    const password = defaultPasscode(teacher.room)
+
+    const res = await fetch('/api/admin/teacher-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reset', auth_id: teacher.auth_id, password })
+    })
+    const result = await res.json()
+
+    if (result.error) {
+      setTeacherError(`Reset failed: ${result.error}`)
+    } else {
+      await supabase.from('teachers').update({ must_change_password: true }).eq('id', teacher.id)
+      setTeacherMsg(`↩️ Passcode reset to ${password} for ${teacher.name}. They'll be prompted to change it on next login.`)
+      loadTeachers()
+      setTimeout(() => setTeacherMsg(''), 6000)
+    }
+    setResettingPassword(prev => ({ ...prev, [teacher.id]: false }))
+  }
 
   // ── Teacher stats ─────────────────────────────────────────────────────────
   async function loadTeacherStats(teacherList) {
@@ -165,11 +259,11 @@ export default function AdminPanel() {
       const { error } = await supabase.from('teachers')
         .insert({ name: form.name, email: form.email, room: form.room, department: form.department, pin: form.pin, is_admin: form.is_admin, is_active: form.is_active, periods: form.periods, period_labels: form.period_labels })
       if (error) { setTeacherError(error.message); setSaving(false); return }
-      setTeacherMsg(`${form.name} added. Use ✉️ Invite to send a sign-in link.`)
+      setTeacherMsg(`${form.name} added. Click 🔑 Set Passcode to create their login.`)
     }
     setSaving(false); setShowForm(false); setEditingTeacher(null); setForm(emptyForm)
     loadTeachers()
-    setTimeout(() => setTeacherMsg(''), 4000)
+    setTimeout(() => setTeacherMsg(''), 5000)
   }
 
   function handleEdit(teacher) {
@@ -185,16 +279,6 @@ export default function AdminPanel() {
   async function handleToggleActive(teacher) {
     await supabase.from('teachers').update({ is_active: !teacher.is_active }).eq('id', teacher.id)
     loadTeachers()
-  }
-
-  async function handleSendInvite(teacher) {
-    setInviting(prev => ({ ...prev, [teacher.id]: 'sending' }))
-    const { error } = await supabase.auth.signInWithOtp({
-      email: teacher.email,
-      options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' }
-    })
-    setInviting(prev => ({ ...prev, [teacher.id]: error ? 'error' : 'sent' }))
-    setTimeout(() => setInviting(prev => ({ ...prev, [teacher.id]: null })), 4000)
   }
 
   function handleFileUpload(e) {
@@ -248,7 +332,7 @@ export default function AdminPanel() {
     if (error) {
       setTeacherError(`Import failed: ${error.message}`)
     } else {
-      setTeacherMsg(`✅ Imported ${toInsert.length} teacher${toInsert.length !== 1 ? 's' : ''}${skipped > 0 ? ` · ${skipped} skipped (already exist)` : ''}. Use ✉️ Invite to send sign-in links.`)
+      setTeacherMsg(`✅ Imported ${toInsert.length} teacher${toInsert.length !== 1 ? 's' : ''}${skipped > 0 ? ` · ${skipped} skipped (already exist)` : ''}. Use 🔑 Set Passcode to create their logins.`)
       setShowImport(false); setImportPreview([]); setImportErrors([])
       if (fileRef.current) fileRef.current.value = ''
       loadTeachers()
@@ -487,13 +571,35 @@ export default function AdminPanel() {
   if (!session) return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-6" />
-      <h1 className="text-2xl font-bold text-gray-800 mb-2">Admin Panel</h1>
-      <p className="text-gray-500 text-sm mb-8">Sign in with your school Google account</p>
-      <button onClick={() => supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: `${window.location.origin}/admin` } })}
-        className="px-6 py-3 rounded-xl text-white text-sm font-medium" style={{ backgroundColor: RHS_GREEN }}>
-        Sign in with Google
-      </button>
-      <a href="/teacher" className="mt-8 text-sm text-gray-400 hover:text-gray-600">← Home</a>
+      <h1 className="text-2xl font-bold text-gray-800 mb-1">Admin Panel</h1>
+      <p className="text-gray-500 text-sm mb-8">Sign in with your school email and passcode</p>
+      <form onSubmit={handlePasswordLogin} className="w-full max-w-sm space-y-3">
+        <input
+          type="email"
+          placeholder="Email"
+          value={loginEmail}
+          onChange={e => setLoginEmail(e.target.value)}
+          required
+          className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm bg-white text-gray-800 focus:outline-none focus:border-green-600"
+        />
+        <input
+          type="password"
+          placeholder="Passcode"
+          value={loginPassword}
+          onChange={e => setLoginPassword(e.target.value)}
+          required
+          className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm bg-white text-gray-800 focus:outline-none focus:border-green-600"
+        />
+        {loginError && <p className="text-red-600 text-sm">{loginError}</p>}
+        <button
+          type="submit"
+          disabled={loginLoading}
+          className="w-full py-3 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
+          style={{ backgroundColor: RHS_GREEN }}>
+          {loginLoading ? 'Signing in...' : 'Sign In'}
+        </button>
+      </form>
+      <a href="/teacher" className="mt-8 text-sm text-gray-400 hover:text-gray-600">← Teacher Login</a>
     </div>
   )
 
@@ -522,7 +628,6 @@ export default function AdminPanel() {
       {logModalTeacher && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col max-h-[85vh]">
-            {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
                 <h2 className="text-base font-semibold text-gray-800">{logModalTeacher.name}</h2>
@@ -532,8 +637,6 @@ export default function AdminPanel() {
               </div>
               <button onClick={closeTeacherLog} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
-
-            {/* Filter */}
             <div className="flex gap-2 px-5 pt-4 pb-2">
               {['today', 'all'].map(f => (
                 <button key={f}
@@ -547,8 +650,6 @@ export default function AdminPanel() {
                 {logModalLoading ? 'Loading...' : `${logModalPasses.length} pass${logModalPasses.length !== 1 ? 'es' : ''}`}
               </span>
             </div>
-
-            {/* Pass list */}
             <div className="overflow-y-auto flex-1 px-2 pb-4">
               {logModalLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -578,8 +679,6 @@ export default function AdminPanel() {
                 )
               })}
             </div>
-
-            {/* Footer */}
             <div className="px-5 py-3 border-t border-gray-100 flex justify-between items-center">
               <a href={`/log?teacher_id=${logModalTeacher.id}`}
                 className="text-xs hover:underline" style={{ color: RHS_GREEN }}>
@@ -777,6 +876,8 @@ export default function AdminPanel() {
               ) : teachers.map((t) => {
                 const stats = teacherStats[t.id] || { todayCount: 0, lastActive: null }
                 const isDemo = isDemoTeacher(t)
+                const passcodeState = settingPasscode[t.id]
+                const isResetting = resettingPassword[t.id]
                 return (
                   <div key={t.id}
                     className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0"
@@ -787,7 +888,6 @@ export default function AdminPanel() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        {/* Clickable name */}
                         <button
                           onClick={() => openTeacherLog(t)}
                           className="text-sm font-semibold hover:underline text-left"
@@ -797,8 +897,8 @@ export default function AdminPanel() {
                         {t.is_admin && <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">ADMIN</span>}
                         {isDemo && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full font-bold">DEMO</span>}
                         {!t.is_active && <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-400 rounded-full font-bold">INACTIVE</span>}
-                        {!t.auth_id && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full font-bold">NO AUTH</span>}
-                        {/* Today pass count badge */}
+                        {!t.auth_id && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded-full font-bold">NO ACCOUNT</span>}
+                        {t.auth_id && t.must_change_password && <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">NEEDS PW CHANGE</span>}
                         {stats.todayCount > 0 && (
                           <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold"
                             style={{ backgroundColor: '#dcfce7', color: RHS_GREEN }}>
@@ -808,12 +908,14 @@ export default function AdminPanel() {
                       </div>
                       <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
                         <span>{t.email}{t.room ? ` · Room ${t.room}` : ''}{t.department ? ` · ${t.department}` : ''}</span>
-                        {stats.lastActive && (
+                        {!t.auth_id && t.room && (
                           <span className="text-gray-300">·</span>
                         )}
-                        {stats.lastActive && (
-                          <span className="text-gray-400">last active {formatLastActive(stats.lastActive)}</span>
+                        {!t.auth_id && t.room && (
+                          <span className="text-gray-400">default passcode: {defaultPasscode(t.room)}</span>
                         )}
+                        {stats.lastActive && <span className="text-gray-300">·</span>}
+                        {stats.lastActive && <span className="text-gray-400">last active {formatLastActive(stats.lastActive)}</span>}
                       </div>
                     </div>
                     <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
@@ -826,11 +928,24 @@ export default function AdminPanel() {
                           {resettingDemo ? '...' : '🗑 Reset Demo'}
                         </button>
                       )}
-                      <button onClick={() => handleSendInvite(t)} disabled={!!inviting[t.id]}
-                        className="text-xs px-3 py-1.5 rounded-lg font-medium"
-                        style={{ background: inviting[t.id] === 'sent' ? '#f0fdf4' : inviting[t.id] === 'error' ? '#FEE2E2' : '#EFF6FF', color: inviting[t.id] === 'sent' ? '#166534' : inviting[t.id] === 'error' ? '#DC2626' : '#1D4ED8' }}>
-                        {inviting[t.id] === 'sending' ? 'Sending...' : inviting[t.id] === 'sent' ? '✓ Sent' : inviting[t.id] === 'error' ? 'Failed' : '✉️ Invite'}
-                      </button>
+                      {/* Passcode button: Set if no auth_id, Reset if auth_id exists */}
+                      {!t.auth_id ? (
+                        <button
+                          onClick={() => handleSetPasscode(t)}
+                          disabled={!!passcodeState}
+                          className="text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-40"
+                          style={{ background: passcodeState === 'sent' ? '#f0fdf4' : passcodeState === 'error' ? '#FEE2E2' : '#EFF6FF', color: passcodeState === 'sent' ? '#166534' : passcodeState === 'error' ? '#DC2626' : '#1D4ED8' }}>
+                          {passcodeState === 'sending' ? 'Creating...' : passcodeState === 'sent' ? '✓ Done' : passcodeState === 'error' ? 'Failed' : '🔑 Set Passcode'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleResetPasscode(t)}
+                          disabled={isResetting}
+                          className="text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-40"
+                          style={{ background: '#FEF3C7', color: '#92400E' }}>
+                          {isResetting ? '...' : '↩️ Reset Passcode'}
+                        </button>
+                      )}
                       <button onClick={() => handleEdit(t)}
                         className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
                         Edit
@@ -846,7 +961,7 @@ export default function AdminPanel() {
               })}
             </div>
             <div className="mt-4 px-4 py-3 bg-green-50 rounded-xl text-xs text-green-700">
-              💡 After adding a teacher, click <strong>✉️ Invite</strong> to send them a magic sign-in link. Their account links automatically on first sign-in.
+              💡 After adding a teacher, click <strong>🔑 Set Passcode</strong> to create their login. Default passcode = room number doubled (Room 27 → <strong>2727</strong>). They'll be prompted to change it on first login. Use <strong>↩️ Reset Passcode</strong> if they forget it.
             </div>
           </>
         )}
