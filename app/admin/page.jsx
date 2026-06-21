@@ -8,7 +8,7 @@
   BACKEND: Supabase (teachers, students, passes, conflict_groups, do_not_let_out, settings)
   AUTH:    Password-based. Default passcode = room number doubled (room 27 → "2727").
            Teachers must change password on first login (must_change_password flag).
-  UPDATED: 2026-06-20
+  UPDATED: 2026-06-21
 */
 
 'use client'
@@ -17,6 +17,14 @@ import { supabase } from '../../lib/supabase'
 import * as XLSX from 'xlsx'
 
 const RHS_GREEN = '#006938'
+
+function getStudentPhotoUrl(student) {
+  if (!student) return null
+  if (student.photo_url) return student.photo_url
+  if (!student.photo_file) return null
+  const { data } = supabase.storage.from('student-photos').getPublicUrl(student.photo_file)
+  return data?.publicUrl || null
+}
 
 export default function AdminPanel() {
   const [session, setSession] = useState(null)
@@ -1146,9 +1154,12 @@ export default function AdminPanel() {
               </div>
               {filteredStudents.slice(0, 50).map(s => (
                 <div key={s.id + s.period} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
-                    {s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
-                  </div>
+                  {getStudentPhotoUrl(s)
+                    ? <img src={getStudentPhotoUrl(s)} alt={s.full_name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                    : <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
+                        {s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                      </div>
+                  }
                   <div className="flex-1">
                     <a href={`/student/${s.id}`} className="text-sm hover:underline" style={{ color: RHS_GREEN }}>{s.full_name}</a>
                     <div className="text-xs text-gray-400">Period {s.period}</div>
