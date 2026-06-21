@@ -1,13 +1,64 @@
+/*
+  PassAble — RHS Hall Pass System
+  FILE:    app/log/page.jsx
+  ROUTE:   /log
+  PURPOSE: Teacher's full pass log with time-period filters, export CSV, and print.
+  REPO:    hall-pass (hall-pass-lime.vercel.app)
+  BACKEND: Supabase (passes, students, teachers, student_periods)
+  UPDATED: 2026-06-21
+*/
+
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
 
+const FILTER_OPTIONS = [
+  { id: 'today',    label: 'Today' },
+  { id: 'week',     label: 'This Week' },
+  { id: 'month',    label: 'This Month' },
+  { id: 'quarter',  label: 'This Quarter' },
+  { id: 'semester', label: 'This Semester' },
+  { id: 'all',      label: 'All Time' },
+]
+
+function getStartDate(period) {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const d = now.getDate()
+  switch (period) {
+    case 'today':
+      return new Date(y, m, d)
+    case 'week': {
+      const day = now.getDay() // 0=Sun
+      const monday = new Date(y, m, d - (day === 0 ? 6 : day - 1))
+      return monday
+    }
+    case 'month':
+      return new Date(y, m, 1)
+    case 'quarter': {
+      // Jan/Apr/Jul/Oct
+      const quarterStart = Math.floor(m / 3) * 3
+      return new Date(y, quarterStart, 1)
+    }
+    case 'semester': {
+      // Fall semester starts Aug (7), Spring starts Feb (1)
+      const semStart = m >= 7 ? 7 : 1
+      const semYear = m >= 7 ? y : (m < 1 ? y - 1 : y)
+      return new Date(semYear, semStart, 1)
+    }
+    default:
+      return null
+  }
+}
+
 export default function Log() {
   const [currentTeacher, setCurrentTeacher] = useState(null)
   const [passes, setPasses] = useState([])
   const [loading, setLoading] = useState(true)
+  const [filterPeriod, setFilterPeriod] = useState('month')
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [checkingIn, setCheckingIn] = useState(null)
@@ -24,7 +75,7 @@ export default function Log() {
         .maybeSingle()
       if (teacher) {
         setCurrentTeacher(teacher)
-        await loadPasses(teacher)
+        await loadPasses(teacher, 'month')
       } else {
         setLoading(false)
       }
@@ -32,7 +83,7 @@ export default function Log() {
     init()
   }, [])
 
-  async function loadPasses(teacher) {
+  async function loadPasses(teacher, period) {
     setLoading(true)
 
     const { data: spRows } = await supabase
@@ -44,11 +95,16 @@ export default function Log() {
 
     let passData = []
     if (studentIds.length > 0) {
-      const { data } = await supabase
+      let query = supabase
         .from('passes')
         .select('*')
         .in('student_id', studentIds)
         .order('time_out', { ascending: false })
+
+      const start = getStartDate(period)
+      if (start) query = query.gte('time_out', start.toISOString())
+
+      const { data } = await query
       passData = data || []
     }
 
@@ -68,6 +124,11 @@ export default function Log() {
 
     setPasses(enriched)
     setLoading(false)
+  }
+
+  function handleFilterChange(period) {
+    setFilterPeriod(period)
+    if (currentTeacher) loadPasses(currentTeacher, period)
   }
 
   async function checkInPass(passId) {
@@ -101,11 +162,12 @@ export default function Log() {
   }
 
   function exportCSV() {
+    const label = FILTER_OPTIONS.find(o => o.id === filterPeriod)?.label || 'All'
     const headers = ['Student', 'Date', 'Reason', 'Time Out', 'Time In', 'Duration (min)', 'Room', 'Teacher', 'Period', 'Type']
     const rows = passes.map(p => [
       p.students?.full_name || p.student_id,
       fmtDate(p.time_out),
-      p.reason,
+      `"${(p.reason || '').replace(/"/g, '""')}"`,
       fmt(p.time_out),
       fmt(p.time_in),
       p.duration_minutes || '',
@@ -118,12 +180,13 @@ export default function Log() {
     const blob = new Blob([csv], { type: 'text/csv' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = `hall-passes-${new Date().toISOString().slice(0,10)}.csv`
+    a.download = `passes-rm${currentTeacher?.room || '27'}-${label.replace(/\s/g,'-').toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`
     a.click()
   }
 
   const teacherName = currentTeacher?.name || 'Teacher'
   const teacherRoom = currentTeacher?.room || '27'
+  const filterLabel = FILTER_OPTIONS.find(o => o.id === filterPeriod)?.label || 'All Time'
 
   return (
     <>
@@ -179,7 +242,7 @@ export default function Log() {
             <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
             <div>
               <h1 className="text-lg font-bold text-white">Pass Log</h1>
-              <p className="text-green-200 text-xs">Room {teacherRoom} · {teacherName} · {passes.length} passes</p>
+              <p className="text-green-200 text-xs">Room {teacherRoom} · {teacherName} · {passes.length} passes · {filterLabel}</p>
             </div>
           </div>
           <div className="flex gap-3">
@@ -199,16 +262,37 @@ export default function Log() {
 
         <div className="p-6 max-w-6xl mx-auto">
 
+          {/* Print header (hidden on screen) */}
           <div className="print-header hidden print:block mb-4">
-            <h1 className="text-lg font-bold">Room {teacherRoom} · {teacherName} — RHS PassAble Log</h1>
-            <p className="text-xs text-gray-500">Printed {new Date().toLocaleDateString()} · {passes.length} total passes</p>
+            <h1 className="text-lg font-bold">Room {teacherRoom} · {teacherName} — RHS PassAble Pass Log</h1>
+            <p className="text-xs text-gray-500">Period: {filterLabel} · Printed {new Date().toLocaleDateString()} · {passes.length} passes</p>
+          </div>
+
+          {/* Time period filter */}
+          <div className="flex gap-2 mb-5 flex-wrap no-print">
+            {FILTER_OPTIONS.map(opt => (
+              <button key={opt.id}
+                onClick={() => handleFilterChange(opt.id)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${filterPeriod === opt.id ? 'text-white border-transparent' : 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'}`}
+                style={filterPeriod === opt.id ? { backgroundColor: RHS_GREEN } : {}}>
+                {opt.label}
+              </button>
+            ))}
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
             {loading ? (
-              <div className="p-8 text-center text-gray-400">Loading...</div>
+              <div className="p-8 text-center text-gray-400">
+                <div className="inline-block w-5 h-5 border-2 border-gray-200 rounded-full animate-spin mb-2" style={{ borderTopColor: RHS_GREEN }} />
+                <p className="text-sm">Loading...</p>
+              </div>
             ) : passes.length === 0 ? (
-              <div className="p-8 text-center text-gray-400">No passes yet</div>
+              <div className="p-8 text-center text-gray-400">
+                <p className="text-sm">No passes for {filterLabel.toLowerCase()}</p>
+                <button onClick={() => handleFilterChange('all')} className="mt-2 text-xs underline" style={{ color: RHS_GREEN }}>
+                  View all time →
+                </button>
+              </div>
             ) : (
               <table className="w-full text-sm">
                 <thead>
@@ -255,7 +339,6 @@ export default function Log() {
                             <span className="status-returned px-2 py-1 bg-green-50 text-green-700 rounded-md text-xs font-medium">Returned</span>
                           )}
                         </td>
-                        {/* Check In button — only for active Out passes, not late passes */}
                         <td className="no-print px-2 py-3 whitespace-nowrap">
                           {isOut && !isLatePass && (
                             <button
