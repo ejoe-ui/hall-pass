@@ -8,7 +8,7 @@
   BACKEND: Supabase (teachers, students, passes, conflict_groups, do_not_let_out, settings)
   AUTH:    Password-based. Default passcode = room number doubled (room 27 → "2727").
            Teachers must change password on first login (must_change_password flag).
-  UPDATED: 2026-06-21
+  UPDATED: 2026-06-21 — expanded pass log filters + school-wide export/print
 */
 
 'use client'
@@ -17,6 +17,37 @@ import { supabase } from '../../lib/supabase'
 import * as XLSX from 'xlsx'
 
 const RHS_GREEN = '#006938'
+
+const LOG_FILTER_OPTIONS = [
+  { id: 'today',    label: 'Today' },
+  { id: 'week',     label: 'This Week' },
+  { id: 'month',    label: 'This Month' },
+  { id: 'quarter',  label: 'This Quarter' },
+  { id: 'semester', label: 'This Semester' },
+  { id: 'all',      label: 'All Time' },
+]
+
+function getLogStartDate(period) {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const d = now.getDate()
+  switch (period) {
+    case 'today':   return new Date(y, m, d)
+    case 'week': {
+      const day = now.getDay()
+      return new Date(y, m, d - (day === 0 ? 6 : day - 1))
+    }
+    case 'month':   return new Date(y, m, 1)
+    case 'quarter': return new Date(y, Math.floor(m / 3) * 3, 1)
+    case 'semester': {
+      const semStart = m >= 7 ? 7 : 1
+      const semYear  = m >= 7 ? y : (m < 1 ? y - 1 : y)
+      return new Date(semYear, semStart, 1)
+    }
+    default: return null
+  }
+}
 
 function getStudentPhotoUrl(student) {
   if (!student) return null
@@ -78,6 +109,7 @@ export default function AdminPanel() {
   const [passes, setPasses] = useState([])
   const [logFilter, setLogFilter] = useState('today')
   const [checkingIn, setCheckingIn] = useState(null)
+  const [teacherMap, setTeacherMap] = useState({})
 
   // ── Conflict groups ───────────────────────────────────────────────────────
   const [groups, setGroups] = useState([])
@@ -418,17 +450,52 @@ export default function AdminPanel() {
   async function loadPasses(filter) {
     const f = filter || logFilter
     let query = supabase.from('passes').select('*').order('time_out', { ascending: false })
-    if (f === 'today') {
-      const today = new Date(); today.setHours(0,0,0,0)
-      query = query.gte('time_out', today.toISOString())
-    }
-    const { data: passData } = await query.limit(100)
+    const start = getLogStartDate(f)
+    if (start) query = query.gte('time_out', start.toISOString())
+    const { data: passData } = await query.limit(500)
     if (!passData) return
+
     const studentIds = [...new Set(passData.map(p => p.student_id))]
+    const teacherIds = [...new Set(passData.map(p => p.teacher_id).filter(Boolean))]
+
     const { data: studs } = await supabase.from('students').select('id, full_name').in('id', studentIds)
+    const { data: tchrs } = teacherIds.length
+      ? await supabase.from('teachers').select('id, name, room').in('id', teacherIds)
+      : { data: [] }
+
     const studMap = {}
     if (studs) studs.forEach(s => studMap[s.id] = s.full_name)
-    setPasses(passData.map(p => ({ ...p, students: { full_name: studMap[p.student_id] || 'Unknown' } })))
+    const tMap = {}
+    if (tchrs) { tchrs.forEach(t => tMap[t.id] = t); setTeacherMap(tMap) }
+
+    setPasses(passData.map(p => ({
+      ...p,
+      students: { full_name: studMap[p.student_id] || 'Unknown' },
+      teacherInfo: p.teacher_id ? tMap[p.teacher_id] : null,
+    })))
+  }
+
+  function exportAdminCSV() {
+    const label = LOG_FILTER_OPTIONS.find(o => o.id === logFilter)?.label || 'All'
+    const headers = ['Student', 'Date', 'Reason', 'Out', 'In', 'Duration (min)', 'Room', 'Teacher', 'Period', 'Type']
+    const rows = passes.map(p => [
+      p.students?.full_name || p.student_id,
+      new Date(p.time_out).toLocaleDateString(),
+      `"${(p.reason || '').replace(/"/g, '""')}"`,
+      new Date(p.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      p.time_in ? new Date(p.time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+      p.duration_minutes || '',
+      p.room || '',
+      p.teacherInfo ? `${p.teacherInfo.name} (Rm ${p.teacherInfo.room})` : p.teacher_id ? 'Teacher' : 'Kiosk',
+      p.period || '',
+      p.pass_type === 'late_pass' ? 'Late Pass' : 'Hall Pass'
+    ])
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `passable-school-log-${label.replace(/\s/g,'-').toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
   }
 
   async function checkInPass(passId) {
@@ -1176,39 +1243,59 @@ export default function AdminPanel() {
         {/* ── PASS LOG ── */}
         {activeTab === 'log' && (
           <>
-            <div className="flex gap-2 mb-4">
-              {['today', 'all'].map(f => (
-                <button key={f} onClick={() => { setLogFilter(f); loadPasses(f) }}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border ${logFilter === f ? 'text-white border-transparent' : 'text-gray-500 bg-white border-gray-200'}`}
-                  style={logFilter === f ? { backgroundColor: RHS_GREEN } : {}}>
-                  {f === 'today' ? 'Today' : 'All Time'}
+            {/* Filter + actions row */}
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              {LOG_FILTER_OPTIONS.map(opt => (
+                <button key={opt.id}
+                  onClick={() => { setLogFilter(opt.id); loadPasses(opt.id) }}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${logFilter === opt.id ? 'text-white border-transparent' : 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'}`}
+                  style={logFilter === opt.id ? { backgroundColor: RHS_GREEN } : {}}>
+                  {opt.label}
                 </button>
               ))}
-              <a href="/log" className="ml-auto text-xs text-gray-400 hover:text-gray-600 flex items-center">Full Log & Export →</a>
+              <div className="ml-auto flex gap-2">
+                <button onClick={exportAdminCSV}
+                  disabled={passes.length === 0}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                  Export CSV
+                </button>
+                <button onClick={() => window.print()}
+                  disabled={passes.length === 0}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                  Print
+                </button>
+              </div>
             </div>
+
             <div className="bg-white rounded-xl border border-gray-200">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Pass Log ({passes.length})</p>
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>
+                  School-Wide Pass Log ({passes.length}{passes.length === 500 ? '+' : ''})
+                </p>
+                <p className="text-xs text-gray-400">All classrooms · {LOG_FILTER_OPTIONS.find(o => o.id === logFilter)?.label}</p>
               </div>
               {passes.length === 0 ? (
                 <div className="p-8 text-center text-gray-400 text-sm">No passes found</div>
               ) : passes.map(p => {
                 const isOut = !p.time_in
                 const duration = p.duration_minutes != null ? `${p.duration_minutes}m` : isOut ? 'Out' : '—'
+                const teacherLabel = p.teacherInfo
+                  ? `${p.teacherInfo.name} · Rm ${p.teacherInfo.room}`
+                  : p.teacher_id ? 'Teacher' : 'Kiosk'
                 return (
                   <div key={p.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <div className="text-sm text-gray-800">{p.students?.full_name || 'Unknown'}</div>
-                      <div className="text-xs text-gray-400">
-                        {p.reason} · Period {p.period} · {new Date(p.time_out).toLocaleDateString()} {new Date(p.time_out).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
+                      <div className="text-xs text-gray-400 truncate">
+                        {p.reason} · P{p.period} · {teacherLabel} · {new Date(p.time_out).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} {new Date(p.time_out).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
                       </div>
                     </div>
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${p.time_in ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${p.time_in ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
                       {duration}
                     </span>
                     {isOut && (
                       <button onClick={() => checkInPass(p.id)} disabled={checkingIn === p.id}
-                        className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-40"
+                        className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-40 flex-shrink-0"
                         style={{ backgroundColor: RHS_GREEN }}>
                         {checkingIn === p.id ? '...' : 'Check In'}
                       </button>
@@ -1217,6 +1304,9 @@ export default function AdminPanel() {
                 )
               })}
             </div>
+            {passes.length === 500 && (
+              <p className="text-xs text-gray-400 text-center mt-2">Showing first 500 passes — narrow the date range to see all.</p>
+            )}
           </>
         )}
 
