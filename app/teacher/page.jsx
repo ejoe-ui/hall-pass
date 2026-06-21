@@ -369,6 +369,7 @@ function TeacherInner() {
 
   // Help modal
   const [showHelp, setShowHelp] = useState(false)
+  const [helpSearch, setHelpSearch] = useState('')
 
   // First-login forced password change
   const [mustChangePassword, setMustChangePassword] = useState(false)
@@ -960,86 +961,120 @@ function TeacherInner() {
       )}
 
       {/* ── Help Modal ── */}
-      {showHelp && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-xl max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-lg font-semibold text-gray-800">PassAble Help</h2>
-              <button onClick={() => setShowHelp(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-            </div>
-            <div className="overflow-y-auto px-6 py-4 flex flex-col gap-5">
-
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Getting Started</p>
-                <div className="flex flex-col gap-3">
-                  <div><p className="text-sm font-medium text-gray-800">What's my passcode?</p><p className="text-xs text-gray-500 mt-0.5">Your default passcode is your room number doubled — Room 27 → <span className="font-mono">2727</span>, Room 30 → <span className="font-mono">3030</span>. You were prompted to change it on first login. If you're locked out, contact your admin.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">How do I switch periods?</p><p className="text-xs text-gray-500 mt-0.5">Use the period dropdown in the top-right of the header to switch between your class periods at any time — no need to sign out or go back.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">I don't see any students.</p><p className="text-xs text-gray-500 mt-0.5">Your roster hasn't been imported yet for this period. <a href={`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`} style={{ color: RHS_GREEN, textDecoration: 'underline' }}>Import your roster here →</a> — you'll upload your Aeries class roster Excel file. It takes about 30 seconds.</p></div>
-                </div>
+      {showHelp && (() => {
+        const lnk = (href, label) => <a href={href} onClick={() => setShowHelp(false)} style={{ color: RHS_GREEN, textDecoration: 'underline' }}>{label}</a>
+        const settingsBtn = <button onClick={() => { setShowHelp(false); setShowSettings(true); setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100) }} style={{ color: RHS_GREEN, textDecoration: 'underline', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 'inherit', fontWeight: 600 }}>⚙️ Show Settings</button>
+        const ALL_SECTIONS = [
+          { title: 'Getting Started', items: [
+            { q: "What's my passcode?", keys: "passcode room number login sign in default",
+              a: <>Your default passcode is your room number doubled — Room 27 → <span className="font-mono">2727</span>, Room 30 → <span className="font-mono">3030</span>. You were prompted to change it on first login. If you're locked out, contact your admin.</> },
+            { q: "How do I switch periods?", keys: "period switch dropdown header class",
+              a: <>Use the period dropdown in the top-right of the header to switch between your class periods at any time — no need to sign out or go back.</> },
+            { q: "I don't see any students.", keys: "no students roster empty import period",
+              a: <>Your roster hasn't been imported yet for this period. {lnk(`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`, 'Import your roster here →')} — upload your Aeries class roster Excel file. It takes about 30 seconds.</> },
+          ]},
+          { title: 'Hall Passes', items: [
+            { q: "How do I check out a student?", keys: "checkout send pass reason dropdown",
+              a: <>Select the student's name and a reason from the dropdowns, then click <strong>Send</strong>. If Printable Passes is on (in {settingsBtn}), a pass will print to your default printer automatically.</> },
+            { q: "How do I check a student back in?", keys: "return check in student back",
+              a: <>Click <strong>Return</strong> next to their name in the Students Out list. Or they can check back in at the classroom kiosk when they return.</> },
+            { q: "What does the red timer mean?", keys: "red timer 10 minutes alert over limit",
+              a: <>A student has been out for 10+ minutes. The alert at the top of the page lists their name.</> },
+            { q: "What's a Do Not Let Out (DNLO) flag?", keys: "do not let out dnlo flag restrict admin override",
+              a: <>Admin or you can flag students who shouldn't leave class. If you try to check one out, a red warning appears and you'll need to confirm an override — which gets logged. Manage your list at {lnk('/teacher/dnlo', 'Do Not Let Out →')}.</> },
+          ]},
+          { title: 'Late Passes & Pull Passes', items: [
+            { q: "What's a Late Pass?", keys: "late pass receipt printer arrive tardy destination teacher",
+              a: <>For students arriving late to another teacher's class. Click <strong>Issue Late Pass</strong>, select the student(s) and the destination teacher. A receipt prints to your default printer — one per student. The student is not expected to return to your room. If you'd like to set up a dedicated receipt printer, talk to Mr. Joe.</> },
+            { q: "What's a Pull Pass / Request Student?", keys: "pull pass request student release slip another room",
+              a: <>Use this when you need to pull a student from another teacher's room. Fill in the student's name, who they're currently with, and your purpose. A formal release slip prints — send a student to deliver it to the other room.</> },
+          ]},
+          { title: 'Kiosk & Self-Checkout', items: [
+            { q: "What's the Kiosk?", keys: "kiosk tablet door check out in tap name record dashboard",
+              a: <>A tablet or dedicated computer at your classroom door where students check themselves out and back in. Students tap their name to check out — it's recorded instantly and shows up on your dashboard. When they return to class, they tap to check back in, which is also recorded. Your kiosk link is in {settingsBtn} → Kiosk URL.</> },
+            { q: "What's Self-Checkout Mode?", keys: "self checkout phone laptop code session california law",
+              a: <>Students go to <span className="font-mono text-xs">hall-pass-lime.vercel.app/self-checkout</span> and enter the 4-digit session code shown on your dashboard. Works on school laptops. Note: students may not be able to use personal phones in class under California law — we're still testing this flow.</> },
+          ]},
+          { title: 'Settings', items: [
+            { q: "How do I access Settings?", keys: "settings open show hide access find scroll",
+              a: <>Scroll to the bottom of your dashboard and click {settingsBtn}. All your options will expand below. Click <strong>🔒 Hide Settings</strong> to collapse them when you're done.</> },
+            { q: "What's the Sub Code?", keys: "sub code substitute teacher login classroom 4 digit",
+              a: <>A 4-digit code tied to your classroom that a substitute teacher can use to log in without your password. Set it in {settingsBtn} so your sub can track passes while you're out.</> },
+            { q: "What's Block First & Last 15 Min?", keys: "block 15 minutes first last period red status bar warn",
+              a: <>When on, the status bar turns red at the start and end of each period as a reminder not to let students out. It doesn't block checkout — just warns you and the students.</> },
+            { q: "What's Printable Passes?", keys: "printable passes print default off automatic",
+              a: <>Off by default. When turned on in {settingsBtn}, a printable pass opens automatically and sends to your default printer every time a student is checked out.</> },
+            { q: "How do I change my password?", keys: "password change update reset minimum characters",
+              a: <>Open {settingsBtn} → Change Password. Minimum 8 characters.</> },
+          ]},
+          { title: 'Pages & Tools', items: [
+            { q: "Manage Students", keys: "manage students edit name fix lookup periods enrolled",
+              a: <>{lnk('/admin/students', 'Manage Students →')} lets you view, search, and edit student records. Use it to fix a name spelling, look up a student, or check which periods they're enrolled in.</> },
+            { q: "Print QR Badges", keys: "qr badges print scan camera kiosk id",
+              a: <>{lnk('/qr', 'Print QR Badges →')} generates a printable sheet of QR code ID badges for your students. Students can use these to scan in and out at the kiosk using a camera instead of tapping their name on screen.</> },
+            { q: "Pass Log", keys: "pass log history record who when how long reason save print",
+              a: <>{lnk('/log', 'Pass Log →')} shows a full history of every hall pass issued from your classroom — who went out, when, how long they were gone, and the reason. Useful for tracking patterns or following up with a student. You can also save or print your log directly from that page.</> },
+            { q: "Do Not Let Out List", keys: "do not let out dnlo list personal admin school wide",
+              a: <>{lnk('/teacher/dnlo', 'Do Not Let Out →')} is where you manage your personal list of students who shouldn't leave your classroom. Admin can also add students here school-wide.</> },
+            { q: "Open Kiosk", keys: "open kiosk fullscreen door return back teacher dashboard unlock",
+              a: <>Opens your classroom kiosk on this device in full screen. Students use it to check themselves out and back in. To return to your teacher dashboard from the kiosk, use your teacher unlock QR (found in {settingsBtn} → Teacher Unlock QR) or navigate directly to {lnk('/teacher', 'hall-pass-lime.vercel.app/teacher')}.</> },
+            { q: "Import Roster", keys: "import roster aeries excel upload students period",
+              a: <>{lnk(`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`, 'Import Roster →')} is where you upload your Aeries class roster Excel file to populate your student list for each period.</> },
+            { q: "Analytics", keys: "analytics trends pass count reason busiest time pattern",
+              a: <>{lnk(`/analytics?teacher_id=${currentTeacher?.id || ''}`, 'Analytics →')} (in the header) shows pass trends for your classroom — busiest times, most frequent reasons, and students with high pass counts.</> },
+          ]},
+          { title: 'Locked Out?', items: [
+            { q: "I can't sign in.", keys: "locked out cant sign in password forgot reset admin",
+              a: <>Contact your admin — they can reset your passcode from the admin panel in about 30 seconds. Your data is safe.</> },
+          ]},
+        ]
+        const q = helpSearch.trim().toLowerCase()
+        const filtered = q
+          ? ALL_SECTIONS.map(s => ({ ...s, items: s.items.filter(i => (s.title + i.q + i.keys).toLowerCase().includes(q)) })).filter(s => s.items.length > 0)
+          : ALL_SECTIONS
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl max-w-md w-full shadow-xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <h2 className="text-lg font-semibold text-gray-800">PassAble Relay Station Help</h2>
+                <button onClick={() => { setShowHelp(false); setHelpSearch('') }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
               </div>
-
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Hall Passes</p>
-                <div className="flex flex-col gap-3">
-                  <div><p className="text-sm font-medium text-gray-800">How do I check out a student?</p><p className="text-xs text-gray-500 mt-0.5">Select the student's name and a reason from the dropdowns, then click <strong>Send</strong>. If Printable Passes is on (in Settings), a pass will print to your default printer automatically.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">How do I check a student back in?</p><p className="text-xs text-gray-500 mt-0.5">Click <strong>Return</strong> next to their name in the Students Out list. Or they can check back in at the classroom kiosk when they return.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">What does the red timer mean?</p><p className="text-xs text-gray-500 mt-0.5">A student has been out for 10+ minutes. The alert at the top of the page lists their name.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">What's a Do Not Let Out (DNLO) flag?</p><p className="text-xs text-gray-500 mt-0.5">Admin or you can flag students who shouldn't leave class. If you try to check one out, a red warning appears and you'll need to confirm an override — which gets logged.</p></div>
-                </div>
+              <div className="px-6 pt-3 pb-2">
+                <input
+                  type="search"
+                  placeholder="Search help topics…"
+                  value={helpSearch}
+                  onChange={e => setHelpSearch(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 outline-none"
+                  style={{ '--tw-ring-color': RHS_GREEN }}
+                  autoComplete="off"
+                />
               </div>
-
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Late Passes & Pull Passes</p>
-                <div className="flex flex-col gap-3">
-                  <div><p className="text-sm font-medium text-gray-800">What's a Late Pass?</p><p className="text-xs text-gray-500 mt-0.5">For students arriving late to another teacher's class. Click <strong>Issue Late Pass</strong>, select the student(s) and the destination teacher. A receipt prints to your default printer — one per student. The student is not expected to return to your room. If you'd like to set up a dedicated receipt printer, talk to Mr. Joe.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">What's a Pull Pass / Request Student?</p><p className="text-xs text-gray-500 mt-0.5">Use this when you need to pull a student from another teacher's room. Fill in the student's name, who they're currently with, and your purpose. A formal release slip prints — send a student to deliver it to the other room.</p></div>
-                </div>
+              <div className="overflow-y-auto px-6 py-3 flex flex-col gap-5">
+                {filtered.length === 0 && (
+                  <p className="text-sm text-gray-400 text-center py-6">No results for "{helpSearch}"</p>
+                )}
+                {filtered.map(section => (
+                  <div key={section.title}>
+                    <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>{section.title}</p>
+                    <div className="flex flex-col gap-3">
+                      {section.items.map(item => (
+                        <div key={item.q}>
+                          <p className="text-sm font-medium text-gray-800">{item.q}</p>
+                          <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{item.a}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
-
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Kiosk & Self-Checkout</p>
-                <div className="flex flex-col gap-3">
-                  <div><p className="text-sm font-medium text-gray-800">What's the Kiosk?</p><p className="text-xs text-gray-500 mt-0.5">A tablet or dedicated computer at your classroom door where students check themselves out and back in. Students tap their name to check out — it's recorded instantly and shows up on your dashboard. When they return to class, they tap to check back in, which is also recorded. Your kiosk link is in Settings → Kiosk URL.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">What's Self-Checkout Mode?</p><p className="text-xs text-gray-500 mt-0.5">Students go to <span className="font-mono text-xs">hall-pass-lime.vercel.app/self-checkout</span> and enter the 4-digit session code shown on your dashboard. Works on school laptops. Note: students may not be able to use personal phones in class under California law — we're still testing this flow.</p></div>
-                </div>
+              <div className="px-6 py-4 border-t border-gray-100">
+                <button onClick={() => { setShowHelp(false); setHelpSearch('') }} className="w-full py-2.5 text-sm font-medium rounded-xl text-white" style={{ backgroundColor: RHS_GREEN }}>Got it</button>
               </div>
-
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Settings</p>
-                <div className="flex flex-col gap-3">
-                  <div><p className="text-sm font-medium text-gray-800">How do I access Settings?</p><p className="text-xs text-gray-500 mt-0.5">Scroll to the bottom of your dashboard and click <strong>⚙️ Show Settings</strong>. All your options will expand below. Click <strong>🔒 Hide Settings</strong> to collapse them again when you're done.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">What's the Sub Code?</p><p className="text-xs text-gray-500 mt-0.5">A 4-digit code tied to your classroom that a substitute teacher can use to log in without your password. Set it in Settings so your sub can take attendance and track passes while you're out.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">What's Block First & Last 15 Min?</p><p className="text-xs text-gray-500 mt-0.5">When on, the status bar turns red at the start and end of each period as a reminder not to let students out. It doesn't block checkout — just warns you and the students.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">What's Printable Passes?</p><p className="text-xs text-gray-500 mt-0.5">Off by default. When turned on in Settings, a printable pass opens automatically and sends to your default printer every time a student is checked out.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">How do I change my password?</p><p className="text-xs text-gray-500 mt-0.5">Scroll down → <strong>⚙️ Show Settings</strong> → Change Password. Minimum 8 characters.</p></div>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Pages & Tools</p>
-                <div className="flex flex-col gap-3">
-                  <div><p className="text-sm font-medium text-gray-800">Manage Students</p><p className="text-xs text-gray-500 mt-0.5"><a href="/admin/students" style={{ color: RHS_GREEN, textDecoration: 'underline' }}>Manage Students →</a> lets you view, search, and edit student records across all classrooms. Use it to fix a name spelling, look up a student, or check which periods they're enrolled in.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">Print QR Badges</p><p className="text-xs text-gray-500 mt-0.5"><a href="/qr" style={{ color: RHS_GREEN, textDecoration: 'underline' }}>Print QR Badges →</a> generates a printable sheet of QR code ID badges for your students. Students can use these to scan in and out at the kiosk instead of tapping their name on screen.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">Pass Log</p><p className="text-xs text-gray-500 mt-0.5"><a href="/log" style={{ color: RHS_GREEN, textDecoration: 'underline' }}>Pass Log →</a> shows a full history of every hall pass issued from your classroom — who went out, when, how long they were gone, and the reason. Useful for tracking patterns or following up with a student.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">Do Not Let Out List</p><p className="text-xs text-gray-500 mt-0.5"><a href="/teacher/dnlo" style={{ color: RHS_GREEN, textDecoration: 'underline' }}>Do Not Let Out →</a> is where you manage your personal list of students who shouldn't leave your classroom. Admin can also add students here school-wide.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">Open Kiosk</p><p className="text-xs text-gray-500 mt-0.5">Opens your classroom kiosk on this device in full screen. Students use it to check themselves out and back in at the door. To return to your teacher dashboard from the kiosk, use your teacher unlock QR code (found in Settings) or navigate directly to <a href="/teacher" style={{ color: RHS_GREEN, textDecoration: 'underline' }}>hall-pass-lime.vercel.app/teacher</a>.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">Import Roster</p><p className="text-xs text-gray-500 mt-0.5"><a href={`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`} style={{ color: RHS_GREEN, textDecoration: 'underline' }}>Import Roster →</a> is where you upload your Aeries class roster Excel file to populate your student list for each period.</p></div>
-                  <div><p className="text-sm font-medium text-gray-800">Analytics</p><p className="text-xs text-gray-500 mt-0.5"><a href={`/analytics?teacher_id=${currentTeacher?.id || ''}`} style={{ color: RHS_GREEN, textDecoration: 'underline' }}>Analytics →</a> (in the header) shows pass trends for your classroom — busiest times, most frequent reasons, and students with high pass counts.</p></div>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>Locked Out?</p>
-                <div><p className="text-sm font-medium text-gray-800">I can't sign in.</p><p className="text-xs text-gray-500 mt-0.5">Contact your admin — they can reset your passcode from the admin panel in about 30 seconds. Your data is safe.</p></div>
-              </div>
-
-            </div>
-            <div className="px-6 py-4 border-t border-gray-100">
-              <button onClick={() => setShowHelp(false)} className="w-full py-2.5 text-sm font-medium rounded-xl text-white" style={{ backgroundColor: RHS_GREEN }}>Got it</button>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ── Late Pass Modal ── */}
       {showLatePass && (
