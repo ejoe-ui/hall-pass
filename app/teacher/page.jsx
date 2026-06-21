@@ -114,6 +114,16 @@ function getCheckoutStatus(periodInfo){
   return 'ok';
 }
 
+// ── Photo URL resolver (mirrors admin/students logic) ─────────────────────────
+// Prefers photo_url (direct), falls back to photo_file (Supabase storage)
+function getStudentPhotoUrl(student) {
+  if (!student) return null
+  if (student.photo_url) return student.photo_url
+  if (!student.photo_file) return null
+  const { data } = supabase.storage.from('student-photos').getPublicUrl(student.photo_file)
+  return data?.publicUrl || null
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 const RHS_GREEN = '#006938'
 const TIME_LIMIT = 10
@@ -686,7 +696,7 @@ function TeacherInner() {
     const studentIds = spRows?.map(r => r.student_id) || []
 
     const { data: rawStuds } = studentIds.length > 0
-      ? await supabase.from('students').select('id, full_name, last_name, photo_url').in('id', studentIds).order('first_name')
+      ? await supabase.from('students').select('id, full_name, last_name, photo_url, photo_file').in('id', studentIds).order('first_name')
       : { data: [] }
 
     // Deduplicate by id — prefer row with photo_url
@@ -737,7 +747,7 @@ function TeacherInner() {
     const { data: missed } = await missedQuery
     if (!missed) return
     const ids = [...new Set(missed.map(p => p.student_id))]
-    const { data: studs } = await supabase.from('students').select('id, full_name, photo_url').in('id', ids)
+    const { data: studs } = await supabase.from('students').select('id, full_name, photo_url, photo_file').in('id', ids)
     const studMap = {}
     if (studs) studs.forEach(s => studMap[s.id] = s)
     setMissedPasses(missed.map(p => ({ ...p, students: studMap[p.student_id] || null })))
@@ -1270,8 +1280,8 @@ function TeacherInner() {
             const isLatePass = pass.pass_type === 'late_pass'
             return (
               <div key={pass.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 ${isLatePass ? 'bg-blue-50' : ''}`}>
-                {student?.photo_url
-                  ? <img src={student.photo_url} alt={student.full_name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                {getStudentPhotoUrl(student)
+                  ? <img src={getStudentPhotoUrl(student)} alt={student.full_name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
                   : <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white" style={{ backgroundColor: isLatePass ? '#1d4ed8' : RHS_GREEN }}>
                       {student?.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
                     </div>
@@ -1374,8 +1384,8 @@ function TeacherInner() {
               const timeOut = new Date(pass.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               return (
                 <div key={pass.id} className="flex items-center gap-3 px-4 py-3 border-b border-orange-50 last:border-0">
-                  {pass.students?.photo_url
-                    ? <img src={pass.students.photo_url} alt={name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                  {getStudentPhotoUrl(pass.students)
+                    ? <img src={getStudentPhotoUrl(pass.students)} alt={name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
                     : <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white bg-orange-400">{initials}</div>
                   }
                   <div className="flex-1">
