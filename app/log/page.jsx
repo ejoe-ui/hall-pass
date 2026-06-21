@@ -1,11 +1,10 @@
 /*
   PassAble — RHS Hall Pass System
-  FILE:    app/admin/photos/page.jsx
-  ROUTE:   /admin/photos
-  PURPOSE: Bulk Lifetouch photo importer — matches against ALL students school-wide,
-           not just the logged-in teacher's room. Drop the entire school photo dump in once.
+  FILE:    app/log/page.jsx
+  ROUTE:   /log
+  PURPOSE: Teacher's full pass log with time-period filters, export CSV, and print.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
-  BACKEND: Supabase (students table, student-photos storage bucket)
+  BACKEND: Supabase (passes, students, teachers, student_periods)
   UPDATED: 2026-06-21
 */
 
@@ -15,205 +14,358 @@ import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
 
-export default function PhotoUpload() {
+const FILTER_OPTIONS = [
+  { id: 'today',    label: 'Today' },
+  { id: 'week',     label: 'This Week' },
+  { id: 'month',    label: 'This Month' },
+  { id: 'quarter',  label: 'This Quarter' },
+  { id: 'semester', label: 'This Semester' },
+  { id: 'all',      label: 'All Time' },
+]
+
+function getStartDate(period) {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  const d = now.getDate()
+  switch (period) {
+    case 'today':
+      return new Date(y, m, d)
+    case 'week': {
+      const day = now.getDay() // 0=Sun
+      const monday = new Date(y, m, d - (day === 0 ? 6 : day - 1))
+      return monday
+    }
+    case 'month':
+      return new Date(y, m, 1)
+    case 'quarter': {
+      // Jan/Apr/Jul/Oct
+      const quarterStart = Math.floor(m / 3) * 3
+      return new Date(y, quarterStart, 1)
+    }
+    case 'semester': {
+      // Fall semester starts Aug (7), Spring starts Feb (1)
+      const semStart = m >= 7 ? 7 : 1
+      const semYear = m >= 7 ? y : (m < 1 ? y - 1 : y)
+      return new Date(semYear, semStart, 1)
+    }
+    default:
+      return null
+  }
+}
+
+export default function Log() {
   const [currentTeacher, setCurrentTeacher] = useState(null)
-  const [status, setStatus] = useState([])
-  const [uploading, setUploading] = useState(false)
-  const [done, setDone] = useState(false)
-  const [showHelp, setShowHelp] = useState(false)
+  const [passes, setPasses] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [filterPeriod, setFilterPeriod] = useState('month')
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+  const [checkingIn, setCheckingIn] = useState(null)
 
   useEffect(() => {
-    async function loadTeacher() {
+    async function init() {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-      const { data } = await supabase
+      if (!session) { setLoading(false); return }
+      const { data: teacher } = await supabase
         .from('teachers')
         .select('*')
         .eq('auth_id', session.user.id)
         .eq('is_active', true)
         .maybeSingle()
-      if (data) setCurrentTeacher(data)
+      if (teacher) {
+        setCurrentTeacher(teacher)
+        await loadPasses(teacher, 'month')
+      } else {
+        setLoading(false)
+      }
     }
-    loadTeacher()
+    init()
   }, [])
 
-  async function handleFiles(e) {
-    const files = Array.from(e.target.files)
-    setUploading(true)
-    setDone(false)
-    setStatus([])
+  async function loadPasses(teacher, period) {
+    setLoading(true)
 
-    // Load ALL students school-wide — not filtered by room
-    const { data: students } = await supabase
-      .from('students')
-      .select('id, first_name, last_name, full_name')
+    const { data: spRows } = await supabase
+      .from('student_periods')
+      .select('student_id')
+      .eq('room', teacher.room || '27')
 
-    const log = []
+    const studentIds = [...new Set(spRows?.map(r => r.student_id) || [])]
 
-    for (const file of files) {
-      if (!file.name.endsWith('.jpg') && !file.name.endsWith('.jpeg')) continue
+    let passData = []
+    if (studentIds.length > 0) {
+      let query = supabase
+        .from('passes')
+        .select('*')
+        .in('student_id', studentIds)
+        .order('time_out', { ascending: false })
 
-      // Filename format: 0043_LastName_FirstName_01.jpg
-      const parts = file.name.replace(/\.jpe?g$/i, '').split('_')
-      if (parts.length < 3) continue
+      const start = getStartDate(period)
+      if (start) query = query.gte('time_out', start.toISOString())
 
-      const firstName = parts[parts.length - 2]
-      const lastName = parts.slice(1, parts.length - 2).join(' ')
-
-      const match = students?.find(s => {
-        const sFirst = s.first_name?.toLowerCase().trim()
-        const sLast  = s.last_name?.toLowerCase().trim()
-        const fFirst = firstName?.toLowerCase().trim()
-        const fLast  = lastName?.toLowerCase().trim()
-        return sFirst === fFirst && sLast === fLast
-      })
-
-      if (!match) {
-        log.push({ name: file.name, status: 'skip', msg: `No match for ${firstName} ${lastName}` })
-        continue
-      }
-
-      const path = `${match.id}.jpg`
-      const { error: uploadError } = await supabase.storage
-        .from('student-photos')
-        .upload(path, file, { upsert: true, contentType: 'image/jpeg' })
-
-      if (uploadError) {
-        log.push({ name: file.name, status: 'error', msg: uploadError.message })
-        continue
-      }
-
-      const { error: updateError } = await supabase
-        .from('students')
-        .update({ photo_file: path })
-        .eq('id', match.id)
-
-      if (updateError) {
-        log.push({ name: file.name, status: 'error', msg: updateError.message })
-      } else {
-        log.push({ name: file.name, status: 'ok', msg: `✓ ${match.full_name}` })
-      }
+      const { data } = await query
+      passData = data || []
     }
 
-    setStatus(log)
-    setUploading(false)
-    setDone(true)
+    const { data: studData } = await supabase.from('students').select('id, full_name')
+    const { data: teacherData } = await supabase.from('teachers').select('id, name, room')
+
+    const studMap = {}
+    if (studData) studData.forEach(s => studMap[s.id] = s)
+    const teacherMap = {}
+    if (teacherData) teacherData.forEach(t => teacherMap[t.id] = t)
+
+    const enriched = passData.map(p => ({
+      ...p,
+      students: studMap[p.student_id] || null,
+      teacher: p.teacher_id ? teacherMap[p.teacher_id] || null : null,
+    }))
+
+    setPasses(enriched)
+    setLoading(false)
   }
 
-  const matched = status.filter(s => s.status === 'ok').length
-  const skipped = status.filter(s => s.status === 'skip').length
-  const errors  = status.filter(s => s.status === 'error').length
+  function handleFilterChange(period) {
+    setFilterPeriod(period)
+    if (currentTeacher) loadPasses(currentTeacher, period)
+  }
+
+  async function checkInPass(passId) {
+    setCheckingIn(passId)
+    const pass = passes.find(p => p.id === passId)
+    const mins = pass ? Math.floor((new Date() - new Date(pass.time_out)) / 60000) : 0
+    await supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', passId)
+    setPasses(prev => prev.map(p => p.id === passId
+      ? { ...p, time_in: new Date().toISOString(), duration_minutes: mins }
+      : p
+    ))
+    setCheckingIn(null)
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return
+    setDeleting(true)
+    await supabase.from('passes').delete().eq('id', deleteTarget.id)
+    setPasses(prev => prev.filter(p => p.id !== deleteTarget.id))
+    setDeleteTarget(null)
+    setDeleting(false)
+  }
+
+  function fmt(ts) {
+    if (!ts) return '—'
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
+  function fmtDate(ts) {
+    return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' })
+  }
+
+  function exportCSV() {
+    const label = FILTER_OPTIONS.find(o => o.id === filterPeriod)?.label || 'All'
+    const headers = ['Student', 'Date', 'Reason', 'Time Out', 'Time In', 'Duration (min)', 'Room', 'Teacher', 'Period', 'Type']
+    const rows = passes.map(p => [
+      p.students?.full_name || p.student_id,
+      fmtDate(p.time_out),
+      `"${(p.reason || '').replace(/"/g, '""')}"`,
+      fmt(p.time_out),
+      fmt(p.time_in),
+      p.duration_minutes || '',
+      p.room,
+      p.teacher ? `${p.teacher.name} (Rm ${p.teacher.room})` : p.teacher_id ? 'Teacher' : 'Kiosk',
+      p.period,
+      p.pass_type === 'late_pass' ? 'Late Pass' : 'Hall Pass'
+    ])
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `passes-rm${currentTeacher?.room || '27'}-${label.replace(/\s/g,'-').toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`
+    a.click()
+  }
+
+  const teacherName = currentTeacher?.name || 'Teacher'
+  const teacherRoom = currentTeacher?.room || '27'
+  const filterLabel = FILTER_OPTIONS.find(o => o.id === filterPeriod)?.label || 'All Time'
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <>
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { margin: 0; font-size: 11px; }
+          @page { margin: 10mm; size: letter landscape; }
+          .print-header { margin-bottom: 12px; }
+          table { width: 100%; border-collapse: collapse; font-size: 10px; }
+          th { border-bottom: 2px solid #000; padding: 4px 6px; text-align: left; font-weight: 600; }
+          td { border-bottom: 1px solid #e5e7eb; padding: 4px 6px; }
+          .status-returned { color: green; }
+          .status-out { color: red; }
+        }
+        .delete-col {
+          position: sticky;
+          right: 0;
+          background: white;
+          width: 40px;
+          min-width: 40px;
+        }
+        tr:hover .delete-col { background: #f9fafb; }
+        tr.late-row:hover .delete-col { background: #eff6ff; }
+      `}</style>
 
-      {/* ── Help Panel ── */}
-      {showHelp && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end p-4" onClick={() => setShowHelp(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl flex flex-col mt-16 mr-2"
-            style={{ width: 420, maxHeight: '85vh', border: '1px solid #e5e7eb' }}
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 rounded-t-2xl" style={{ backgroundColor: '#f9fafb' }}>
-              <div>
-                <p className="text-sm font-bold text-gray-800">Photo Import Help</p>
-                <p className="text-xs text-gray-400 mt-0.5">Lifetouch school photo import guide</p>
-              </div>
-              <button onClick={() => setShowHelp(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-            </div>
-            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
-              {[
-                { q: 'Do I need to do this for every teacher?', a: 'No. This page imports photos for the entire school at once. Drop in all the Lifetouch photos and it matches every student by name — regardless of which room they\'re in.' },
-                { q: 'Where do I get the Lifetouch photos?', a: 'Lifetouch provides a download link each year after school picture day. Download the full folder — it contains one .jpg file per student.' },
-                { q: 'What filename format does Lifetouch use?', a: 'Standard format is: 0043_LastName_FirstName_01.jpg — the number at the start and _01 at the end are ignored. Only the last name and first name are used for matching.' },
-                { q: 'Some photos say "Skipped."', a: 'Skipped means the name in the photo file didn\'t match any student in PassAble. Common causes: student not imported yet, or a name spelling mismatch between Lifetouch and Aeries (e.g., "Jose" vs "José"). You can upload individual photos from the Student Manager.' },
-                { q: 'We got new photos mid-year. Do I re-import?', a: 'Yes — just run this page again with the new files. The system uses upsert, so new photos replace old ones safely. No student data is lost.' },
-                { q: 'Where do photos show up after importing?', a: 'Photos appear on the teacher dashboard (student list and active pass cards), the kiosk check-in screen, the admin Students tab, and the Student Manager.' },
-                { q: 'Can a teacher upload their own student\'s photo?', a: 'Yes. From the teacher\'s Student Manager (roster page), click Edit next to a student and use the photo upload field. This sets photo_url which takes priority over the Lifetouch import.' },
-              ].map((item, i) => (
-                <div key={i} className="bg-gray-50 rounded-xl px-4 py-3">
-                  <p className="text-xs font-semibold text-gray-700 mb-1">{item.q}</p>
-                  <p className="text-xs text-gray-500 leading-relaxed">{item.a}</p>
-                </div>
-              ))}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 no-print">
+          <div className="bg-white rounded-2xl p-6 max-w-sm mx-4 shadow-xl">
+            <h2 className="text-lg font-semibold text-gray-800 mb-1">Delete this pass?</h2>
+            <p className="text-gray-500 text-sm mb-1">
+              <span className="font-medium text-gray-700">{deleteTarget.students?.full_name}</span> — {deleteTarget.reason}
+            </p>
+            <p className="text-gray-400 text-xs mb-5">{fmtDate(deleteTarget.time_out)} at {fmt(deleteTarget.time_out)}</p>
+            <div className="flex gap-3">
+              <button onClick={confirmDelete} disabled={deleting}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+                {deleting ? 'Deleting...' : 'Yes, delete'}
+              </button>
+              <button onClick={() => setDeleteTarget(null)}
+                className="flex-1 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50">
+                Cancel
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Header */}
-      <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
-        <div className="flex items-center gap-3">
-          <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
-          <div>
-            <h1 className="text-lg font-bold text-white">Photo Upload</h1>
-            <p className="text-green-200 text-xs">School-Wide · Lifetouch Import</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <button onClick={() => setShowHelp(true)} className="text-sm text-green-200 hover:text-white">❓ Help</button>
-          <a href="/admin" className="text-sm text-green-200 hover:text-white">← Admin Panel</a>
-        </div>
-      </div>
-
-      <div className="p-6 max-w-3xl mx-auto">
-        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-          <p className="text-sm font-medium mb-1" style={{ color: RHS_GREEN }}>Import Lifetouch Photos — All Students</p>
-          <p className="text-sm text-gray-500 mb-1">
-            Select all photo files from your Lifetouch download. Photos are matched by name against every student in the school — you only need to do this once per Lifetouch batch.
-          </p>
-          <div className="mb-4 px-3 py-2 bg-green-50 rounded-lg text-xs text-green-700">
-            💡 Drop in the entire school's photo folder. Skipped photos just mean that student isn't in PassAble yet — no harm done.
-          </div>
-          <input
-            type="file"
-            accept=".jpg,.jpeg"
-            multiple
-            onChange={handleFiles}
-            disabled={uploading}
-            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:text-white"
-            style={{ '--file-bg': RHS_GREEN }}
-          />
-          <p className="text-xs text-gray-400 mt-3">Expected filename format: <span className="font-mono">0043_LastName_FirstName_01.jpg</span></p>
-        </div>
-
-        {uploading && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6 text-center">
-            <div className="w-6 h-6 border-2 border-gray-200 rounded-full animate-spin mx-auto mb-3" style={{ borderTopColor: RHS_GREEN }} />
-            <p className="text-gray-500 text-sm">Uploading photos — please wait</p>
-          </div>
-        )}
-
-        {done && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-            <div className="grid grid-cols-3 gap-4 mb-4 pb-4 border-b border-gray-100">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-green-600">{matched}</p>
-                <p className="text-xs text-gray-500 mt-1">Matched</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-amber-500">{skipped}</p>
-                <p className="text-xs text-gray-500 mt-1">Skipped</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-red-500">{errors}</p>
-                <p className="text-xs text-gray-500 mt-1">Errors</p>
-              </div>
+      <div className="min-h-screen bg-gray-50">
+        {/* Header */}
+        <div className="px-6 py-4 flex items-center justify-between no-print" style={{ backgroundColor: RHS_GREEN }}>
+          <div className="flex items-center gap-3">
+            <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
+            <div>
+              <h1 className="text-lg font-bold text-white">Pass Log</h1>
+              <p className="text-green-200 text-xs">Room {teacherRoom} · {teacherName} · {passes.length} passes · {filterLabel}</p>
             </div>
-            <div className="max-h-64 overflow-y-auto">
-              {status.map((s, i) => (
-                <div key={i} className={`text-xs py-1.5 border-b border-gray-50 last:border-0 ${s.status === 'ok' ? 'text-green-600' : s.status === 'error' ? 'text-red-500' : 'text-gray-400'}`}>
-                  {s.msg} <span className="text-gray-300">({s.name})</span>
-                </div>
-              ))}
-            </div>
-            {skipped > 0 && (
-              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
-                ⚠ Skipped photos couldn't be matched to any student. This usually means the student isn't in PassAble yet, or the name in the photo filename doesn't exactly match what's in Aeries.
+          </div>
+          <div className="flex gap-3">
+            <button onClick={exportCSV}
+              className="px-4 py-2 text-sm border border-green-400 rounded-lg text-green-100 hover:bg-green-700">
+              Export CSV
+            </button>
+            <button onClick={() => window.print()}
+              className="px-4 py-2 text-sm border border-green-400 rounded-lg text-green-100 hover:bg-green-700">
+              Print
+            </button>
+            <a href="/teacher" className="px-4 py-2 text-sm bg-white text-green-800 rounded-lg font-medium hover:bg-green-50">
+              ← Dashboard
+            </a>
+          </div>
+        </div>
+
+        <div className="p-6 max-w-6xl mx-auto">
+
+          {/* Print header (hidden on screen) */}
+          <div className="print-header hidden print:block mb-4">
+            <h1 className="text-lg font-bold">Room {teacherRoom} · {teacherName} — RHS PassAble Pass Log</h1>
+            <p className="text-xs text-gray-500">Period: {filterLabel} · Printed {new Date().toLocaleDateString()} · {passes.length} passes</p>
+          </div>
+
+          {/* Time period filter */}
+          <div className="flex gap-2 mb-5 flex-wrap no-print">
+            {FILTER_OPTIONS.map(opt => (
+              <button key={opt.id}
+                onClick={() => handleFilterChange(opt.id)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${filterPeriod === opt.id ? 'text-white border-transparent' : 'text-gray-500 bg-white border-gray-200 hover:bg-gray-50'}`}
+                style={filterPeriod === opt.id ? { backgroundColor: RHS_GREEN } : {}}>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
+            {loading ? (
+              <div className="p-8 text-center text-gray-400">
+                <div className="inline-block w-5 h-5 border-2 border-gray-200 rounded-full animate-spin mb-2" style={{ borderTopColor: RHS_GREEN }} />
+                <p className="text-sm">Loading...</p>
               </div>
+            ) : passes.length === 0 ? (
+              <div className="p-8 text-center text-gray-400">
+                <p className="text-sm">No passes for {filterLabel.toLowerCase()}</p>
+                <button onClick={() => handleFilterChange('all')} className="mt-2 text-xs underline" style={{ color: RHS_GREEN }}>
+                  View all time →
+                </button>
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    {['Student', 'Date', 'Reason', 'Out', 'In', 'Duration', 'From', 'Status'].map((h, i) => (
+                      <th key={i} className="text-left text-xs font-medium text-gray-500 px-4 py-3 whitespace-nowrap">{h}</th>
+                    ))}
+                    <th className="no-print px-4 py-3" />
+                    <th className="delete-col no-print" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {passes.map(p => {
+                    const isLatePass = p.pass_type === 'late_pass'
+                    const isOut = !p.time_in
+                    const fromLabel = p.teacher
+                      ? `${p.teacher.name} · Rm ${p.teacher.room}`
+                      : p.teacher_id ? 'Teacher' : 'Kiosk'
+                    return (
+                      <tr key={p.id}
+                        className={`border-b border-gray-50 last:border-0 hover:bg-gray-50 group ${isLatePass ? 'late-row bg-blue-50 hover:bg-blue-100' : ''}`}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <a href={`/student/${p.student_id}`} className="font-medium text-gray-800 hover:text-green-700 hover:underline underline-offset-2 whitespace-nowrap">
+                              {p.students?.full_name || '—'}
+                            </a>
+                            {isLatePass && (
+                              <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium no-print">Late</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(p.time_out)}</td>
+                        <td className="px-4 py-3 text-gray-600 max-w-xs truncate">{p.reason}</td>
+                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(p.time_out)}</td>
+                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmt(p.time_in)}</td>
+                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{p.duration_minutes ? `${p.duration_minutes}m` : '—'}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{fromLabel}</td>
+                        <td className="px-4 py-3">
+                          {isLatePass ? (
+                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-md text-xs font-medium">Late Pass</span>
+                          ) : isOut ? (
+                            <span className="status-out px-2 py-1 bg-red-50 text-red-600 rounded-md text-xs font-medium">Out</span>
+                          ) : (
+                            <span className="status-returned px-2 py-1 bg-green-50 text-green-700 rounded-md text-xs font-medium">Returned</span>
+                          )}
+                        </td>
+                        <td className="no-print px-2 py-3 whitespace-nowrap">
+                          {isOut && !isLatePass && (
+                            <button
+                              onClick={() => checkInPass(p.id)}
+                              disabled={checkingIn === p.id}
+                              className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-40"
+                              style={{ backgroundColor: RHS_GREEN }}>
+                              {checkingIn === p.id ? '...' : 'Check In'}
+                            </button>
+                          )}
+                        </td>
+                        <td className="delete-col no-print px-2 py-3">
+                          <button onClick={() => setDeleteTarget(p)}
+                            className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-500 p-1 rounded"
+                            title="Delete pass">
+                            🗑
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             )}
           </div>
-        )}
+        </div>
       </div>
-    </div>
+    </>
   )
 }
