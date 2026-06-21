@@ -1,3 +1,16 @@
+/*
+  PassAble — RHS Hall Pass System
+  FILE:    app/teacher/page.jsx
+  ROUTE:   /teacher
+  PURPOSE: Teacher dashboard — hall pass checkout, student tracking, late passes,
+           pull passes, settings, schedule detection, period status bar.
+  REPO:    hall-pass (hall-pass-lime.vercel.app)
+  BACKEND: Supabase (teachers, students, passes, pass_holds, do_not_let_out, settings)
+  AUTH:    Password-based (passcode). Default = room number doubled (room 27 → "2727").
+           First login shows a forced password change screen (must_change_password flag).
+  UPDATED: 2026-06-20
+*/
+
 'use client'
 import { useState, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -350,12 +363,16 @@ function TeacherInner() {
   const [authLoading, setAuthLoading] = useState(true)
   const [currentTeacher, setCurrentTeacher] = useState(null)
   const [email, setEmail] = useState('')
-  const [authMode, setAuthMode] = useState('magic')
   const [password, setPassword] = useState('')
   const [authError, setAuthError] = useState('')
-  const [magicSent, setMagicSent] = useState(false)
-  const [magicEmail, setMagicEmail] = useState('')
   const [signingIn, setSigningIn] = useState(false)
+
+  // First-login forced password change
+  const [mustChangePassword, setMustChangePassword] = useState(false)
+  const [firstPwNew, setFirstPwNew] = useState('')
+  const [firstPwConfirm, setFirstPwConfirm] = useState('')
+  const [firstPwError, setFirstPwError] = useState('')
+  const [firstPwSaving, setFirstPwSaving] = useState(false)
 
   // Unlock QR (for dashboard settings panel only)
   const [unlockCode, setUnlockCode] = useState('')
@@ -471,17 +488,15 @@ function TeacherInner() {
   }, [])
 
   useEffect(() => {
-    const magic = searchParams.get('magic')
-    const emailParam = searchParams.get('email')
-    if (magic === '1' && emailParam && !session) handleMagicLinkFromQR(emailParam)
-  }, [searchParams])
-
-  useEffect(() => {
     if (session) { loadSettings(); loadCurrentTeacher() }
   }, [session])
 
+  // ── Check must_change_password after teacher loads ─────────────────────────
   useEffect(() => {
     if (!currentTeacher) return
+    if (currentTeacher.must_change_password) {
+      setMustChangePassword(true)
+    }
     if (currentTeacher.unlock_code) {
       setUnlockCode(currentTeacher.unlock_code)
       const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${currentTeacher.unlock_code}&room=${currentTeacher.room || '27'}`
@@ -513,33 +528,44 @@ function TeacherInner() {
     if (data) setCurrentTeacher(data)
   }
 
-  async function handleMagicLinkFromQR(scannedEmail) {
-    setMagicEmail(scannedEmail)
-    const { error } = await supabase.auth.signInWithOtp({ email: scannedEmail, options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' } })
-    if (!error) setMagicSent(true)
-  }
-
-  async function handleSendMagicLink() {
+  async function handlePasswordSignIn(e) {
+    if (e) e.preventDefault()
     setSigningIn(true); setAuthError('')
-    if (!email.endsWith('@rjusd.org') && !email.endsWith('@demo.passable.app') && email !== 'connect.joe@gmail.com') { setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return }
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: 'https://hall-pass-lime.vercel.app/teacher' } })
-    if (error) setAuthError('Could not send link. Try again.')
-    else { setMagicSent(true); setMagicEmail(email) }
-    setSigningIn(false)
-  }
-
-  async function handlePasswordSignIn() {
-    setSigningIn(true); setAuthError('')
-    if (!email.endsWith('@rjusd.org') && !email.endsWith('@demo.passable.app') && email !== 'connect.joe@gmail.com') { setAuthError('Only @rjusd.org accounts are allowed.'); setSigningIn(false); return }
+    if (!email.endsWith('@rjusd.org') && !email.endsWith('@demo.passable.app') && email !== 'connect.joe@gmail.com') {
+      setAuthError('Only @rjusd.org accounts are allowed.')
+      setSigningIn(false); return
+    }
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) setAuthError('Invalid email or password.')
+    if (error) setAuthError('Invalid email or passcode.')
     setSigningIn(false)
+  }
+
+  // ── First-login forced password change ────────────────────────────────────
+  async function handleFirstLoginPasswordChange(e) {
+    if (e) e.preventDefault()
+    setFirstPwError('')
+    if (firstPwNew.length < 8) { setFirstPwError('Password must be at least 8 characters.'); return }
+    if (firstPwNew !== firstPwConfirm) { setFirstPwError('Passwords do not match.'); return }
+    setFirstPwSaving(true)
+    const { error } = await supabase.auth.updateUser({ password: firstPwNew })
+    if (error) {
+      setFirstPwError(error.message)
+    } else {
+      // Clear the flag in the teachers table
+      if (currentTeacher?.id) {
+        await supabase.from('teachers').update({ must_change_password: false }).eq('id', currentTeacher.id)
+        setCurrentTeacher(prev => ({ ...prev, must_change_password: false }))
+      }
+      setMustChangePassword(false)
+      setFirstPwNew(''); setFirstPwConfirm('')
+    }
+    setFirstPwSaving(false)
   }
 
   async function handleSignOut() {
     await supabase.auth.signOut()
     setActivePeriod(null); setShowSettings(false); setCurrentTeacher(null)
-    setMagicSent(false); setMagicEmail('')
+    setMustChangePassword(false)
   }
 
   // ── Settings ───────────────────────────────────────────────────────────────
@@ -803,45 +829,89 @@ function TeacherInner() {
     </div>
   )
 
-  // ── Login screen ───────────────────────────────────────────────────────────
-  if (!session) {
-    if (magicSent) return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
-        <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-4" />
-        <div className="text-4xl mb-4">📬</div>
-        <h1 className="text-xl font-bold mb-2" style={{ color: RHS_GREEN }}>Check your email</h1>
-        <p className="text-gray-500 text-sm text-center mb-2">A sign-in link was sent to<br /><span className="font-medium text-gray-700">{magicEmail}</span></p>
-        <p className="text-gray-400 text-xs text-center mb-8">Tap the link in your email to sign in.</p>
-        <button onClick={() => { setMagicSent(false); setMagicEmail('') }} className="text-sm text-gray-400 hover:text-gray-600">← Try again</button>
+  // ── Login screen — password only ───────────────────────────────────────────
+  if (!session) return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
+      <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
+      <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>RHS PassAble</h1>
+      <p className="text-gray-400 text-sm mb-8">Sign in with your email and passcode</p>
+      <form onSubmit={handlePasswordSignIn} className="w-full max-w-xs flex flex-col gap-3">
+        <input
+          type="email"
+          placeholder="you@rjusd.org"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          required
+          className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
+          style={{ borderColor: RHS_GREEN }}
+        />
+        <input
+          type="password"
+          placeholder="Passcode"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          required
+          className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
+          style={{ borderColor: RHS_GREEN }}
+        />
+        {authError && <p className="text-red-500 text-xs text-center">{authError}</p>}
+        <button
+          type="submit"
+          disabled={signingIn || !email || !password}
+          className="w-full py-3 text-sm font-semibold rounded-xl text-white disabled:opacity-40"
+          style={{ backgroundColor: RHS_GREEN }}>
+          {signingIn ? 'Signing in...' : 'Sign In'}
+        </button>
+      </form>
+      <a href="/" className="mt-8 text-sm text-gray-400 hover:text-gray-600">← Home</a>
+    </div>
+  )
+
+  // ── First-login: forced password change ────────────────────────────────────
+  if (mustChangePassword) return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
+      <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
+      <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>Welcome, {teacherDisplayName}</h1>
+      <p className="text-gray-500 text-sm text-center mb-2 max-w-xs">
+        For your security, please set a new password before continuing.<br />
+        Your default passcode was your room number doubled.
+      </p>
+      <div className="w-full max-w-xs mt-4">
+        <form onSubmit={handleFirstLoginPasswordChange} className="flex flex-col gap-3">
+          <input
+            type="password"
+            placeholder="New password (min 8 characters)"
+            value={firstPwNew}
+            onChange={e => setFirstPwNew(e.target.value)}
+            required
+            autoFocus
+            className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
+            style={{ borderColor: RHS_GREEN }}
+          />
+          <input
+            type="password"
+            placeholder="Confirm new password"
+            value={firstPwConfirm}
+            onChange={e => setFirstPwConfirm(e.target.value)}
+            required
+            className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none"
+            style={{ borderColor: RHS_GREEN }}
+          />
+          {firstPwError && <p className="text-red-500 text-xs text-center">{firstPwError}</p>}
+          <button
+            type="submit"
+            disabled={firstPwSaving || !firstPwNew || !firstPwConfirm}
+            className="w-full py-3 text-sm font-semibold rounded-xl text-white disabled:opacity-40"
+            style={{ backgroundColor: RHS_GREEN }}>
+            {firstPwSaving ? 'Saving...' : 'Set Password & Continue'}
+          </button>
+        </form>
+        <button onClick={handleSignOut} className="w-full mt-4 text-sm text-gray-400 hover:text-gray-600 text-center">
+          Sign Out
+        </button>
       </div>
-    )
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
-        <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
-        <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>RHS PassAble</h1>
-        <p className="text-gray-400 text-sm mb-8">Sign in to continue</p>
-        <div className="w-full max-w-xs flex flex-col gap-3">
-          {authMode === 'magic' ? (
-            <>
-              <input type="email" placeholder="you@rjusd.org" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendMagicLink()} className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none" style={{ borderColor: RHS_GREEN }} />
-              {authError && <p className="text-red-500 text-xs text-center">{authError}</p>}
-              <button onClick={handleSendMagicLink} disabled={signingIn || !email} className="w-full py-3 text-sm font-semibold rounded-xl text-white disabled:opacity-40" style={{ backgroundColor: RHS_GREEN }}>{signingIn ? 'Sending...' : '✉️ Send Sign-In Link'}</button>
-              <button onClick={() => setAuthMode('password')} className="text-xs text-center text-gray-400 hover:text-gray-600">Use password instead</button>
-            </>
-          ) : (
-            <>
-              <input type="email" placeholder="you@rjusd.org" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && handlePasswordSignIn()} className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none" style={{ borderColor: RHS_GREEN }} />
-              <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handlePasswordSignIn()} className="w-full px-4 py-3 text-sm border-2 rounded-xl bg-white text-gray-800 outline-none" style={{ borderColor: RHS_GREEN }} />
-              {authError && <p className="text-red-500 text-xs text-center">{authError}</p>}
-              <button onClick={handlePasswordSignIn} disabled={signingIn || !email || !password} className="w-full py-3 text-sm font-semibold rounded-xl text-white disabled:opacity-40" style={{ backgroundColor: RHS_GREEN }}>{signingIn ? 'Signing in...' : 'Sign In'}</button>
-              <button onClick={() => setAuthMode('magic')} className="text-xs text-center text-gray-400 hover:text-gray-600">← Send magic link instead</button>
-            </>
-          )}
-        </div>
-        <a href="/" className="mt-8 text-sm text-gray-400 hover:text-gray-600">← Home</a>
-      </div>
-    )
-  }
+    </div>
+  )
 
   if (!activePeriod) return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
@@ -1181,7 +1251,7 @@ function TeacherInner() {
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
               <div className="mb-3">
                 <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Change Password</p>
-                <p className="text-xs text-gray-400">For teachers who prefer signing in with email and password</p>
+                <p className="text-xs text-gray-400">Update your PassAble login passcode</p>
               </div>
               <div className="flex flex-col gap-2">
                 <input type="password" placeholder="New password (min 8 characters)" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
