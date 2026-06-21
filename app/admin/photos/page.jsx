@@ -162,7 +162,7 @@ export default function PhotoUpload() {
             Select all photo files from your Lifetouch download. Photos are matched by name against every student in the school — you only need to do this once per Lifetouch batch.
           </p>
           <div className="mb-4 px-3 py-2 bg-green-50 rounded-lg text-xs text-green-700">
-            💡 Drop in the entire school's photo folder. Skipped photos just mean that student isn't in PassAble yet — no harm done.
+            💡 Select all photos from your Lifetouch folder (Cmd+A to select all, then Open). Skipped photos just mean that student isn't in PassAble yet — no harm done.
           </div>
           <input
             type="file"
