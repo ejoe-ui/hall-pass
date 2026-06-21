@@ -14,13 +14,13 @@
 
 import { createClient } from '@supabase/supabase-js'
 
-// Service role client — admin privileges, server-side only
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-)
-
 export async function POST(request) {
+  // Create client inside the handler so env vars are available at runtime, not build time
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  )
+
   try {
     const body = await request.json()
     const { action, email, password, auth_id } = body
