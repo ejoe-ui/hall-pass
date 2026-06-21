@@ -1092,7 +1092,20 @@ function TeacherInner() {
           <a href={`/analytics?teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-green-200 hover:text-white">Analytics</a>
           {currentTeacher?.is_admin && <a href="/admin" className="text-sm text-green-200 hover:text-white">Admin</a>}
           <button onClick={() => setShowHelp(true)} className="text-sm text-green-200 hover:text-white">? Help</button>
-          <button onClick={() => setActivePeriod(null)} className="text-sm text-green-200 hover:text-white">← Period</button>
+          <select
+            value={activePeriod || ''}
+            onChange={e => {
+              if (e.target.value) { setActivePeriod(e.target.value); generateCheckoutCode() }
+              else setActivePeriod(null)
+            }}
+            className="text-sm rounded-lg px-2 py-1 cursor-pointer"
+            style={{ backgroundColor: '#004d28', color: '#bbf7d0', border: '1px solid #16a34a' }}
+          >
+            {periods.map(p => (
+              <option key={p.value} value={p.value} style={{ backgroundColor: 'white', color: '#1f2937' }}>{p.label}</option>
+            ))}
+            <option value="" style={{ backgroundColor: 'white', color: '#6b7280' }}>← Switch Period</option>
+          </select>
           <button onClick={handleSignOut} className="text-sm text-green-200 hover:text-white">Sign Out</button>
         </div>
       </div>
