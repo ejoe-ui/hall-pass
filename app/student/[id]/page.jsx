@@ -502,12 +502,33 @@ function StudentDetailInner() {
             padding: '12px 16px', borderBottom: '1px solid #f3f4f6',
             background: '#f9fafb', borderRadius: '16px 16px 0 0',
           }}>
-            <p style={{ fontWeight: 700, fontSize: 13, color: '#374151', margin: 0 }}>Student Profile — Help</p>
+            <p style={{ fontWeight: 700, fontSize: 13, color: '#374151', margin: 0 }}>Student Profile — {currentTeacher?.is_admin ? 'Admin' : 'Teacher'} Help</p>
             <button onClick={() => setShowHelp(false)}
               style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#9ca3af', lineHeight: 1 }}>×</button>
           </div>
           <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[
+            {(currentTeacher?.is_admin ? [
+              {
+                q: 'What does this profile show?',
+                a: 'Everything PassAble knows about this student — all pass history across every class and teacher combined, school-wide stats, which periods and teachers they\'re enrolled with, and NFC card status.'
+              },
+              {
+                q: 'What do the pass stats mean?',
+                a: 'All stats are school-wide — Total Passes, Avg Duration, Total Time Out, Over 10 Min, and Longest Pass are calculated across every class this student is enrolled in, not just one room.'
+              },
+              {
+                q: 'Can I edit this student\'s info?',
+                a: 'Not from here. To update a student\'s name, Student ID, or photo, go to Manage Students. Changes made there apply school-wide immediately.'
+              },
+              {
+                q: 'How do I assign an NFC card or sticker?',
+                a: 'Click Enroll Card, then tap or scan the student\'s NFC card or sticker when prompted. The card links to this student and works at any kiosk school-wide. Enrolling again replaces any existing card.'
+              },
+              {
+                q: 'Can I export this student\'s data?',
+                a: 'Yes — Export CSV downloads their full pass history as a spreadsheet, and Print / PDF gives you a printable summary. Both reflect whatever time filter you have selected (7 Days, 30 Days, etc.).'
+              },
+            ] : [
               {
                 q: 'Why do I see all of this student\'s teachers?',
                 a: 'Knowing a student\'s full schedule helps with intervention planning. If a student is leaving class too often, you can reach out to their other teachers to get the full picture before meeting with the student or their counselor.'
@@ -528,7 +549,7 @@ function StudentDetailInner() {
                 q: 'Can I export this student\'s data?',
                 a: 'Yes — Export CSV downloads their pass history as a spreadsheet, and Print / PDF gives you a printable summary. Both use whatever time filter you have selected (7 Days, 30 Days, etc.).'
               },
-            ].map((item, i) => (
+            ]).map((item, i) => (
               <div key={i} style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 12px' }}>
                 <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', margin: '0 0 4px' }}>{item.q}</p>
                 <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>{item.a}</p>
