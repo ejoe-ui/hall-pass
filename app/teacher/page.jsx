@@ -695,7 +695,7 @@ function TeacherInner() {
       setSigningIn(false); return
     }
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) setAuthError('Invalid email or passcode.')
+    if (error) setAuthError('Invalid email or passcode / password.')
     setSigningIn(false)
   }
 
@@ -983,7 +983,7 @@ function TeacherInner() {
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
       <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>RHS PassAble</h1>
-      <p className="text-gray-400 text-sm mb-8">Sign in with your email and passcode</p>
+      <p className="text-gray-400 text-sm mb-8">Sign in with your email and passcode / password</p>
       <form onSubmit={handlePasswordSignIn} className="w-full max-w-xs flex flex-col gap-3">
         <input
           type="email"
