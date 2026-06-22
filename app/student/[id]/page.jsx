@@ -390,7 +390,7 @@ function StudentDetailInner() {
   // Student's actual teacher info for the student card
   const studentRoom = studentTeacher?.room || student?.teacher_room || '—'
   const studentTeacherName = studentTeacher?.name
-    ? `Mr./Ms. ${studentTeacher.name.split(' ').pop()}`
+    ? studentTeacher.name.split(' ').pop()
     : null
 
   // Build period label from teacher's config or fallback
