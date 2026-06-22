@@ -1158,7 +1158,7 @@ export default function AdminPanel() {
                     <input value={form.room} onChange={e => setForm(prev => ({ ...prev, room: e.target.value }))}
                       placeholder="27"
                       className="w-full p-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-800" />
-                    <p className="text-xs text-gray-400 mt-1">Use room number (e.g. 27). Shared spaces: gym-a / gym-b, office-1 / office-2. Admin only: use admin.</p>
+                    <p className="text-xs text-gray-400 mt-1">Use room number (e.g. 27). Traveling teachers: comma-separate rooms (e.g. gym-a, gym-b). Admin only: use admin.</p>
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1">Department</label>
