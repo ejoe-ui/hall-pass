@@ -1,7 +1,19 @@
+/*
+  PassAble — RHS Hall Pass System
+  FILE:    app/roster/page.jsx
+  ROUTE:   /roster?room=XX&teacher_id=XX
+  PURPOSE: Teacher roster import from Aeries XLSX. Detects dropped students
+           (on current roster but missing from new import) and offers to
+           remove them with teacher confirmation before any deletions occur.
+  REPO:    hall-pass (hall-pass-lime.vercel.app)
+  BACKEND: Supabase (students, student_periods tables)
+  UPDATED: 2026-06-21
+*/
+
 'use client'
-import { useState, useRef, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { supabase } from '../../lib/supabase'
+import { supabase } from '../../../lib/supabase'
 import * as XLSX from 'xlsx'
 
 const RHS_GREEN = '#006938'
@@ -24,7 +36,6 @@ function parseAeriesXLSX(workbook, fileName) {
     const nonEmpty = cells.filter(c => c !== '')
     if (nonEmpty.length === 0) continue
 
-    // Period header row — first non-empty cell is 1-7, second is course title
     if (!period && /^[1-7]$/.test(nonEmpty[0])) {
       period = nonEmpty[0]
       courseTitle = nonEmpty[1] || ''
@@ -57,6 +68,7 @@ function parseAeriesXLSX(workbook, fileName) {
 function RosterImportInner() {
   const searchParams = useSearchParams()
   const teacherRoom = searchParams.get('room') || '27'
+  const teacherId = searchParams.get('teacher_id') || null
 
   const [stage, setStage] = useState('upload')
   const [parsedFiles, setParsedFiles] = useState([])
@@ -64,7 +76,80 @@ function RosterImportInner() {
   const [errorMsg, setErrorMsg] = useState('')
   const [expandedIdx, setExpandedIdx] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
+
+  // Dropped student state
+  const [droppedStudents, setDroppedStudents] = useState([])   // [{id, full_name, period}]
+  const [removeDropped, setRemoveDropped] = useState(false)    // teacher confirmed removal
+  const [checkingDiff, setCheckingDiff] = useState(false)
+
+  // Floating help panel
+  const [showHelp, setShowHelp] = useState(false)
+  const [helpPos, setHelpPos] = useState({ x: null, y: null })
+  const helpRef = useRef()
+  const dragOffset = useRef(null)
+
   const fileRef = useRef()
+
+  const onHelpMouseDown = useCallback((e) => {
+    if (e.target.closest('a, button')) return
+    dragOffset.current = {
+      x: e.clientX - helpRef.current.getBoundingClientRect().left,
+      y: e.clientY - helpRef.current.getBoundingClientRect().top,
+    }
+    const onMove = (mv) => {
+      setHelpPos({ x: mv.clientX - dragOffset.current.x, y: mv.clientY - dragOffset.current.y })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
+  // After parsedFiles are set, check DB for dropped students
+  useEffect(() => {
+    if (parsedFiles.length === 0 || stage !== 'preview') return
+    checkDropped()
+  }, [parsedFiles, stage])
+
+  async function checkDropped() {
+    setCheckingDiff(true)
+    setDroppedStudents([])
+    setRemoveDropped(false)
+
+    // All student IDs in the incoming files
+    const incomingIds = new Set(parsedFiles.flatMap(f => f.students.map(s => s.id)))
+
+    // Current roster in DB for this room
+    const { data: currentPeriods } = await supabase
+      .from('student_periods')
+      .select('student_id')
+      .eq('room', teacherRoom)
+
+    if (!currentPeriods || currentPeriods.length === 0) {
+      setCheckingDiff(false)
+      return
+    }
+
+    const droppedIds = [...new Set(
+      currentPeriods.map(p => p.student_id).filter(sid => !incomingIds.has(sid))
+    )]
+
+    if (droppedIds.length === 0) {
+      setCheckingDiff(false)
+      return
+    }
+
+    // Fetch names for dropped students so we can show them
+    const { data: droppedData } = await supabase
+      .from('students')
+      .select('id, full_name, period')
+      .in('id', droppedIds)
+
+    setDroppedStudents(droppedData || [])
+    setCheckingDiff(false)
+  }
 
   function processFiles(files) {
     const results = []
@@ -166,8 +251,26 @@ function RosterImportInner() {
       }
     }
 
-    const totalStudents = parsedFiles.reduce((sum, f) => sum + f.students.length, 0)
-    setImportResult({ total: totalStudents, imported: totalImported, errors: totalErrors, files: parsedFiles })
+    // Remove dropped students from this room if teacher confirmed
+    let removedCount = 0
+    if (removeDropped && droppedStudents.length > 0) {
+      const droppedIds = droppedStudents.map(s => s.id)
+      const { error } = await supabase
+        .from('student_periods')
+        .delete()
+        .eq('room', teacherRoom)
+        .in('student_id', droppedIds)
+      if (!error) removedCount = droppedIds.length
+    }
+
+    const totalStudentsIncoming = parsedFiles.reduce((sum, f) => sum + f.students.length, 0)
+    setImportResult({
+      total: totalStudentsIncoming,
+      imported: totalImported,
+      errors: totalErrors,
+      removed: removedCount,
+      files: parsedFiles,
+    })
     setStage('success')
   }
 
@@ -177,6 +280,9 @@ function RosterImportInner() {
     setImportResult(null)
     setErrorMsg('')
     setExpandedIdx(null)
+    setDroppedStudents([])
+    setRemoveDropped(false)
+    setCheckingDiff(false)
     if (fileRef.current) fileRef.current.value = ''
   }
 
@@ -188,11 +294,98 @@ function RosterImportInner() {
       <div className="w-full max-w-md">
         <div className="flex items-center gap-3 mb-8">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-10 h-10 object-contain" />
-          <div>
+          <div className="flex-1">
             <h1 className="text-xl font-bold" style={{ color: RHS_GREEN }}>Roster Import</h1>
             <p className="text-xs text-gray-400">RHS PassAble · Room {teacherRoom}</p>
           </div>
+          <button
+            onClick={() => { setShowHelp(v => !v); setHelpPos({ x: null, y: null }) }}
+            title="Help"
+            style={{
+              width: 32, height: 32, borderRadius: '50%', border: `2px solid ${RHS_GREEN}`,
+              background: showHelp ? RHS_GREEN : 'white', color: showHelp ? 'white' : RHS_GREEN,
+              fontWeight: 700, fontSize: 16, cursor: 'pointer', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >?</button>
         </div>
+
+        {/* Floating draggable help panel */}
+        {showHelp && (
+          <div
+            ref={helpRef}
+            onMouseDown={onHelpMouseDown}
+            style={{
+              position: 'fixed',
+              top: helpPos.y !== null ? helpPos.y : 80,
+              left: helpPos.x !== null ? helpPos.x : 'calc(50% + 240px)',
+              width: 340,
+              maxHeight: '80vh',
+              overflowY: 'auto',
+              background: 'white',
+              borderRadius: 16,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+              border: '1px solid #e5e7eb',
+              zIndex: 1000,
+              cursor: 'grab',
+              userSelect: 'none',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 16px', borderBottom: '1px solid #f3f4f6',
+                background: '#f9fafb', borderRadius: '16px 16px 0 0',
+              }}
+            >
+              <p style={{ fontWeight: 700, fontSize: 13, color: '#374151', margin: 0 }}>Roster Import — Help</p>
+              <button
+                onClick={() => setShowHelp(false)}
+                style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#9ca3af', lineHeight: 1 }}
+              >×</button>
+            </div>
+            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                {
+                  q: '➕ Adding a Student Mid-Year',
+                  a: 'The preferred method is importing an updated roster from Aeries — it ensures names are spelled consistently and match your Lifetouch photos. If needed, you can also add a student manually via Manage Students on your Relay Station dashboard, but double-check the spelling matches Aeries exactly or their photo won\'t match. If the student was already in PassAble from another teacher\'s class, their name and photo carry over automatically.',
+                  link: { label: 'Manage Students', href: '/teacher' }
+                },
+                {
+                  q: '➖ Removing a Student from Your Class',
+                  a: 'Two ways: (1) Import an updated roster from Aeries that doesn\'t include them — they\'ll show up in the amber "no longer on your roster" section and you can check the box to remove them. (2) Go to Manage Students on your Relay Station dashboard and remove them directly from your class list.',
+                  link: { label: 'Manage Students', href: '/teacher' }
+                },
+                {
+                  q: 'What does "no longer on your roster" mean?',
+                  a: 'These students are currently linked to your class in PassAble but aren\'t in your new import. Usually means they transferred, dropped, or had a schedule change. Check the box to remove them — or leave it unchecked and they stay on your roster as-is.'
+                },
+                {
+                  q: 'Will removing a student delete their pass history?',
+                  a: 'No. Removing a student from your class only unlinks them from your room. All their pass history stays intact and is always visible in the admin panel.'
+                },
+                {
+                  q: 'What if I import the wrong file by mistake?',
+                  a: 'The import only adds or updates — it never deletes unless you check the removal box. If something goes wrong, re-import the correct file and the data will be corrected.'
+                },
+                {
+                  q: 'Can I import just one period at a time?',
+                  a: 'Yes. Upload a single file or multiple at once. Only the periods in your uploaded files are affected — other periods are untouched.'
+                },
+              ].map((item, i) => (
+                <div key={i} style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 12px' }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', margin: '0 0 4px' }}>{item.q}</p>
+                  <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>
+                    {item.a}
+                    {item.link && (
+                      <> <a href={item.link.href} style={{ color: RHS_GREEN, textDecoration: 'underline', fontWeight: 500 }}>{item.link.label} →</a></>
+                    )}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div
           className="border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors"
@@ -220,6 +413,7 @@ function RosterImportInner() {
             <li>Select all files here at once — period is read automatically</li>
           </ol>
         </div>
+
         <a href="/teacher" className="block text-center text-sm text-gray-400 hover:text-gray-600 mt-6">← Back to Dashboard</a>
       </div>
     </div>
@@ -237,10 +431,11 @@ function RosterImportInner() {
           </div>
         </div>
 
+        {/* Incoming summary */}
         <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 flex items-center justify-between">
           <div>
             <p className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{totalStudents}</p>
-            <p className="text-xs text-gray-500">total students across {parsedFiles.length} period{parsedFiles.length !== 1 ? 's' : ''}</p>
+            <p className="text-xs text-gray-500">students in your new roster across {parsedFiles.length} period{parsedFiles.length !== 1 ? 's' : ''}</p>
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
             {parsedFiles.map(f => (
@@ -257,7 +452,8 @@ function RosterImportInner() {
           </div>
         )}
 
-        <div className="space-y-3 mb-6">
+        {/* Period breakdown */}
+        <div className="space-y-3 mb-4">
           {parsedFiles.map((f, idx) => (
             <div key={idx} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <button
@@ -294,16 +490,80 @@ function RosterImportInner() {
           ))}
         </div>
 
+        {/* Dropped students section */}
+        {checkingDiff && (
+          <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-3">
+            <div className="w-4 h-4 border-2 border-gray-300 rounded-full animate-spin flex-shrink-0" style={{ borderTopColor: RHS_GREEN }} />
+            <p className="text-sm text-gray-500">Checking for roster changes…</p>
+          </div>
+        )}
+
+        {!checkingDiff && droppedStudents.length > 0 && (
+          <div className="mb-4 bg-white rounded-xl border border-amber-300 overflow-hidden">
+            <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center gap-3">
+              <span className="text-xl">⚠️</span>
+              <div>
+                <p className="text-sm font-semibold text-amber-800">
+                  {droppedStudents.length} student{droppedStudents.length !== 1 ? 's' : ''} no longer on your roster
+                </p>
+                <p className="text-xs text-amber-600">
+                  These students are in your current class list but missing from the new import.
+                  They may have transferred, dropped, or had a schedule change.
+                </p>
+              </div>
+            </div>
+
+            <div className="max-h-48 overflow-y-auto">
+              {droppedStudents.map((s, i) => (
+                <div key={s.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
+                  <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center text-xs font-bold text-amber-700 flex-shrink-0">
+                    {s.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                  </div>
+                  <span className="text-sm text-gray-800 flex-1">{s.full_name}</span>
+                  {s.period && <span className="text-xs text-gray-400">P{s.period}</span>}
+                  <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">Not in new roster</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Confirm removal toggle */}
+            <div className="px-4 py-3 border-t border-amber-100 bg-amber-50">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={removeDropped}
+                  onChange={e => setRemoveDropped(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded accent-amber-600 flex-shrink-0"
+                />
+                <span className="text-xs text-amber-800 leading-relaxed">
+                  <strong>Remove these {droppedStudents.length} student{droppedStudents.length !== 1 ? 's' : ''} from my class</strong> — their pass history is kept, they'll just no longer appear on my roster.
+                  Leave unchecked to keep them on your roster as-is.
+                </span>
+              </label>
+            </div>
+          </div>
+        )}
+
+        {!checkingDiff && droppedStudents.length === 0 && parsedFiles.length > 0 && (
+          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-xs text-green-700">
+            ✓ No roster changes detected — all current students are in your new import.
+          </div>
+        )}
+
         <div className="flex gap-3">
           <button onClick={reset}
             className="flex-1 py-3 rounded-xl border-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
             style={{ borderColor: RHS_GRAY }}>
             Cancel
           </button>
-          <button onClick={handleImportAll}
-            className="flex-1 py-3 rounded-xl text-sm font-bold text-white hover:opacity-90"
+          <button
+            onClick={handleImportAll}
+            disabled={checkingDiff}
+            className="flex-1 py-3 rounded-xl text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
             style={{ backgroundColor: RHS_GREEN }}>
-            Import All {totalStudents} Students →
+            {removeDropped && droppedStudents.length > 0
+              ? `Import ${totalStudents} · Remove ${droppedStudents.length} →`
+              : `Import All ${totalStudents} Students →`}
           </button>
         </div>
       </div>
@@ -332,9 +592,15 @@ function RosterImportInner() {
         </div>
         <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
           <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100">
-            <span className="text-gray-600 text-sm">Total students imported</span>
+            <span className="text-gray-600 text-sm">Students imported</span>
             <span className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{importResult.imported}</span>
           </div>
+          {importResult.removed > 0 && (
+            <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100">
+              <span className="text-gray-600 text-sm">Dropped students removed</span>
+              <span className="text-2xl font-bold text-amber-600">{importResult.removed}</span>
+            </div>
+          )}
           <div className="space-y-2">
             {importResult.files.map(f => (
               <div key={f.period + f.term} className="flex items-center gap-2">
