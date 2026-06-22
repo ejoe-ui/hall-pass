@@ -10,7 +10,7 @@
 */
 
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../../../lib/supabase'
 
 const RHS_GREEN = '#006938'
@@ -34,6 +34,26 @@ export default function StudentsAdmin() {
   const [addPeriod, setAddPeriod] = useState(null)
   const [addId, setAddId] = useState('')
   const [adding, setAdding] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const [helpPos, setHelpPos] = useState({ x: null, y: null })
+  const helpRef = useRef(null)
+  const dragOffset = useRef(null)
+
+  const onHelpMouseDown = useCallback((e) => {
+    const rect = helpRef.current?.getBoundingClientRect()
+    if (!rect) return
+    dragOffset.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top }
+    const onMove = (mv) => {
+      setHelpPos({ x: mv.clientX - dragOffset.current.dx, y: mv.clientY - dragOffset.current.dy })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [editStudent, setEditStudent] = useState(null)
   const [editFirst, setEditFirst] = useState('')
@@ -247,6 +267,54 @@ export default function StudentsAdmin() {
   return (
     <div className="min-h-screen bg-gray-50">
 
+      {/* ── Help Panel (draggable) ── */}
+      {showHelp && (
+        <div
+          ref={helpRef}
+          style={{
+            position: 'fixed', zIndex: 50, width: 420, maxHeight: '85vh',
+            top:  helpPos.y !== null ? helpPos.y : 80,
+            left: helpPos.x !== null ? helpPos.x : 'calc(100vw - 440px)',
+            background: 'white', borderRadius: 16,
+            boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
+            border: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column',
+          }}
+        >
+          <div
+            onMouseDown={onHelpMouseDown}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '14px 20px', borderBottom: '1px solid #f3f4f6',
+              background: '#f9fafb', borderRadius: '16px 16px 0 0', cursor: 'grab',
+            }}
+          >
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#1f2937', margin: 0 }}>Student Management Help</p>
+              <p style={{ fontSize: 11, color: '#9ca3af', margin: '2px 0 0' }}>Managing your class roster</p>
+            </div>
+            <button onClick={() => setShowHelp(false)}
+              style={{ background: 'none', border: 'none', fontSize: 20, color: '#9ca3af', cursor: 'pointer', lineHeight: 1 }}>×</button>
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[
+              { q: 'How do I add a student?', a: 'Enter their first and last name exactly as listed in Aeries — spelling and spacing need to match so the student links correctly across all teachers and photo matching works school-wide. Select their period and click Add.' },
+              { q: "What's the Student ID field?", a: "That's the student's 6-digit ID number from Aeries. Entering it ties the student to their school record. If you don't have it yet, leave it blank — a temporary ID is created and you can add the real one later in Edit." },
+              { q: 'Can I add students another way?', a: 'Yes — the fastest and most accurate way to add a whole class at once is to upload your Aeries roster using Import Roster from the Relay Station. Adding manually here is best for one-off additions mid-year.' },
+              { q: 'How do I move a student to a different period?', a: 'Use the period dropdown next to their name in the list — the change is instant. If you need to move them back, select the period you moved them to along the top tabs, then choose the correct period from the dropdown next to their name.' },
+              { q: 'How do I remove a student?', a: 'Click Remove, then Confirm. This removes them from your class. If they have no other classes in PassAble, their record is deleted entirely.' },
+              { q: "Can I change how a student's name appears on passes?", a: 'Yes — click Edit next to their name, then update the Display Name field. This controls what shows on hall passes. First and last name fields are used for matching; the display name is just for passes.' },
+              { q: 'Can I add a photo for an individual student?', a: 'Click Edit next to their name, then tap Add Photo or Replace Photo to upload a JPG. Useful if a student was missed in the Lifetouch batch or has a preferred photo.' },
+              { q: 'A student shows up without a photo.', a: "Photos come from the Lifetouch batch your admin uploaded. If one student is missing, their name may be spelled differently in Lifetouch vs Aeries. Fix it in Edit, then ask your admin to re-run Match the Photos — or upload a photo manually." },
+            ].map((item, i) => (
+              <div key={i} style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 14px' }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', margin: '0 0 4px' }}>{item.q}</p>
+                <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>{item.a}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Edit Modal */}
       {editStudent && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -343,6 +411,15 @@ export default function StudentsAdmin() {
         <div className="flex items-center gap-4">
           <a href="/admin/photos" className="text-sm text-green-200 hover:text-white">📷 Photo Upload</a>
           <a href="/teacher" className="text-sm text-green-200 hover:text-white">← Relay Station</a>
+          <button
+            onClick={() => { setShowHelp(v => !v); setHelpPos({ x: null, y: null }) }}
+            style={{
+              width: 32, height: 32, borderRadius: '50%', border: `2px solid ${RHS_GREEN}`,
+              background: showHelp ? RHS_GREEN : 'white', color: showHelp ? 'white' : RHS_GREEN,
+              fontWeight: 700, fontSize: 16, cursor: 'pointer', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >?</button>
         </div>
       </div>
 
