@@ -1,3 +1,15 @@
+/*
+  PassAble — RHS Hall Pass System
+  FILE:    app/student/[id]/page.jsx
+  ROUTE:   /student/[id]
+  PURPOSE: Student profile — pass history, stats, NFC enrollment.
+           Shows student's actual teacher (from student_periods) on the card,
+           not the logged-in teacher's info.
+  REPO:    hall-pass (hall-pass-lime.vercel.app)
+  BACKEND: Supabase (students, student_periods, teachers, passes tables)
+  UPDATED: 2026-06-21
+*/
+
 'use client'
 import { useState, useEffect, useRef, Suspense } from 'react'
 import { useParams } from 'next/navigation'
@@ -261,13 +273,14 @@ function NFCEnrollment({ student, onEnrolled }) {
 function StudentDetailInner() {
   const { id } = useParams()
   const [currentTeacher, setCurrentTeacher] = useState(null)
+  const [studentTeacher, setStudentTeacher] = useState(null) // the student's actual teacher
   const [student, setStudent] = useState(null)
   const [photoUrl, setPhotoUrl] = useState(null)
   const [passes, setPasses] = useState([])
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState('semester')
 
-  // Load logged-in teacher
+  // Load logged-in teacher (for header + pass log context)
   useEffect(() => {
     async function loadTeacher() {
       const { data: { session } } = await supabase.auth.getSession()
@@ -296,6 +309,21 @@ function StudentDetailInner() {
       if (studentData.photo_file) {
         const { data } = supabase.storage.from('student-photos').getPublicUrl(studentData.photo_file)
         if (data?.publicUrl) setPhotoUrl(`${data.publicUrl}?t=${Date.now()}`)
+      }
+      // Load student's actual teacher via student_periods → teachers
+      const { data: periodData } = await supabase
+        .from('student_periods')
+        .select('room, period')
+        .eq('student_id', studentData.id)
+        .limit(1)
+        .maybeSingle()
+      if (periodData?.room) {
+        const { data: teacherData } = await supabase
+          .from('teachers')
+          .select('name, room')
+          .eq('room', periodData.room)
+          .maybeSingle()
+        if (teacherData) setStudentTeacher(teacherData)
       }
     }
 
@@ -355,14 +383,21 @@ function StudentDetailInner() {
   })
   const maxDay = Math.max(...Object.values(dayCounts), 1)
 
-  const teacherRoom = currentTeacher?.room || '27'
+  // Header shows logged-in teacher; student card shows student's actual teacher
+  const teacherRoom = currentTeacher?.room || '—'
   const teacherName = currentTeacher?.name || 'RHS PassAble'
+
+  // Student's actual teacher info for the student card
+  const studentRoom = studentTeacher?.room || student?.teacher_room || '—'
+  const studentTeacherName = studentTeacher?.name
+    ? `Mr./Ms. ${studentTeacher.name.split(' ').pop()}`
+    : null
 
   // Build period label from teacher's config or fallback
   function getPeriodLabel(period) {
     if (currentTeacher?.period_labels?.[period]) return currentTeacher.period_labels[period]
     const defaults = { '1': 'Per 1&2', '4': 'Per 4&5', '6': 'Per 6&7' }
-    return defaults[period] || `Period ${period}`
+    return defaults[period] || (period ? `Period ${period}` : '')
   }
 
   if (loading) return (
@@ -388,7 +423,7 @@ function StudentDetailInner() {
         }
       `}</style>
 
-      {/* Header */}
+      {/* Header — shows logged-in teacher */}
       <div style={{ backgroundColor: RHS_GREEN, padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} className="no-print">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <img src="/RHSCOWBOYlogo.png" alt="RHS" style={{ width: 32, height: 32, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
@@ -421,8 +456,11 @@ function StudentDetailInner() {
 
             <div style={{ flex: 1 }}>
               <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#1f2937' }}>{student.full_name}</h2>
+              {/* Show student's ACTUAL teacher/room, not the logged-in teacher */}
               <p style={{ margin: '4px 0 0', fontSize: 14, color: '#6b7280' }}>
-                {getPeriodLabel(student.period)} · Room {teacherRoom}
+                {student.period ? `Period ${student.period}` : ''}
+                {studentRoom !== '—' ? ` · Room ${studentRoom}` : ''}
+                {studentTeacherName ? ` · ${studentTeacherName}` : ''}
               </p>
             </div>
             <div style={{ display: 'flex', gap: 8 }} className="no-print">
