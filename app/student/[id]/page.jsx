@@ -12,7 +12,7 @@
 
 'use client'
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 
 const RHS_GREEN = '#006938'
@@ -272,6 +272,8 @@ function NFCEnrollment({ student, onEnrolled }) {
 
 function StudentDetailInner() {
   const { id } = useParams()
+  const searchParams = useSearchParams()
+  const [forceTeacherView, setForceTeacherView] = useState(searchParams.get('view') === 'teacher')
   const [currentTeacher, setCurrentTeacher] = useState(null)
   const [studentTeachers, setStudentTeachers] = useState([]) // [{period, room, teacherName}]
   const [student, setStudent] = useState(null)
@@ -303,7 +305,7 @@ function StudentDetailInner() {
     window.addEventListener('mouseup', onUp)
   }, [])
 
-  useEffect(() => { loadData() }, [id, timeRange])
+  useEffect(() => { loadData() }, [id, timeRange, forceTeacherView])
 
   async function loadData() {
     setLoading(true)
@@ -350,9 +352,10 @@ function StudentDetailInner() {
       }
     }
 
-    // Teachers see only passes from their own class; admins see all
+    // Teachers see only passes from their own class; admins see all unless forceTeacherView
+    const isAdminView = viewer?.is_admin && !forceTeacherView
     let query = supabase.from('passes').select('*').eq('student_id', id).order('time_out', { ascending: false })
-    if (viewer && !viewer.is_admin) {
+    if (viewer && !isAdminView) {
       query = query.eq('room', viewer.room)
     }
 
@@ -453,13 +456,29 @@ function StudentDetailInner() {
           <div>
             <h1 style={{ color: 'white', fontWeight: 700, fontSize: 18, margin: 0 }}>Student Profile</h1>
             <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, margin: 0 }}>
-              {currentTeacher?.is_admin ? 'Admin View' : `Room ${teacherRoom} · ${teacherName}`}
+              {currentTeacher?.is_admin
+                ? (forceTeacherView ? `Teacher View · Room ${teacherRoom} · ${teacherName}` : 'Admin View')
+                : `Room ${teacherRoom} · ${teacherName}`}
             </p>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <a href="/analytics" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>← Analytics</a>
           <a href="/log" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>Pass Log</a>
+          {currentTeacher?.is_admin && (
+            <button
+              onClick={() => setForceTeacherView(v => !v)}
+              title={forceTeacherView ? 'Switch to Admin View' : 'Switch to Teacher View'}
+              style={{
+                padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                border: '1.5px solid rgba(255,255,255,0.5)',
+                background: forceTeacherView ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)',
+                color: 'white',
+              }}
+            >
+              {forceTeacherView ? '← Admin View' : 'Teacher View →'}
+            </button>
+          )}
           <button
             onClick={() => { setShowHelp(v => !v); setHelpPos({ x: null, y: null }) }}
             title="Help"
@@ -502,12 +521,12 @@ function StudentDetailInner() {
             padding: '12px 16px', borderBottom: '1px solid #f3f4f6',
             background: '#f9fafb', borderRadius: '16px 16px 0 0',
           }}>
-            <p style={{ fontWeight: 700, fontSize: 13, color: '#374151', margin: 0 }}>Student Profile — {currentTeacher?.is_admin ? 'Admin' : 'Teacher'} Help</p>
+            <p style={{ fontWeight: 700, fontSize: 13, color: '#374151', margin: 0 }}>Student Profile — {currentTeacher?.is_admin && !forceTeacherView ? 'Admin' : 'Teacher'} Help</p>
             <button onClick={() => setShowHelp(false)}
               style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#9ca3af', lineHeight: 1 }}>×</button>
           </div>
           <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {(currentTeacher?.is_admin ? [
+            {(currentTeacher?.is_admin && !forceTeacherView ? [
               {
                 q: 'What does this profile show?',
                 a: 'Everything PassAble knows about this student — all pass history across every class and teacher combined, school-wide stats, which periods and teachers they\'re enrolled with, and NFC card status.'
