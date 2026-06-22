@@ -1109,6 +1109,8 @@ function TeacherInner() {
               a: <>Scroll to the bottom of your dashboard and click {settingsBtn}. All your options will expand below. Click <strong>🔒 Hide Settings</strong> to collapse them when you're done.</> },
             { q: "What's the Sub Code?", keys: "sub code substitute teacher login classroom 4 digit",
               a: <>A 4-digit code tied to your classroom that a substitute teacher can use to log in without your password. Set it in {settingsBtn} so your sub can track passes while you're out.</> },
+            { q: "How do I set a schedule override?", keys: "schedule override minimum day block early release foggy wrong schedule",
+              a: <>If today's schedule isn't being detected correctly, scroll to {settingsBtn} and find <strong>Today's Schedule Override</strong>. Pick the correct schedule from the dropdown and hit <strong>Set</strong>. An amber banner will appear at the top of the page confirming it's active. The override is scoped to your room only and clears automatically at midnight. Your admin can also set a school-wide override from the admin panel if needed.</> },
             { q: "What's Block First & Last 15 Min?", keys: "block 15 minutes first last period red status bar warn",
               a: <>When on, the status bar turns red at the start and end of each period as a reminder not to let students out. It doesn't block checkout — just warns you and the students.</> },
             { q: "What's Printable Passes?", keys: "printable passes print default off automatic",
