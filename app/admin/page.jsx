@@ -1016,7 +1016,6 @@ export default function AdminPanel() {
                   {[
                     { label: 'Full Name *', key: 'name', placeholder: 'Jane Smith' },
                     { label: 'Email *', key: 'email', placeholder: 'jsmith@rjusd.org' },
-                    { label: 'PIN (optional)', key: 'pin', placeholder: '4-digit PIN' },
                   ].map(f => (
                     <div key={f.key}>
                       <label className="block text-xs font-semibold text-gray-700 mb-1">{f.label}</label>
@@ -1025,6 +1024,13 @@ export default function AdminPanel() {
                         className="w-full p-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-800" />
                     </div>
                   ))}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">PIN (optional)</label>
+                    <input value={form.pin} onChange={e => setForm(prev => ({ ...prev, pin: e.target.value }))}
+                      placeholder="4-digit PIN"
+                      className="w-full p-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-800" />
+                    <p className="text-xs text-gray-400 mt-1">This is the staff member's login passcode for PassAble. Leave blank — it defaults to their room number doubled (Room 27 → 2727). They'll be prompted to change it on first login.</p>
+                  </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1">Room</label>
                     <input value={form.room} onChange={e => setForm(prev => ({ ...prev, room: e.target.value }))}
