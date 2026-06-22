@@ -547,9 +547,6 @@ function TeacherInner() {
 
   // Settings
   const [showSettings, setShowSettings] = useState(false)
-  const [currentPin, setCurrentPin] = useState('')
-  const [newPin, setNewPin] = useState('')
-  const [pinSaved, setPinSaved] = useState(false)
   const [subCode, setSubCode] = useState('')
   const [newSubCode, setNewSubCode] = useState('')
   const [subCodeSaved, setSubCodeSaved] = useState(false)
@@ -657,7 +654,6 @@ function TeacherInner() {
       const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${currentTeacher.unlock_code}&room=${currentTeacher.room || '27'}`
       QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
     }
-    if (currentTeacher.pin) setCurrentPin(currentTeacher.pin)
     if (currentTeacher.print_passes !== undefined) setPrintPasses(!!currentTeacher.print_passes)
     if (currentTeacher.sub_code) setSubCode(currentTeacher.sub_code)
     if (currentTeacher.block_first_last_15 !== undefined) setBlockMinsEnabled(!!currentTeacher.block_first_last_15)
@@ -734,7 +730,7 @@ function TeacherInner() {
   // ── Settings ───────────────────────────────────────────────────────────────
   async function loadSettings() {
     const { data } = await supabase.from('settings').select('key, value')
-      .in('key', ['teacher_unlock_code', 'teacher_pin', 'sub_code', 'teacher_checkout_code', 'kiosk_return_required', 'print_passes', 'block_first_last_15'])
+      .in('key', ['teacher_unlock_code', 'sub_code', 'teacher_checkout_code', 'kiosk_return_required', 'print_passes', 'block_first_last_15'])
     if (!data) return
     const get = (key) => data.find(r => r.key === key)?.value
     const teacherUnlockVal = currentTeacher?.unlock_code || get('teacher_unlock_code')
@@ -743,7 +739,6 @@ function TeacherInner() {
       const url = `https://hall-pass-lime.vercel.app/kiosk?unlock=${teacherUnlockVal}&room=${teacherRoom}`
       QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
     }
-    if (get('teacher_pin') && !currentTeacher?.pin) setCurrentPin(get('teacher_pin'))
     if (!currentTeacher?.sub_code && get('sub_code')) setSubCode(get('sub_code'))
     if (get('teacher_checkout_code')) setSelfCheckoutCode(get('teacher_checkout_code'))
     if (get('kiosk_return_required')) setKioskReturnRequired(get('kiosk_return_required') !== 'false')
@@ -761,16 +756,6 @@ function TeacherInner() {
     QRCode.toDataURL(url, { width: 160, margin: 1 }).then(qr => { setUnlockQR(qr); setRotating(false); setRotated(true); setTimeout(() => setRotated(false), 3000) })
   }
 
-  async function savePin() {
-    if (newPin.length !== 4 || isNaN(newPin)) return
-    if (currentTeacher?.id) {
-      await supabase.from('teachers').update({ pin: newPin }).eq('id', currentTeacher.id)
-    } else {
-      await supabase.from('settings').update({ value: newPin }).eq('key', 'teacher_pin')
-    }
-    setCurrentPin(newPin); setNewPin(''); setPinSaved(true)
-    setTimeout(() => setPinSaved(false), 3000)
-  }
 
   async function saveSubCode() {
     if (newSubCode.length !== 4 || isNaN(newSubCode)) return
@@ -1714,13 +1699,6 @@ function TeacherInner() {
               )}
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
-              <div className="mb-3"><p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Keypad PIN</p><p className="text-xs text-gray-400">Current PIN: <span className="font-mono">{currentPin}</span></p></div>
-              <div className="flex gap-2">
-                <input type="number" maxLength={4} placeholder="New 4-digit PIN" value={newPin} onChange={e => setNewPin(e.target.value.slice(0, 4))} className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
-                <button onClick={savePin} disabled={newPin.length !== 4} className={`px-4 py-2 text-sm font-medium rounded-lg ${pinSaved ? 'bg-green-50 border border-green-200 text-green-700' : 'text-white disabled:opacity-30'}`} style={!pinSaved ? { backgroundColor: RHS_GREEN } : {}}>{pinSaved ? '✓ Saved' : 'Save PIN'}</button>
-              </div>
-            </div>
           </>
         )}
 
