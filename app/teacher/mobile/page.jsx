@@ -27,8 +27,6 @@ const REASONS = [
   { label: 'Other',    emoji: '📝' },
 ]
 
-const PERIODS = ['1','2','3','4','5','6','7']
-
 // ── Lightweight schedule for auto-detection (regular schedule only) ────────────
 const REGULAR_PERIODS = [
   { id:'1', start:'08:10', end:'09:02' },
@@ -43,9 +41,19 @@ const REGULAR_PERIODS = [
 function t2m(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m }
 function nowMins() { const n = new Date(); return n.getHours() * 60 + n.getMinutes() }
 
-function autoDetectPeriod() {
+function autoDetectPeriod(teacherPeriods) {
   const m = nowMins()
-  return REGULAR_PERIODS.find(p => m >= t2m(p.start) && m < t2m(p.end))?.id || null
+  const detected = REGULAR_PERIODS.find(p => m >= t2m(p.start) && m < t2m(p.end))?.id || null
+  // Only return detected period if the teacher actually teaches it
+  if (detected && teacherPeriods?.includes(detected)) return detected
+  return null
+}
+
+// "Periods 1 & 2" → "P1 & 2", no label → "P1"
+function periodPillLabel(id, labels) {
+  const label = labels?.[id]
+  if (!label) return `P${id}`
+  return label.replace(/^Periods?\s*/i, 'P')
 }
 
 function elapsed(timeOut) {
@@ -83,6 +91,7 @@ function MobilePageInner() {
   const [, setTick]                     = useState(0)   // forces elapsed re-render
 
   // ── Checkout sheet ───────────────────────────────────────────────────────
+  const [showHelp, setShowHelp]             = useState(false)
   const [showSheet, setShowSheet]           = useState(false)
   const [sheetView, setSheetView]           = useState('students') // 'students' | 'destination'
   const [selectedStudent, setSelectedStudent] = useState(null)
@@ -111,8 +120,10 @@ function MobilePageInner() {
     const rooms = (currentTeacher.room || '27').split(',').map(r => r.trim()).filter(Boolean)
     const saved = sessionStorage.getItem(`passable_room_${currentTeacher.id}`)
     setSelectedRoom(rooms.includes(saved) ? saved : rooms[0])
-    const detected = autoDetectPeriod()
+    const teacherPeriods = currentTeacher.periods || []
+    const detected = autoDetectPeriod(teacherPeriods)
     if (detected) setActivePeriod(detected)
+    else if (teacherPeriods.length > 0) setActivePeriod(teacherPeriods[0])
   }, [currentTeacher?.id])
 
   // ── Data loading ─────────────────────────────────────────────────────────
@@ -298,13 +309,19 @@ function MobilePageInner() {
       <div style={{ background: RHS_GREEN, color: 'white', padding: '14px 16px 10px', position: 'sticky', top: 0, zIndex: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div>
-            <div style={{ fontSize: 17, fontWeight: 800, lineHeight: 1.2 }}>Rm {room} · {currentTeacher.name?.split(' ')[0]}</div>
+            <div style={{ fontSize: 17, fontWeight: 800, lineHeight: 1.2 }}>Rm {room} · {currentTeacher.name}</div>
             <div style={{ fontSize: 12, opacity: 0.75, marginTop: 1 }}>PassAble Mobile</div>
           </div>
-          <button onClick={() => supabase.auth.signOut()}
-            style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', background: 'transparent', border: '1px solid rgba(255,255,255,0.35)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer' }}>
-            Sign out
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => setShowHelp(true)}
+              style={{ fontSize: 13, fontWeight: 700, color: showHelp ? RHS_GREEN : 'rgba(255,255,255,0.85)', background: showHelp ? 'white' : 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 8, padding: '5px 10px', cursor: 'pointer' }}>
+              ?
+            </button>
+            <button onClick={() => supabase.auth.signOut()}
+              style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', background: 'transparent', border: '1px solid rgba(255,255,255,0.35)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer' }}>
+              Sign out
+            </button>
+          </div>
         </div>
 
         {/* Multi-room picker */}
@@ -320,13 +337,13 @@ function MobilePageInner() {
           </div>
         )}
 
-        {/* Period pills */}
+        {/* Period pills — from teacher's actual periods + labels */}
         <div style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 2, scrollbarWidth: 'none' }}>
-          {PERIODS.map(p => (
+          {(currentTeacher?.periods || []).map(p => (
             <button key={p}
               onClick={() => setActivePeriod(p)}
-              style={{ flexShrink: 0, fontSize: 13, padding: '5px 13px', borderRadius: 8, fontWeight: 700, border: 'none', cursor: 'pointer', background: activePeriod === p ? 'white' : 'rgba(255,255,255,0.2)', color: activePeriod === p ? RHS_GREEN : 'rgba(255,255,255,0.85)' }}>
-              P{p}
+              style={{ flexShrink: 0, fontSize: 13, padding: '5px 13px', borderRadius: 8, fontWeight: 700, border: 'none', cursor: 'pointer', background: activePeriod === p ? 'white' : 'rgba(255,255,255,0.2)', color: activePeriod === p ? RHS_GREEN : 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' }}>
+              {periodPillLabel(p, currentTeacher?.period_labels)}
             </button>
           ))}
         </div>
@@ -427,6 +444,40 @@ function MobilePageInner() {
             style={{ width: '100%', padding: '16px 0', fontSize: 17, fontWeight: 800, color: 'white', background: RHS_GREEN, border: 'none', borderRadius: 14, cursor: 'pointer' }}>
             + Check Out Student
           </button>
+        </div>
+      )}
+
+      {/* ── Help sheet ── */}
+      {showHelp && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50 }}>
+          <div onClick={() => setShowHelp(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)' }} />
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'white', borderRadius: '22px 22px 0 0', maxHeight: '88dvh', display: 'flex', flexDirection: 'column', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 6px' }}>
+              <div style={{ width: 40, height: 4, background: '#e5e7eb', borderRadius: 2 }} />
+            </div>
+            <div style={{ padding: '4px 16px 12px', borderBottom: '1px solid #f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: '#111827' }}>Help</div>
+              <button onClick={() => setShowHelp(false)} style={{ background: 'none', border: 'none', fontSize: 22, color: '#9ca3af', cursor: 'pointer', padding: '0 4px' }}>×</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 16px 16px' }}>
+              {[
+                { q: 'How do I check a student out?', a: 'Tap a period at the top, then tap + Check Out Student. Find the student in the list (or search by name), then tap where they\'re going. The pass is created instantly.' },
+                { q: 'How do I check a student back in?', a: 'Students who are out appear in the Currently Out list. Tap ✓ Back next to their name when they return. The pass closes automatically.' },
+                { q: 'Which period should I select?', a: 'Tap the period you\'re currently teaching. The app tries to auto-detect the right one when you log in, but you can always switch by tapping a different period pill at the top.' },
+                { q: 'What does "Pending Approval" mean?', a: 'A student tried to check out through the kiosk but was flagged — usually because another student in their conflict group is already out. Tap Approve to let them go, or Deny to send them back.' },
+                { q: 'A student shows ⛔ Do Not Let Out.', a: 'An admin or you has restricted this student. You can still check them out by tapping their name and selecting a destination — the action gets logged so it\'s on record.' },
+                { q: 'Students aren\'t showing up in the list.', a: 'Make sure you\'ve selected the right period and that a roster has been imported for your room. Students are linked to the period number in the roster — for block periods (e.g. Periods 1 & 2), the pill shows your block label but filters by the first period number.' },
+                { q: 'Can I use this on my phone?', a: 'Yes — that\'s exactly what it\'s for. Open hall-pass-lime.vercel.app/teacher/mobile in Safari, tap the Share button, then Add to Home Screen for quick one-tap access.' },
+              ].map((item, i) => (
+                <details key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <summary style={{ padding: '12px 4px', fontSize: 14, fontWeight: 600, color: '#111827', cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {item.q}<span style={{ color: '#9ca3af', fontSize: 18, marginLeft: 8, flexShrink: 0 }}>›</span>
+                  </summary>
+                  <div style={{ padding: '0 4px 12px', fontSize: 13, color: '#4b5563', lineHeight: 1.6 }}>{item.a}</div>
+                </details>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
