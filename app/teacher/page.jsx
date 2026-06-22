@@ -435,11 +435,11 @@ async function notifyReceivingTeacher({ toTeacher, studentName, issuedBy, timeIs
 
 // ── Schedule picker with hover preview ───────────────────────────────────────
 function ScheduleSelectWithPreview({ value, onChange, labels, schedules }) {
-  const [open, setOpen] = React.useState(false)
-  const [hovered, setHovered] = React.useState(null)
-  const ref = React.useRef(null)
+  const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState(null)
+  const ref = useRef(null)
 
-  React.useEffect(() => {
+  useEffect(() => {
     function handleOutside(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
     document.addEventListener('mousedown', handleOutside)
     return () => document.removeEventListener('mousedown', handleOutside)
