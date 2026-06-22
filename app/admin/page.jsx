@@ -636,8 +636,8 @@ export default function AdminPanel() {
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  // Teacher lookup map: id → teacher object
-  const teacherMap = Object.fromEntries(teachers.map(t => [t.id, t]))
+  // Full teacher lookup from teachers state (has is_active, name, room, etc.)
+  const teacherLookup = Object.fromEntries(teachers.map(t => [t.id, t]))
 
   // Short period label: "Periods 1 & 2" → "P1&2", "1" → "P1"
   function shortPeriod(period) {
@@ -649,8 +649,8 @@ export default function AdminPanel() {
   const filteredStudents = students
     .filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()))
     .sort((a, b) => {
-      const aActive = !!(teacherMap[a.teacher_id]?.is_active)
-      const bActive = !!(teacherMap[b.teacher_id]?.is_active)
+      const aActive = !!(teacherLookup[a.teacher_id]?.is_active)
+      const bActive = !!(teacherLookup[b.teacher_id]?.is_active)
       if (aActive === bActive) return 0
       return aActive ? -1 : 1
     })
@@ -1305,7 +1305,7 @@ export default function AdminPanel() {
                 </div>
               </div>
               {filteredStudents.slice(0, 200).map(s => {
-                const teacher = teacherMap[s.teacher_id]
+                const teacher = teacherLookup[s.teacher_id]
                 const isOrphaned = !teacher || !teacher.is_active
                 const teacherLast = teacher?.name?.split(' ').pop() || null
                 const periodShort = shortPeriod(s.period)
