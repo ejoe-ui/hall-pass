@@ -8,7 +8,7 @@
   BACKEND: Supabase (teachers, students, passes, pass_holds, do_not_let_out, settings)
   AUTH:    Password-based (passcode). Default = room number doubled (room 27 → "2727").
            First login shows a forced password change screen (must_change_password flag).
-  UPDATED: 2026-06-20
+  UPDATED: 2026-06-22 — multi-room support: comma-separate rooms in teacher.room field, room picker in header
 */
 
 'use client'
@@ -464,6 +464,9 @@ function TeacherInner() {
   const [kioskReturnRequired, setKioskReturnRequired] = useState(true)
   const [kioskReturnSaved, setKioskReturnSaved] = useState(false)
 
+  // Multi-room support
+  const [selectedRoom, setSelectedRoom] = useState(null)
+
   // Settings
   const [showSettings, setShowSettings] = useState(false)
   const [currentPin, setCurrentPin] = useState('')
@@ -554,12 +557,20 @@ function TeacherInner() {
       .then(({ data }) => { if (data) setUnlockCode(data.value) })
   }, [])
 
+  // Initialize selectedRoom when teacher loads — parse comma-separated rooms, restore from sessionStorage
+  useEffect(() => {
+    if (!currentTeacher) return
+    const rooms = (currentTeacher.room || '27').split(',').map(r => r.trim()).filter(Boolean)
+    const saved = typeof window !== 'undefined' ? sessionStorage.getItem(`passable_room_${currentTeacher.id}`) : null
+    setSelectedRoom(rooms.includes(saved) ? saved : rooms[0])
+  }, [currentTeacher?.id])
+
   useEffect(() => {
     if (!activePeriod) return
     loadData()
     const timer = setInterval(() => { setNow(Date.now()); loadData() }, 15000)
     return () => clearInterval(timer)
-  }, [activePeriod, currentTeacher])
+  }, [activePeriod, currentTeacher, selectedRoom])
 
   // ── Auth ───────────────────────────────────────────────────────────────────
   async function loadCurrentTeacher() {
@@ -691,7 +702,7 @@ function TeacherInner() {
     let passQuery = supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod).order('time_out')
     if (currentTeacher?.id) passQuery = passQuery.eq('teacher_id', currentTeacher.id)
     const { data: passes } = await passQuery
-    const room = currentTeacher?.room || '27'
+    const room = selectedRoom || currentTeacher?.room?.split(',')[0]?.trim() || '27'
     const { data: spRows } = await supabase.from('student_periods').select('student_id').eq('period', activePeriod).eq('room', room)
     const studentIds = spRows?.map(r => r.student_id) || []
 
@@ -772,7 +783,7 @@ function TeacherInner() {
 
   async function handleOverride(hold) {
     await supabase.from('pass_holds').delete().eq('id', hold.id)
-    await supabase.from('passes').insert({ student_id: hold.student_id, reason: hold.reason, room: currentTeacher?.room || '27', period: hold.period, teacher_id: currentTeacher?.id || null, time_out: new Date().toISOString() })
+    await supabase.from('passes').insert({ student_id: hold.student_id, reason: hold.reason, room: selectedRoom || teacherRoom, period: hold.period, teacher_id: currentTeacher?.id || null, time_out: new Date().toISOString() })
     loadData()
   }
 
@@ -793,12 +804,12 @@ function TeacherInner() {
     else if (reason === 'Errand' && errandTeacher) finalReason = purposeText.trim() ? `Errand — ${errandTeacher} — ${purposeText.trim()}` : `Errand — ${errandTeacher}`
     else if (reason === 'Errand' && purposeText.trim()) finalReason = `Errand — ${purposeText.trim()}`
     else if (reason === 'Other' && purposeText.trim()) finalReason = `Other — ${purposeText.trim()}`
-    const { data: passData } = await supabase.from('passes').insert({ student_id: selected, reason: finalReason, room: currentTeacher?.room || '27', period: activePeriod, teacher_id: currentTeacher?.id || null }).select().single()
+    const { data: passData } = await supabase.from('passes').insert({ student_id: selected, reason: finalReason, room: selectedRoom || teacherRoom, period: activePeriod, teacher_id: currentTeacher?.id || null }).select().single()
     const PRINT_REASONS = ['Restroom', 'Library', 'Office', 'Errand', 'On Assignment', 'Other']
     if (PRINT_REASONS.includes(finalReason.split(' — ')[0]) && passData?.id) {
       const studentName = allStudents.find(s => s.id === selected)?.full_name || 'Student'
       const timeIssued = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      printHallPass({ passId: passData.id, studentName, reason: finalReason, timeIssued, room: currentTeacher?.room || '27' })
+      printHallPass({ passId: passData.id, studentName, reason: finalReason, timeIssued, room: selectedRoom || teacherRoom })
     }
     setSelected(''); setReason(''); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText('')
     loadData()
@@ -852,7 +863,8 @@ function TeacherInner() {
   const elapsed = (timeOut) => Math.floor((now - new Date(timeOut)) / 60000)
   const elapsedColor = (mins) => mins >= TIME_LIMIT ? 'text-red-500' : mins >= TIME_LIMIT * 0.7 ? 'text-amber-500' : 'text-green-600'
   const teacherDisplayName = currentTeacher?.name || session?.user?.email?.split('@')[0] || 'Teacher'
-  const teacherRoom = currentTeacher?.room || '27'
+  const teacherRooms = (currentTeacher?.room || '27').split(',').map(r => r.trim()).filter(Boolean)
+  const teacherRoom = selectedRoom || teacherRooms[0] || '27'
   const periods = currentTeacher?.periods?.length
     ? currentTeacher.periods.sort().map(p => ({ value: p, label: currentTeacher.period_labels?.[p] || `Period ${p}` }))
     : [{ value: '1', label: 'Periods 1 & 2' }, { value: '4', label: 'Periods 4 & 5' }, { value: '6', label: 'Periods 6 & 7' }]
@@ -1187,6 +1199,23 @@ function TeacherInner() {
           </div>
         </div>
         <div className="flex gap-4 items-center">
+          {teacherRooms.length > 1 && (
+            <div className="flex items-center gap-1">
+              {teacherRooms.map(r => (
+                <button
+                  key={r}
+                  onClick={() => {
+                    setSelectedRoom(r)
+                    if (currentTeacher?.id) sessionStorage.setItem(`passable_room_${currentTeacher.id}`, r)
+                  }}
+                  className="text-xs px-2.5 py-1 rounded-lg font-semibold transition-colors"
+                  style={{ background: teacherRoom === r ? 'white' : 'rgba(255,255,255,0.2)', color: teacherRoom === r ? RHS_GREEN : 'rgba(255,255,255,0.85)', border: 'none', cursor: 'pointer' }}
+                >
+                  Rm {r}
+                </button>
+              ))}
+            </div>
+          )}
           <a href={`/analytics?teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-green-200 hover:text-white">Analytics</a>
           {currentTeacher?.is_admin && <a href="/admin" className="text-sm text-green-200 hover:text-white">Admin</a>}
           <button onClick={() => setShowHelp(true)} className="text-sm text-green-200 hover:text-white">? Help</button>
