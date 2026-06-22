@@ -131,6 +131,11 @@ export default function AdminPanel() {
   // ── School settings ────────────────────────────────────────────────────────
   const [blockFirstLast15, setBlockFirstLast15] = useState(true)
   const [schoolSettingsSaved, setSchoolSettingsSaved] = useState(false)
+  // Global schedule override
+  const [globalOverrideType, setGlobalOverrideType] = useState('regular')
+  const [globalOverrideActive, setGlobalOverrideActive] = useState(false)
+  const [globalOverrideActiveType, setGlobalOverrideActiveType] = useState('')
+  const [globalOverrideSaving, setGlobalOverrideSaving] = useState(false)
 
   // ── Help panel ────────────────────────────────────────────────────────────
   const [showHelp, setShowHelp] = useState(false)
@@ -175,12 +180,29 @@ export default function AdminPanel() {
     setLoginLoading(false)
   }
 
+  const SCHEDULE_LABELS = {
+    regular: 'Regular',
+    earlyRelease: 'Early Release',
+    blockWed: 'Block Day (Wed)',
+    blockThu: 'Block Day (Thu)',
+    minimum: 'Minimum Day',
+    activity: 'Activity Day',
+    foggy: 'Foggy / Late Arrival',
+    codeDay: 'Code Day',
+  }
+
+  function todayStr() { return new Date().toISOString().split('T')[0] }
+
   async function loadSchoolSettings() {
+    const today = todayStr()
     const { data } = await supabase.from('settings').select('key, value')
-      .in('key', ['block_first_last_15'])
+      .in('key', ['block_first_last_15', `schedule_override_global_${today}`])
     if (data) {
       const block = data.find(r => r.key === 'block_first_last_15')
       if (block) setBlockFirstLast15(block.value !== 'false')
+      const ovr = data.find(r => r.key === `schedule_override_global_${today}`)
+      if (ovr) { setGlobalOverrideActive(true); setGlobalOverrideActiveType(ovr.value) }
+      else { setGlobalOverrideActive(false); setGlobalOverrideActiveType('') }
     }
   }
 
@@ -189,6 +211,22 @@ export default function AdminPanel() {
     setBlockFirstLast15(val)
     setSchoolSettingsSaved(true)
     setTimeout(() => setSchoolSettingsSaved(false), 2500)
+  }
+
+  async function saveGlobalOverride() {
+    setGlobalOverrideSaving(true)
+    const key = `schedule_override_global_${todayStr()}`
+    await supabase.from('settings').upsert({ key, value: globalOverrideType }, { onConflict: 'key' })
+    setGlobalOverrideActive(true)
+    setGlobalOverrideActiveType(globalOverrideType)
+    setGlobalOverrideSaving(false)
+  }
+
+  async function clearGlobalOverride() {
+    const key = `schedule_override_global_${todayStr()}`
+    await supabase.from('settings').delete().eq('key', key)
+    setGlobalOverrideActive(false)
+    setGlobalOverrideActiveType('')
   }
 
   async function checkAdmin() {
@@ -1509,14 +1547,40 @@ export default function AdminPanel() {
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <p className="text-sm font-semibold text-gray-800 mb-1">Period Auto-Detection</p>
+              <p className="text-sm font-semibold text-gray-800 mb-0.5">Global Schedule Override</p>
               <p className="text-xs text-gray-400 mb-3">
-                The kiosk automatically detects the current period using the school bell schedule and Google Calendar.
-                Special schedules (Block Day, Minimum Day, Foggy) are detected from calendar event titles.
+                Force a specific bell schedule for all teachers today. Clears automatically at midnight.
+                Individual teachers can also set their own room-level override from their dashboard.
               </p>
-              <div className="bg-green-50 border border-green-100 rounded-lg p-3 text-xs text-green-700">
-                ✅ Auto-detection is always active. No configuration required.
+              {globalOverrideActive && (
+                <div className="mb-3 px-3 py-2 rounded-lg flex items-center justify-between" style={{ background: '#fef3c7', border: '1px solid #fcd34d' }}>
+                  <span className="text-xs font-semibold" style={{ color: '#92400e' }}>⚠️ Active: {SCHEDULE_LABELS[globalOverrideActiveType] || globalOverrideActiveType}</span>
+                  <button onClick={clearGlobalOverride} className="text-xs underline ml-2" style={{ color: '#92400e', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Clear Override</button>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <select
+                  value={globalOverrideType}
+                  onChange={e => setGlobalOverrideType(e.target.value)}
+                  className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }}
+                >
+                  {Object.entries(SCHEDULE_LABELS).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={saveGlobalOverride}
+                  disabled={globalOverrideSaving}
+                  className="px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-40"
+                  style={{ backgroundColor: RHS_GREEN }}
+                >
+                  {globalOverrideSaving ? 'Saving…' : 'Set for All Rooms'}
+                </button>
               </div>
+              <p className="text-xs text-gray-400 mt-3">
+                Schedule is otherwise auto-detected from Google Calendar event titles (Minimum Day, Block Day, etc.).
+              </p>
             </div>
           </>
         )}
