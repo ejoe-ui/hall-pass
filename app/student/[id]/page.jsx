@@ -429,7 +429,9 @@ function StudentDetailInner() {
           <img src="/RHSCOWBOYlogo.png" alt="RHS" style={{ width: 32, height: 32, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
           <div>
             <h1 style={{ color: 'white', fontWeight: 700, fontSize: 18, margin: 0 }}>Student Profile</h1>
-            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, margin: 0 }}>Room {teacherRoom} · {teacherName}</p>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, margin: 0 }}>
+              {currentTeacher?.is_admin ? 'Admin View' : `Room ${teacherRoom} · ${teacherName}`}
+            </p>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
