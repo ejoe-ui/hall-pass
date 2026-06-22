@@ -1311,7 +1311,8 @@ export default function AdminPanel() {
                       const teacher = teacherByRoom[String(s.room)]
                       const teacherLast = teacher?.name?.split(' ').pop()
                       const parts = [s.period ? shortPeriod(s.period) : null, teacherLast].filter(Boolean)
-                      return parts.length > 0 ? <div className="text-xs text-gray-400">{parts.join(' · ')}</div> : null
+                      // DEBUG: show raw room + teacher_id so we can see what fields are available
+                      return <div className="text-xs text-gray-400">{parts.join(' · ')} <span className="text-red-400">[rm:{String(s.room)} tid:{String(s.teacher_id).slice(0,6)}]</span></div>
                     })()}
                   </div>
                 </div>
