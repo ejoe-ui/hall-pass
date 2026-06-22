@@ -742,12 +742,15 @@ function TeacherInner() {
       .then(({ data }) => { if (data) setUnlockCode(data.value) })
   }, [])
 
-  // Initialize selectedRoom when teacher loads — parse comma-separated rooms, restore from sessionStorage
+  // Initialize selectedRoom + activePeriod when teacher loads — restore from sessionStorage
   useEffect(() => {
     if (!currentTeacher) return
     const rooms = (currentTeacher.room || '27').split(',').map(r => r.trim()).filter(Boolean)
     const saved = typeof window !== 'undefined' ? sessionStorage.getItem(`passable_room_${currentTeacher.id}`) : null
     setSelectedRoom(rooms.includes(saved) ? saved : rooms[0])
+    const savedPeriod = typeof window !== 'undefined' ? sessionStorage.getItem(`passable_period_${currentTeacher.id}`) : null
+    const validPeriods = currentTeacher.periods || []
+    if (savedPeriod && validPeriods.includes(savedPeriod)) setActivePeriod(savedPeriod)
   }, [currentTeacher?.id])
 
   useEffect(() => {
@@ -801,6 +804,7 @@ function TeacherInner() {
 
   async function handleSignOut() {
     await supabase.auth.signOut()
+    if (currentTeacher?.id) sessionStorage.removeItem(`passable_period_${currentTeacher.id}`)
     setActivePeriod(null); setShowSettings(false); setCurrentTeacher(null)
     setMustChangePassword(false)
   }
@@ -1148,7 +1152,7 @@ function TeacherInner() {
       <p className="text-gray-400 text-sm mb-8">Select the current period</p>
       <div className="flex flex-col gap-3 w-full max-w-xs">
         {periods.map(p => (
-          <button key={p.value} onClick={() => { setActivePeriod(p.value); generateCheckoutCode() }}
+          <button key={p.value} onClick={() => { if (currentTeacher?.id) sessionStorage.setItem(`passable_period_${currentTeacher.id}`, p.value); setActivePeriod(p.value); generateCheckoutCode() }}
             className="py-4 text-lg font-bold bg-white border-2 rounded-xl shadow-sm hover:bg-green-50"
             style={{ borderColor: RHS_GREEN, color: RHS_GREEN }}>
             {p.label}
@@ -1404,8 +1408,8 @@ function TeacherInner() {
           <select
             value={activePeriod || ''}
             onChange={e => {
-              if (e.target.value) { setActivePeriod(e.target.value); generateCheckoutCode() }
-              else setActivePeriod(null)
+              if (e.target.value) { if (currentTeacher?.id) sessionStorage.setItem(`passable_period_${currentTeacher.id}`, e.target.value); setActivePeriod(e.target.value); generateCheckoutCode() }
+              else { if (currentTeacher?.id) sessionStorage.removeItem(`passable_period_${currentTeacher.id}`); setActivePeriod(null) }
             }}
             className="text-sm rounded-lg px-2 py-1 cursor-pointer"
             style={{ backgroundColor: '#004d28', color: '#bbf7d0', border: '1px solid #16a34a' }}
