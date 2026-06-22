@@ -643,7 +643,7 @@ function TeacherInner() {
   async function handlePasswordSignIn(e) {
     if (e) e.preventDefault()
     setSigningIn(true); setAuthError('')
-    if (!email.endsWith('@rjusd.org') && !email.endsWith('@demo.passable.app') && email !== 'connect.joe@gmail.com') {
+    if (!email.endsWith('@rjusd.org') && !email.endsWith('@demo.passable.app')) {
       setAuthError('Only @rjusd.org accounts are allowed.')
       setSigningIn(false); return
     }
