@@ -280,26 +280,21 @@ function StudentDetailInner() {
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState('semester')
 
-  // Load logged-in teacher (for header + pass log context)
-  useEffect(() => {
-    async function loadTeacher() {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
-      const { data } = await supabase
-        .from('teachers')
-        .select('*')
-        .eq('auth_id', session.user.id)
-        .eq('is_active', true)
-        .maybeSingle()
-      if (data) setCurrentTeacher(data)
-    }
-    loadTeacher()
-  }, [])
-
   useEffect(() => { loadData() }, [id, timeRange])
 
   async function loadData() {
     setLoading(true)
+
+    // Load viewer first — needed to know whether to filter passes
+    let viewer = null
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session) {
+      const { data } = await supabase
+        .from('teachers').select('*')
+        .eq('auth_id', session.user.id).eq('is_active', true).maybeSingle()
+      viewer = data
+      if (data) setCurrentTeacher(data)
+    }
 
     const { data: studentData } = await supabase
       .from('students').select('*').eq('id', id).single()
@@ -332,7 +327,11 @@ function StudentDetailInner() {
       }
     }
 
+    // Teachers see only passes from their own class; admins see all
     let query = supabase.from('passes').select('*').eq('student_id', id).order('time_out', { ascending: false })
+    if (viewer && !viewer.is_admin) {
+      query = query.eq('room', viewer.room)
+    }
 
     if (timeRange === 'semester') {
       query = query.gte('time_out', getSemesterStart().toISOString())
@@ -560,7 +559,14 @@ function StudentDetailInner() {
         {/* Pass history */}
         <div style={{ background: 'white', borderRadius: 16, border: '1px solid #e5e7eb', overflow: 'hidden', marginBottom: 24 }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#1f2937' }}>📋 Pass History</h3>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#1f2937' }}>📋 Pass History</h3>
+              <p style={{ margin: '2px 0 0', fontSize: 11, color: '#9ca3af' }}>
+                {currentTeacher && !currentTeacher.is_admin
+                  ? `Your class only (Room ${currentTeacher.room})`
+                  : 'All classes combined'}
+              </p>
+            </div>
             <span style={{ fontSize: 12, color: '#9ca3af' }}>{passes.length} passes</span>
           </div>
           {passes.length === 0 ? (
