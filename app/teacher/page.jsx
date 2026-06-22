@@ -1193,6 +1193,8 @@ function TeacherInner() {
               a: <>Your default passcode is your room number doubled — Room 27 → <span className="font-mono">2727</span>, Room 30 → <span className="font-mono">3030</span>. You were prompted to change it on first login. If you're locked out, contact your admin.</> },
             { q: "How do I switch periods?", keys: "period switch dropdown header class",
               a: <>Use the period dropdown in the top-right of the header to switch between your class periods at any time — no need to sign out or go back.</> },
+            { q: "I teach in more than one room.", keys: "traveling teacher multiple rooms two rooms switch room gym pe",
+              a: <>If you cover multiple rooms, your admin can set your account to include all of them — no second login needed. Once set up, a room picker appears in the header so you can switch between your rooms in the same session. Ask your admin to update your Room field with your rooms listed (e.g. gym-a, gym-b).</> },
             { q: "I don't see any students.", keys: "no students roster empty import period",
               a: <>Your roster hasn't been imported yet for this period. {lnk(`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`, 'Import your roster here →')} — upload your Aeries class roster Excel file. It takes about 30 seconds.</> },
           ]},
