@@ -642,19 +642,8 @@ export default function AdminPanel() {
     return 'P' + String(period).replace(/periods?\s*/i, '').replace(/\s*&\s*/g, '&').trim()
   }
 
-  // Merge teacher info onto each student using the teachers state (loaded by loadTeachers)
-  const teacherLookup = Object.fromEntries(teachers.map(t => [t.id, t]))
-  const studentsWithTeacher = students.map(s => ({ ...s, teacherInfo: teacherLookup[s.teacher_id] || null }))
-
-  // Active students first, orphaned (no matched teacher) at bottom
-  const filteredStudents = studentsWithTeacher
+  const filteredStudents = students
     .filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()))
-    .sort((a, b) => {
-      const aActive = !!a.teacherInfo
-      const bActive = !!b.teacherInfo
-      if (aActive === bActive) return 0
-      return aActive ? -1 : 1
-    })
 
   const memberSearchResults = students.filter(s => s.full_name?.toLowerCase().includes(memberSearch.toLowerCase())).slice(0, 8)
 
@@ -1305,29 +1294,20 @@ export default function AdminPanel() {
                   <a href="/qr" className="text-xs text-gray-400 hover:text-gray-600">Print QR Badges →</a>
                 </div>
               </div>
-              {filteredStudents.slice(0, 200).map(s => {
-                const teacher = s.teacherInfo
-                const isOrphaned = !teacher
-                const teacherLast = teacher?.name?.split(' ').pop() || null
-                const periodShort = shortPeriod(s.period)
-                const subtitle = isOrphaned
-                  ? '⚠ No active teacher'
-                  : [periodShort, teacherLast].filter(Boolean).join(' · ')
-                return (
-                  <div key={s.id + (s.period || '')} className={`flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0 ${isOrphaned ? 'opacity-50' : ''}`}>
-                    {getStudentPhotoUrl(s)
-                      ? <img src={getStudentPhotoUrl(s)} alt={s.full_name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
-                      : <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
-                          {s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
-                        </div>
-                    }
-                    <div className="flex-1">
-                      <a href={`/student/${s.id}`} className="text-sm hover:underline" style={{ color: RHS_GREEN }}>{s.full_name}</a>
-                      <div className={`text-xs ${isOrphaned ? 'text-amber-500' : 'text-gray-400'}`}>{subtitle}</div>
-                    </div>
+              {filteredStudents.slice(0, 200).map(s => (
+                <div key={s.id + (s.period || '')} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
+                  {getStudentPhotoUrl(s)
+                    ? <img src={getStudentPhotoUrl(s)} alt={s.full_name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                    : <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
+                        {s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                      </div>
+                  }
+                  <div className="flex-1">
+                    <a href={`/student/${s.id}`} className="text-sm hover:underline" style={{ color: RHS_GREEN }}>{s.full_name}</a>
+                    {s.period && <div className="text-xs text-gray-400">{shortPeriod(s.period)}</div>}
                   </div>
-                )
-              })}
+                </div>
+              ))}
               {filteredStudents.length > 200 && (
                 <div className="px-4 py-3 text-xs text-gray-400 text-center">Showing 200 of {filteredStudents.length} — use search to narrow results</div>
               )}
