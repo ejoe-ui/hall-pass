@@ -18,6 +18,74 @@ import * as XLSX from 'xlsx'
 
 const RHS_GREEN = '#006938'
 
+// ── Schedule descriptions for override picker preview ─────────────────────────
+const SCHEDULE_DESCRIPTIONS = {
+  regular: 'Standard 7-period day. Periods 1–7, brunch, lunch.',
+  earlyRelease: 'Shortened periods, school ends ~2:00 PM.',
+  blockWed: 'Block day — Wednesday. Pairs: 1&2, 3&4, 5&6 + Period 7.',
+  blockThu: 'Block day — Thursday. Pairs: 1&2, 3&4, 5&6 + Period 7.',
+  minimum: 'Minimum day. All 7 periods, school ends ~1:00 PM.',
+  activity: 'Activity (End of Day). Regular schedule, activity after Period 7.',
+  middayActivity: 'Midday activity/assembly during lunch block.',
+  middayActivityWed: 'Block Wednesday + midday activity/assembly.',
+  middayActivityThu: 'Block Thursday + midday activity/assembly.',
+  foggy: 'Foggy / Late Arrival. School starts ~10:00 AM, all 7 periods.',
+  foggyBlockWed: 'Foggy late start + Block Wednesday schedule.',
+  foggyBlockThu: 'Foggy late start + Block Thursday schedule.',
+  codeDay: 'C.O.D.E Day. Regular periods + kickball rally during lunch.',
+  custom: 'Define your own period times below after selecting.',
+}
+
+// ── Global schedule picker with preview ──────────────────────────────────────
+function ScheduleSelectWithPreview({ value, onChange, labels }) {
+  const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState(null)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    function handleOutside(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [])
+
+  const previewKey = hovered || value
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flex: 1 }}>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="w-full p-2 text-sm rounded-lg bg-white text-gray-800 text-left flex items-center justify-between border-2"
+        style={{ borderColor: RHS_GREEN }}>
+        <span>{labels[value] || value}</span>
+        <span style={{ fontSize: 9, color: '#6b7280', marginLeft: 6 }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 200, background: 'white', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.13)', display: 'flex', minWidth: '100%' }}>
+          <div style={{ minWidth: 240, maxHeight: 300, overflowY: 'auto', padding: '4px 0' }}>
+            {Object.entries(labels).map(([k, v]) => (
+              <div key={k}
+                onMouseEnter={() => setHovered(k)}
+                onMouseLeave={() => setHovered(null)}
+                onClick={() => { onChange(k); setOpen(false) }}
+                style={{ padding: '7px 14px', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8,
+                  background: hovered === k ? '#f0fdf4' : 'transparent',
+                  color: k === value ? RHS_GREEN : '#374151',
+                  fontWeight: k === value ? 600 : 400 }}>
+                <span style={{ width: 12, fontSize: 10 }}>{k === value ? '✓' : ''}</span>
+                {v}
+              </div>
+            ))}
+          </div>
+          <div style={{ width: 220, borderLeft: '1px solid #f3f4f6', background: '#fafafa', borderRadius: '0 10px 10px 0', padding: '12px 14px' }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: RHS_GREEN, marginBottom: 6 }}>{labels[previewKey]}</p>
+            <p style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.6 }}>{SCHEDULE_DESCRIPTIONS[previewKey] || 'No description available.'}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 const LOG_FILTER_OPTIONS = [
   { id: 'today',    label: 'Today' },
   { id: 'week',     label: 'This Week' },
@@ -1573,16 +1641,11 @@ export default function AdminPanel() {
                 </div>
               )}
               <div className="flex gap-2">
-                <select
+                <ScheduleSelectWithPreview
                   value={globalOverrideType}
-                  onChange={e => setGlobalOverrideType(e.target.value)}
-                  className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }}
-                >
-                  {Object.entries(SCHEDULE_LABELS).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
-                  ))}
-                </select>
+                  onChange={setGlobalOverrideType}
+                  labels={SCHEDULE_LABELS}
+                />
                 <button
                   onClick={saveGlobalOverride}
                   disabled={globalOverrideSaving}
