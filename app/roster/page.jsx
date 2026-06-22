@@ -414,7 +414,7 @@ function RosterImportInner() {
           </ol>
         </div>
 
-        <a href="/teacher" className="block text-center text-sm text-gray-400 hover:text-gray-600 mt-6">← Back to Dashboard</a>
+        <a href="/teacher" className="block text-center text-sm text-gray-400 hover:text-gray-600 mt-6">← Back to Relay Station</a>
       </div>
     </div>
   )
