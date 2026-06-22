@@ -645,12 +645,12 @@ export default function AdminPanel() {
     return 'P' + String(period).replace(/periods?\s*/i, '').replace(/\s*&\s*/g, '&').trim()
   }
 
-  // Active students first, orphaned (no active teacher) at bottom
+  // Active students first, orphaned (teacher not found in table) at bottom
   const filteredStudents = students
     .filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()))
     .sort((a, b) => {
-      const aActive = !!(teacherLookup[a.teacher_id]?.is_active)
-      const bActive = !!(teacherLookup[b.teacher_id]?.is_active)
+      const aActive = !!teacherLookup[a.teacher_id]
+      const bActive = !!teacherLookup[b.teacher_id]
       if (aActive === bActive) return 0
       return aActive ? -1 : 1
     })
@@ -1306,7 +1306,7 @@ export default function AdminPanel() {
               </div>
               {filteredStudents.slice(0, 200).map(s => {
                 const teacher = teacherLookup[s.teacher_id]
-                const isOrphaned = !teacher || !teacher.is_active
+                const isOrphaned = !teacher
                 const teacherLast = teacher?.name?.split(' ').pop() || null
                 const periodShort = shortPeriod(s.period)
                 const subtitle = isOrphaned
