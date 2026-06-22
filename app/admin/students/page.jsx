@@ -489,7 +489,7 @@ export default function StudentsAdmin() {
                     }
                   </div>
                   <div className="flex-1">
-                    <a href={`/student/${s.id}`}
+                    <a href={`/student/${s.id}?view=teacher`}
                       className="text-sm font-medium hover:underline"
                       style={{ color: RHS_GREEN }}>
                       {s.full_name}
