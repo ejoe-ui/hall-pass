@@ -730,9 +730,11 @@ export default function AdminPanel() {
       { q: 'When I get new Lifetouch photos mid-year, do I re-import?', a: <>Yes — just run the import again. New photos replace old ones and existing data stays untouched. Teachers can also run <strong>Match the Photos</strong> from their Relay Station to pull in photos for just their class if needed.</> },
     ]},
     { title: 'Students', items: [
-      { q: 'Where do I manage students?', a: <>The Students tab is a school-wide view. Each student shows their period and teacher (e.g., P1 · Chavira). Click any student to open their full profile — all pass history across every class, all their teachers across periods, and NFC card status.</> },
-      { q: 'A student has no period or teacher listed.', a: 'That student is in the system but not linked to any active classroom — usually leftover from a demo or a teacher account that was removed. They can be cleaned up via Supabase or safely ignored.' },
-      { q: 'How do I print QR ID badges?', a: <>Go to <a href="/qr" style={{color:RHS_GREEN,textDecoration:'underline'}}>QR Badges</a>. It generates a printable sheet of QR codes for each student. Students can scan these at the kiosk instead of tapping their name.</> },
+      { q: 'What is the Students tab?', a: 'A school-wide read-only roster of every student enrolled in PassAble. Each entry shows their period and teacher (e.g., P1 · Chavira). Use the search bar to find any student by name.' },
+      { q: 'What does clicking a student show?', a: 'Their full profile — all pass history across every class and teacher, NFC card status, and pass stats. Useful for counselor meetings, intervention planning, or spotting students who leave frequently across multiple rooms.' },
+      { q: 'Can I add or delete students from here?', a: 'No. Students are added by teachers via Import Roster or manually through Manage Students. To remove a student from a class, the teacher handles it in Manage Students.' },
+      { q: 'A student has no period or teacher listed.', a: 'That student is in the system but not linked to any active classroom — usually leftover from a demo or a removed teacher account. They can be safely ignored or cleaned up via Supabase.' },
+      { q: 'How do I print QR ID badges?', a: <>Go to <a href="/qr" style={{color:RHS_GREEN,textDecoration:'underline'}}>QR Badges</a>. It generates a printable sheet of QR codes — students scan these at the kiosk instead of tapping their name.</> },
     ]},
     { title: 'Pass Log', items: [
       { q: 'The pass log only shows recent passes.', a: <>Use the filter buttons (Today / This Week / This Month / This Quarter / This Semester / All Time) to change the date range. The school-wide log shows passes from all classrooms.</> },
@@ -744,6 +746,9 @@ export default function AdminPanel() {
     ]},
     { title: 'School Settings', items: [
       { q: 'What is the First & Last 15-Minute Rule?', a: <>When on, the status bar on the kiosk and teacher dashboard turns red during the first and last 15 minutes of each period as a reminder not to let students out. It does not block checkout — it's a warning only.</> },
+    ]},
+    { title: 'Feedback & Feature Requests', items: [
+      { q: 'How do I request a new feature or change?', a: <>Have an idea for a new feature or want to modify how something works? Reach out at <a href="mailto:ejoe@rjusd.org" style={{color:RHS_GREEN,textDecoration:'underline'}}>ejoe@rjusd.org</a>.</> },
     ]},
   ]
 
