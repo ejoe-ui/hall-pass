@@ -802,6 +802,8 @@ export default function AdminPanel() {
     ]},
     { title: 'School Settings', items: [
       { q: 'What is the First & Last 15-Minute Rule?', a: <>When on, the status bar on the kiosk and teacher dashboard turns red during the first and last 15 minutes of each period as a reminder not to let students out. It does not block checkout — it's a warning only.</> },
+      { q: 'How do I set a schedule override for the whole school?', a: <>Go to <strong>⚙️ School Settings</strong> and find <strong>Global Schedule Override</strong>. Pick the correct schedule and click <strong>Set for All Rooms</strong>. This pushes the override to every teacher's dashboard immediately. Individual teachers can still override their own room independently — a room-level override always takes priority over the global one. All overrides clear automatically at midnight.</> },
+      { q: 'What schedules can I override to?', a: 'Regular, Early Release, Block Day (Wed or Thu), Minimum Day, Activity Day, Foggy / Late Arrival, and Code Day. These match the same schedules PassAble auto-detects from Google Calendar.' },
     ]},
     { title: 'Feedback & Feature Requests', items: [
       { q: 'How do I request a new feature or change?', a: <>Have an idea for a new feature or want to modify how something works? Reach out at <a href="mailto:ejoe@rjusd.org" style={{color:RHS_GREEN,textDecoration:'underline'}}>ejoe@rjusd.org</a>.</> },
