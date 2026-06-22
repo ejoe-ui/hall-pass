@@ -136,6 +136,9 @@ export default function AdminPanel() {
   const [globalOverrideActive, setGlobalOverrideActive] = useState(false)
   const [globalOverrideActiveType, setGlobalOverrideActiveType] = useState('')
   const [globalOverrideSaving, setGlobalOverrideSaving] = useState(false)
+  const [globalCustomPeriods, setGlobalCustomPeriods] = useState([
+    { id: '1', label: 'Period 1', start: '', end: '', break: false }
+  ])
 
   // ── Help panel ────────────────────────────────────────────────────────────
   const [showHelp, setShowHelp] = useState(false)
@@ -183,12 +186,18 @@ export default function AdminPanel() {
   const SCHEDULE_LABELS = {
     regular: 'Regular',
     earlyRelease: 'Early Release',
-    blockWed: 'Block Day (Wed)',
-    blockThu: 'Block Day (Thu)',
+    blockWed: 'Block — Wednesday',
+    blockThu: 'Block — Thursday',
     minimum: 'Minimum Day',
-    activity: 'Activity Day',
-    foggy: 'Foggy / Late Arrival',
+    activity: 'Activity (End of Day)',
+    middayActivity: 'Midday Activity',
+    middayActivityWed: 'Midday Activity — Wednesday',
+    middayActivityThu: 'Midday Activity — Thursday',
+    foggy: 'Foggy — Regular',
+    foggyBlockWed: 'Foggy Block — Wednesday',
+    foggyBlockThu: 'Foggy Block — Thursday',
     codeDay: 'Code Day',
+    custom: 'Custom…',
   }
 
   function todayStr() { return new Date().toISOString().split('T')[0] }
@@ -215,16 +224,19 @@ export default function AdminPanel() {
 
   async function saveGlobalOverride() {
     setGlobalOverrideSaving(true)
-    const key = `schedule_override_global_${todayStr()}`
-    await supabase.from('settings').upsert({ key, value: globalOverrideType }, { onConflict: 'key' })
+    const ds = todayStr()
+    await supabase.from('settings').upsert({ key: `schedule_override_global_${ds}`, value: globalOverrideType }, { onConflict: 'key' })
+    if (globalOverrideType === 'custom') {
+      await supabase.from('settings').upsert({ key: `schedule_override_custom_global_${ds}`, value: JSON.stringify(globalCustomPeriods) }, { onConflict: 'key' })
+    }
     setGlobalOverrideActive(true)
     setGlobalOverrideActiveType(globalOverrideType)
     setGlobalOverrideSaving(false)
   }
 
   async function clearGlobalOverride() {
-    const key = `schedule_override_global_${todayStr()}`
-    await supabase.from('settings').delete().eq('key', key)
+    const ds = todayStr()
+    await supabase.from('settings').delete().in('key', [`schedule_override_global_${ds}`, `schedule_override_custom_global_${ds}`])
     setGlobalOverrideActive(false)
     setGlobalOverrideActiveType('')
   }
@@ -1580,6 +1592,36 @@ export default function AdminPanel() {
                   {globalOverrideSaving ? 'Saving…' : 'Set for All Rooms'}
                 </button>
               </div>
+              {globalOverrideType === 'custom' && (
+                <div className="mt-3">
+                  <p className="text-xs font-medium text-gray-600 mb-2">Define custom periods:</p>
+                  <div className="space-y-1.5">
+                    {globalCustomPeriods.map((p, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <input type="text" value={p.label}
+                          onChange={e => setGlobalCustomPeriods(prev => prev.map((r, j) => j === i ? { ...r, label: e.target.value } : r))}
+                          placeholder="Label" className="p-1.5 text-xs border rounded-lg" style={{ width: 100 }} />
+                        <input type="time" value={p.start}
+                          onChange={e => setGlobalCustomPeriods(prev => prev.map((r, j) => j === i ? { ...r, start: e.target.value } : r))}
+                          className="p-1.5 text-xs border rounded-lg" style={{ width: 96 }} />
+                        <span className="text-xs text-gray-400">–</span>
+                        <input type="time" value={p.end}
+                          onChange={e => setGlobalCustomPeriods(prev => prev.map((r, j) => j === i ? { ...r, end: e.target.value } : r))}
+                          className="p-1.5 text-xs border rounded-lg" style={{ width: 96 }} />
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>
+                          <input type="checkbox" checked={p.break || false}
+                            onChange={e => setGlobalCustomPeriods(prev => prev.map((r, j) => j === i ? { ...r, break: e.target.checked } : r))} />
+                          Break
+                        </label>
+                        <button onClick={() => setGlobalCustomPeriods(prev => prev.filter((_, j) => j !== i))}
+                          className="text-red-400 text-xs" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => setGlobalCustomPeriods(prev => [...prev, { id: String(Date.now()), label: '', start: '', end: '', break: false }])}
+                    className="mt-2 text-xs underline" style={{ color: RHS_GREEN, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>+ Add period</button>
+                </div>
+              )}
               <p className="text-xs text-gray-400 mt-3">
                 Schedule is otherwise auto-detected from Google Calendar event titles (Minimum Day, Block Day, etc.).
               </p>
