@@ -248,10 +248,12 @@ export default function PhotoUpload() {
               { q: 'What Lifetouch filename format is expected?', a: 'Standard format: 0043_LastName_FirstName_01.jpg — the number prefix and _01 suffix are ignored. Only the last and first name are used.' },
               { q: 'Can teachers match just their own students?', a: "Yes. Teachers use Match the Photos from their Relay Station. Useful after retakes when only one room's photos changed." },
             ].map((item, i) => (
-              <div key={i} style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 14px' }}>
-                <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', margin: '0 0 4px' }}>{item.q}</p>
-                <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>{item.a}</p>
-              </div>
+              <details key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                <summary style={{ padding: '10px 16px', fontSize: 13, fontWeight: 600, color: '#1f2937', cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  {item.q}<span style={{ color: '#9ca3af', fontSize: 16, marginLeft: 8, flexShrink: 0 }}>›</span>
+                </summary>
+                <div style={{ padding: '0 16px 12px', fontSize: 13, color: '#4b5563', lineHeight: 1.5 }}>{item.a}</div>
+              </details>
             ))}
           </div>
         </div>
