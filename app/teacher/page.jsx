@@ -72,23 +72,47 @@ function _t2m(t){const[h,m]=t.split(':').map(Number);return h*60+m;}
 function _nm(n){return n.getHours()*60+n.getMinutes();}
 function _ds(d){return d.toISOString().split('T')[0];}
 function _sdw(date){const day=date.getDay(),mon=new Date(date);mon.setDate(date.getDate()-(day===0?6:day-1));let c=0;for(let i=0;i<5;i++){const d=new Date(mon);d.setDate(mon.getDate()+i);if(!_NO_SCHOOL.includes(_ds(d)))c++;}return c;}
-async function fetchTodayScheduleType(date=new Date()){
+const SCHEDULE_LABELS = {
+  regular: 'Regular',
+  earlyRelease: 'Early Release',
+  blockWed: 'Block Day (Wed)',
+  blockThu: 'Block Day (Thu)',
+  minimum: 'Minimum Day',
+  activity: 'Activity Day',
+  foggy: 'Foggy / Late Arrival',
+  codeDay: 'Code Day',
+}
+async function fetchTodayScheduleType(date=new Date(), room=null){
   const ds=_ds(date),dow=date.getDay();
-  if(dow===0||dow===6||_NO_SCHOOL.includes(ds))return{type:'noSchool',schedule:null};
+  if(dow===0||dow===6||_NO_SCHOOL.includes(ds))return{type:'noSchool',schedule:null,isOverride:false};
+  // ── Check Supabase for manual overrides (room-specific beats global) ──────
+  try {
+    const keys = room
+      ? [`schedule_override_${room}_${ds}`, `schedule_override_global_${ds}`]
+      : [`schedule_override_global_${ds}`]
+    const { data } = await supabase.from('settings').select('key,value').in('key', keys)
+    if (data?.length) {
+      const roomRow = room ? data.find(r => r.key === `schedule_override_${room}_${ds}`) : null
+      const globalRow = data.find(r => r.key === `schedule_override_global_${ds}`)
+      const hit = roomRow || globalRow
+      if (hit && _SCHEDULES[hit.value]) return { type: hit.value, schedule: _SCHEDULES[hit.value], isOverride: true }
+    }
+  } catch(e) {}
+  // ── Fall back to calendar auto-detection ──────────────────────────────────
   let evts=[];
   try{const r=await fetch(`${_CAL_URL}?date=${ds}`);const d=await r.json();if(d.status==='ok')evts=d.events||[];}catch(e){}
   const tt=evts.filter(e=>e.start&&e.start.substring(0,10)===ds).map(e=>(e.title||'').toLowerCase()),has=kw=>tt.some(t=>t.includes(kw));
-  if(has('foggy')||has('late arrival'))return{type:'foggy',schedule:_SCHEDULES.foggy};
-  if(has('minimum'))return{type:'minimum',schedule:_SCHEDULES.minimum};
-  if(has('code day'))return{type:'codeDay',schedule:_SCHEDULES.codeDay};
-  if(has('activity'))return{type:'activity',schedule:_SCHEDULES.activity};
-  if(has('block'))return dow===3?{type:'blockWed',schedule:_SCHEDULES.blockWed}:{type:'blockThu',schedule:_SCHEDULES.blockThu};
-  if(has('early release'))return{type:'earlyRelease',schedule:_SCHEDULES.earlyRelease};
-  if(_sdw(date)<=4)return{type:'regular',schedule:_SCHEDULES.regular};
-  if(dow===1)return{type:'earlyRelease',schedule:_SCHEDULES.earlyRelease};
-  if(dow===3)return{type:'blockWed',schedule:_SCHEDULES.blockWed};
-  if(dow===4)return{type:'blockThu',schedule:_SCHEDULES.blockThu};
-  return{type:'regular',schedule:_SCHEDULES.regular};
+  if(has('foggy')||has('late arrival'))return{type:'foggy',schedule:_SCHEDULES.foggy,isOverride:false};
+  if(has('minimum'))return{type:'minimum',schedule:_SCHEDULES.minimum,isOverride:false};
+  if(has('code day'))return{type:'codeDay',schedule:_SCHEDULES.codeDay,isOverride:false};
+  if(has('activity'))return{type:'activity',schedule:_SCHEDULES.activity,isOverride:false};
+  if(has('block'))return dow===3?{type:'blockWed',schedule:_SCHEDULES.blockWed,isOverride:false}:{type:'blockThu',schedule:_SCHEDULES.blockThu,isOverride:false};
+  if(has('early release'))return{type:'earlyRelease',schedule:_SCHEDULES.earlyRelease,isOverride:false};
+  if(_sdw(date)<=4)return{type:'regular',schedule:_SCHEDULES.regular,isOverride:false};
+  if(dow===1)return{type:'earlyRelease',schedule:_SCHEDULES.earlyRelease,isOverride:false};
+  if(dow===3)return{type:'blockWed',schedule:_SCHEDULES.blockWed,isOverride:false};
+  if(dow===4)return{type:'blockThu',schedule:_SCHEDULES.blockThu,isOverride:false};
+  return{type:'regular',schedule:_SCHEDULES.regular,isOverride:false};
 }
 function getCurrentPeriodInfo(schedule,now=new Date()){
   if(!schedule)return{status:'noSchool',current:null,next:null,minutesUntilNext:0,minutesLeftInCurrent:0};
@@ -435,6 +459,12 @@ function TeacherInner() {
   const [periodInfo, setPeriodInfo] = useState(null)
   const [checkoutStatus, setCheckoutStatus] = useState('ok')
   const [blockMinsEnabled, setBlockMinsEnabled] = useState(true)
+  // Schedule override
+  const [scheduleIsOverride, setScheduleIsOverride] = useState(false)
+  const [scheduleType, setScheduleType] = useState('regular')
+  const [overridePickType, setOverridePickType] = useState('regular')
+  const [overrideSaving, setOverrideSaving] = useState(false)
+  const latestRoomRef = useRef(null)
 
   // Checkout form
   const [selected, setSelected] = useState('')
@@ -491,16 +521,46 @@ function TeacherInner() {
   const prevActiveIds = useRef([])
 
   // ── Schedule detection ─────────────────────────────────────────────────────
+  // Keep a ref so the 60s interval always uses the latest room
+  useEffect(() => {
+    latestRoomRef.current = selectedRoom || currentTeacher?.room?.split(',')[0]?.trim() || null
+  }, [selectedRoom, currentTeacher])
+
   useEffect(() => {
     detectSchedule()
     const t = setInterval(detectSchedule, 60000)
     return () => clearInterval(t)
   }, [])
 
+  // Re-detect when teacher logs in or switches rooms
+  useEffect(() => {
+    if (currentTeacher) detectSchedule()
+  }, [currentTeacher?.id, selectedRoom])
+
   async function detectSchedule() {
-    const result = await fetchTodayScheduleType(new Date())
+    const result = await fetchTodayScheduleType(new Date(), latestRoomRef.current)
     setCurrentSchedule(result.schedule)
+    setScheduleIsOverride(result.isOverride)
+    setScheduleType(result.type)
     updatePeriodStatus(result.schedule)
+  }
+
+  async function saveScheduleOverride() {
+    const room = latestRoomRef.current
+    if (!room) return
+    setOverrideSaving(true)
+    const key = `schedule_override_${room}_${_ds(new Date())}`
+    await supabase.from('settings').upsert({ key, value: overridePickType }, { onConflict: 'key' })
+    setOverrideSaving(false)
+    detectSchedule()
+  }
+
+  async function clearScheduleOverride() {
+    const room = latestRoomRef.current
+    if (!room) return
+    const key = `schedule_override_${room}_${_ds(new Date())}`
+    await supabase.from('settings').delete().eq('key', key)
+    detectSchedule()
   }
 
   function updatePeriodStatus(schedule) {
@@ -1239,6 +1299,14 @@ function TeacherInner() {
         </div>
       </div>
 
+      {/* ── Schedule Override Badge ── */}
+      {scheduleIsOverride && (
+        <div style={{ width: '100%', padding: '5px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fef3c7', borderBottom: '1px solid #fcd34d' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>⚠️ Schedule override active: {SCHEDULE_LABELS[scheduleType]}</span>
+          <button onClick={clearScheduleOverride} style={{ fontSize: 11, color: '#92400e', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Clear</button>
+        </div>
+      )}
+
       {/* ── Period Status Bar ── */}
       <PeriodStatusBar periodInfo={periodInfo} checkoutStatus={checkoutStatus} blockMinsEnabled={blockMinsEnabled} />
 
@@ -1526,6 +1594,39 @@ function TeacherInner() {
                 </button>
               </div>
               {printPassesSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="mb-3">
+                <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Today's Schedule Override</p>
+                <p className="text-xs text-gray-400">Force a specific schedule for today only. Auto-clears at midnight.</p>
+              </div>
+              {scheduleIsOverride && (
+                <div className="mb-3 px-3 py-2 rounded-lg flex items-center justify-between" style={{ background: '#fef3c7', border: '1px solid #fcd34d' }}>
+                  <span className="text-xs font-semibold" style={{ color: '#92400e' }}>⚠️ Active: {SCHEDULE_LABELS[scheduleType]}</span>
+                  <button onClick={clearScheduleOverride} className="text-xs underline ml-2" style={{ color: '#92400e', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Clear</button>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <select
+                  value={overridePickType}
+                  onChange={e => setOverridePickType(e.target.value)}
+                  className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }}
+                >
+                  {Object.entries(SCHEDULE_LABELS).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={saveScheduleOverride}
+                  disabled={overrideSaving}
+                  className="px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-40"
+                  style={{ backgroundColor: RHS_GREEN }}
+                >
+                  {overrideSaving ? 'Saving…' : 'Set'}
+                </button>
+              </div>
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
