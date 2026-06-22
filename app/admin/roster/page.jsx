@@ -11,7 +11,7 @@
 */
 
 'use client'
-import { useState, useEffect, useRef, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import * as XLSX from 'xlsx'
@@ -81,7 +81,30 @@ function RosterImportInner() {
   const [removeDropped, setRemoveDropped] = useState(false)    // teacher confirmed removal
   const [checkingDiff, setCheckingDiff] = useState(false)
 
+  // Floating help panel
+  const [showHelp, setShowHelp] = useState(false)
+  const [helpPos, setHelpPos] = useState({ x: null, y: null })
+  const helpRef = useRef()
+  const dragOffset = useRef(null)
+
   const fileRef = useRef()
+
+  const onHelpMouseDown = useCallback((e) => {
+    if (e.target.closest('a, button')) return
+    dragOffset.current = {
+      x: e.clientX - helpRef.current.getBoundingClientRect().left,
+      y: e.clientY - helpRef.current.getBoundingClientRect().top,
+    }
+    const onMove = (mv) => {
+      setHelpPos({ x: mv.clientX - dragOffset.current.x, y: mv.clientY - dragOffset.current.y })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
 
   // After parsedFiles are set, check DB for dropped students
   useEffect(() => {
@@ -270,11 +293,98 @@ function RosterImportInner() {
       <div className="w-full max-w-md">
         <div className="flex items-center gap-3 mb-8">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-10 h-10 object-contain" />
-          <div>
+          <div className="flex-1">
             <h1 className="text-xl font-bold" style={{ color: RHS_GREEN }}>Roster Import</h1>
             <p className="text-xs text-gray-400">RHS PassAble · Room {teacherRoom}</p>
           </div>
+          <button
+            onClick={() => { setShowHelp(v => !v); setHelpPos({ x: null, y: null }) }}
+            title="Help"
+            style={{
+              width: 32, height: 32, borderRadius: '50%', border: `2px solid ${RHS_GREEN}`,
+              background: showHelp ? RHS_GREEN : 'white', color: showHelp ? 'white' : RHS_GREEN,
+              fontWeight: 700, fontSize: 16, cursor: 'pointer', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >?</button>
         </div>
+
+        {/* Floating draggable help panel */}
+        {showHelp && (
+          <div
+            ref={helpRef}
+            onMouseDown={onHelpMouseDown}
+            style={{
+              position: 'fixed',
+              top: helpPos.y !== null ? helpPos.y : 80,
+              left: helpPos.x !== null ? helpPos.x : 'calc(50% + 240px)',
+              width: 340,
+              maxHeight: '80vh',
+              overflowY: 'auto',
+              background: 'white',
+              borderRadius: 16,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+              border: '1px solid #e5e7eb',
+              zIndex: 1000,
+              cursor: 'grab',
+              userSelect: 'none',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '12px 16px', borderBottom: '1px solid #f3f4f6',
+                background: '#f9fafb', borderRadius: '16px 16px 0 0',
+              }}
+            >
+              <p style={{ fontWeight: 700, fontSize: 13, color: '#374151', margin: 0 }}>Roster Import — Help</p>
+              <button
+                onClick={() => setShowHelp(false)}
+                style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#9ca3af', lineHeight: 1 }}
+              >×</button>
+            </div>
+            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                {
+                  q: '➕ Adding a Student Mid-Year',
+                  a: 'The preferred method is importing an updated roster from Aeries — it ensures names are spelled consistently and match your Lifetouch photos. If needed, you can also add a student manually via Manage Students on your Relay Station dashboard, but double-check the spelling matches Aeries exactly or their photo won\'t match. If the student was already in PassAble from another teacher\'s class, their name and photo carry over automatically.',
+                  link: { label: 'Manage Students', href: '/teacher' }
+                },
+                {
+                  q: '➖ Removing a Student from Your Class',
+                  a: 'Two ways: (1) Import an updated roster from Aeries that doesn\'t include them — they\'ll show up in the amber "no longer on your roster" section and you can check the box to remove them. (2) Go to Manage Students on your Relay Station dashboard and remove them directly from your class list.',
+                  link: { label: 'Manage Students', href: '/teacher' }
+                },
+                {
+                  q: 'What does "no longer on your roster" mean?',
+                  a: 'These students are currently linked to your class in PassAble but aren\'t in your new import. Usually means they transferred, dropped, or had a schedule change. Check the box to remove them — or leave it unchecked and they stay on your roster as-is.'
+                },
+                {
+                  q: 'Will removing a student delete their pass history?',
+                  a: 'No. Removing a student from your class only unlinks them from your room. All their pass history stays intact and is always visible in the admin panel.'
+                },
+                {
+                  q: 'What if I import the wrong file by mistake?',
+                  a: 'The import only adds or updates — it never deletes unless you check the removal box. If something goes wrong, re-import the correct file and the data will be corrected.'
+                },
+                {
+                  q: 'Can I import just one period at a time?',
+                  a: 'Yes. Upload a single file or multiple at once. Only the periods in your uploaded files are affected — other periods are untouched.'
+                },
+              ].map((item, i) => (
+                <div key={i} style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 12px' }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', margin: '0 0 4px' }}>{item.q}</p>
+                  <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>
+                    {item.a}
+                    {item.link && (
+                      <> <a href={item.link.href} style={{ color: RHS_GREEN, textDecoration: 'underline', fontWeight: 500 }}>{item.link.label} →</a></>
+                    )}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div
           className="border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors"
@@ -301,53 +411,6 @@ function RosterImportInner() {
             <li>Export each class as a separate XLSX</li>
             <li>Select all files here at once — period is read automatically</li>
           </ol>
-        </div>
-
-        {/* Help panel */}
-        <div className="mt-6 bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
-            <p className="text-sm font-bold text-gray-700">Roster Import — Help</p>
-          </div>
-          <div className="px-5 py-4 space-y-3">
-            {[
-              {
-                q: '➕ Adding a Student Mid-Year',
-                a: 'The preferred method is importing an updated roster from Aeries — it ensures names are spelled consistently and match your Lifetouch photos. If needed, you can also add a student manually via Manage Students on your Relay Station dashboard, but double-check the spelling matches Aeries exactly or their photo won\'t match. If the student was already in PassAble from another teacher\'s class, their name and photo carry over automatically.',
-                link: { label: 'Manage Students', href: '/teacher' }
-              },
-              {
-                q: '➖ Removing a Student from Your Class',
-                a: 'Two ways: (1) Import an updated roster from Aeries that doesn\'t include them — they\'ll show up in the amber "no longer on your roster" section and you can check the box to remove them. (2) Go to Manage Students on your Relay Station dashboard and remove them directly from your class list.',
-                link: { label: 'Manage Students', href: '/teacher' }
-              },
-              {
-                q: 'What does "no longer on your roster" mean?',
-                a: 'These students are currently linked to your class in PassAble but aren\'t in your new import. Usually means they transferred, dropped, or had a schedule change. Check the box to remove them — or leave it unchecked and they stay on your roster as-is.'
-              },
-              {
-                q: 'Will removing a student delete their pass history?',
-                a: 'No. Removing a student from your class only unlinks them from your room. All their pass history stays intact and is always visible in the admin panel.'
-              },
-              {
-                q: 'What if I import the wrong file by mistake?',
-                a: 'The import only adds or updates — it never deletes unless you check the removal box. If something goes wrong, re-import the correct file and the data will be corrected.'
-              },
-              {
-                q: 'Can I import just one period at a time?',
-                a: 'Yes. Upload a single file or multiple at once. Only the periods in your uploaded files are affected — other periods are untouched.'
-              },
-            ].map((item, i) => (
-              <div key={i} className="bg-gray-50 rounded-xl px-4 py-3">
-                <p className="text-xs font-semibold text-gray-700 mb-1">{item.q}</p>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  {item.a}
-                  {item.link && (
-                    <> <a href={item.link.href} className="underline font-medium" style={{ color: RHS_GREEN }}>{item.link.label} →</a></>
-                  )}
-                </p>
-              </div>
-            ))}
-          </div>
         </div>
 
         <a href="/teacher" className="block text-center text-sm text-gray-400 hover:text-gray-600 mt-6">← Back to Dashboard</a>
