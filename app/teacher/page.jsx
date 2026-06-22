@@ -31,14 +31,14 @@ const _SCHEDULES = {
     {id:'6',label:'Period 6',start:'12:34',end:'13:15'},{id:'7',label:'Period 7',start:'13:19',end:'14:00'},
   ]},
   blockWed:{name:'Block Day (Wed)',periods:[
-    {id:'1',label:'Periods 1 & 2',start:'08:10',end:'09:57'},{id:'brunch',label:'Brunch',start:'09:57',end:'10:12',break:true},
-    {id:'3',label:'Periods 3 & 4',start:'10:16',end:'11:59'},{id:'lunch',label:'Lunch',start:'11:59',end:'12:33',break:true},
-    {id:'5',label:'Periods 5 & 6',start:'12:37',end:'14:20'},{id:'7',label:'Period 7',start:'14:24',end:'15:15'},
+    {id:'1',label:'Period 1',start:'08:10',end:'09:57'},{id:'brunch',label:'Brunch',start:'09:57',end:'10:12',break:true},
+    {id:'3',label:'Period 3',start:'10:16',end:'11:59'},{id:'lunch',label:'Lunch',start:'11:59',end:'12:33',break:true},
+    {id:'5',label:'Period 5',start:'12:37',end:'14:20'},{id:'7',label:'Period 7',start:'14:24',end:'15:15'},
   ]},
   blockThu:{name:'Block Day (Thu)',periods:[
-    {id:'2',label:'Periods 1 & 2',start:'08:10',end:'09:57'},{id:'brunch',label:'Brunch',start:'09:57',end:'10:12',break:true},
-    {id:'4',label:'Periods 3 & 4',start:'10:16',end:'11:59'},{id:'lunch',label:'Lunch',start:'11:59',end:'12:33',break:true},
-    {id:'6',label:'Periods 5 & 6',start:'12:37',end:'14:20'},{id:'7',label:'Period 7',start:'14:24',end:'15:15'},
+    {id:'2',label:'Period 2',start:'08:10',end:'09:57'},{id:'brunch',label:'Brunch',start:'09:57',end:'10:12',break:true},
+    {id:'4',label:'Period 4',start:'10:16',end:'11:59'},{id:'lunch',label:'Lunch',start:'11:59',end:'12:33',break:true},
+    {id:'6',label:'Period 6',start:'12:37',end:'14:20'},{id:'7',label:'Period 7',start:'14:24',end:'15:15'},
   ]},
   minimum:{name:'Minimum Day',periods:[
     {id:'1',label:'Period 1',start:'08:10',end:'08:46'},{id:'2',label:'Period 2',start:'08:50',end:'09:23'},
@@ -51,6 +51,7 @@ const _SCHEDULES = {
     {id:'brunch',label:'Brunch',start:'09:44',end:'09:59',break:true},{id:'3',label:'Period 3',start:'10:03',end:'10:47'},
     {id:'4',label:'Period 4',start:'10:51',end:'11:35'},{id:'5',label:'Period 5',start:'11:39',end:'12:23'},
     {id:'lunch',label:'Lunch',start:'12:23',end:'12:57',break:true},{id:'6',label:'Period 6',start:'13:01',end:'13:45'},{id:'7',label:'Period 7',start:'13:49',end:'14:33'},
+    {id:'activity',label:'Activity',start:'14:33',end:'15:15',break:true},
   ]},
   foggy:{name:'Foggy/Late Arrival',periods:[
     {id:'1',label:'Period 1',start:'10:00',end:'10:44'},{id:'2',label:'Period 2',start:'10:48',end:'11:28'},
@@ -73,26 +74,26 @@ const _SCHEDULES = {
     {id:'6',label:'Period 6',start:'13:27',end:'14:07'},{id:'7',label:'Period 7',start:'14:11',end:'14:51'},
   ]},
   middayActivityWed:{name:'Midday Activity — Wed Block',periods:[
-    {id:'1',label:'Periods 1 & 2',start:'08:10',end:'09:55'},{id:'brunch',label:'Brunch',start:'09:55',end:'10:10',break:true},
-    {id:'3',label:'Periods 3 & 4',start:'10:14',end:'11:55'},{id:'activity',label:'Activity',start:'11:55',end:'12:30',break:true},
-    {id:'lunch',label:'Lunch',start:'12:30',end:'13:00',break:true},{id:'5',label:'Periods 5 & 6',start:'13:04',end:'14:45'},
+    {id:'1',label:'Period 1',start:'08:10',end:'09:55'},{id:'brunch',label:'Brunch',start:'09:55',end:'10:10',break:true},
+    {id:'3',label:'Period 3',start:'10:14',end:'11:55'},{id:'activity',label:'Activity',start:'11:55',end:'12:30',break:true},
+    {id:'lunch',label:'Lunch',start:'12:30',end:'13:00',break:true},{id:'5',label:'Period 5',start:'13:04',end:'14:45'},
     {id:'7',label:'Period 7',start:'14:49',end:'15:15'},
   ]},
   middayActivityThu:{name:'Midday Activity — Thu Block',periods:[
-    {id:'2',label:'Periods 1 & 2',start:'08:10',end:'09:55'},{id:'brunch',label:'Brunch',start:'09:55',end:'10:10',break:true},
-    {id:'4',label:'Periods 3 & 4',start:'10:14',end:'11:55'},{id:'activity',label:'Activity',start:'11:55',end:'12:30',break:true},
-    {id:'lunch',label:'Lunch',start:'12:30',end:'13:00',break:true},{id:'6',label:'Periods 5 & 6',start:'13:04',end:'14:45'},
+    {id:'2',label:'Period 2',start:'08:10',end:'09:55'},{id:'brunch',label:'Brunch',start:'09:55',end:'10:10',break:true},
+    {id:'4',label:'Period 4',start:'10:14',end:'11:55'},{id:'activity',label:'Activity',start:'11:55',end:'12:30',break:true},
+    {id:'lunch',label:'Lunch',start:'12:30',end:'13:00',break:true},{id:'6',label:'Period 6',start:'13:04',end:'14:45'},
     {id:'7',label:'Period 7',start:'14:49',end:'15:15'},
   ]},
   foggyBlockWed:{name:'Foggy Block — Wednesday',periods:[
-    {id:'1',label:'Periods 1 & 2',start:'10:00',end:'11:30'},{id:'brunch',label:'Brunch',start:'11:30',end:'11:45',break:true},
-    {id:'3',label:'Periods 3 & 4',start:'11:49',end:'13:15'},{id:'lunch',label:'Lunch',start:'13:15',end:'13:49',break:true},
-    {id:'5',label:'Periods 5 & 6',start:'13:53',end:'15:19'},{id:'7',label:'Period 7',start:'15:23',end:'15:45'},
+    {id:'1',label:'Period 1',start:'10:00',end:'11:30'},{id:'brunch',label:'Brunch',start:'11:30',end:'11:45',break:true},
+    {id:'3',label:'Period 3',start:'11:49',end:'13:15'},{id:'lunch',label:'Lunch',start:'13:15',end:'13:49',break:true},
+    {id:'5',label:'Period 5',start:'13:53',end:'15:19'},{id:'7',label:'Period 7',start:'15:23',end:'15:45'},
   ]},
   foggyBlockThu:{name:'Foggy Block — Thursday',periods:[
-    {id:'2',label:'Periods 1 & 2',start:'10:00',end:'11:30'},{id:'brunch',label:'Brunch',start:'11:30',end:'11:45',break:true},
-    {id:'4',label:'Periods 3 & 4',start:'11:49',end:'13:15'},{id:'lunch',label:'Lunch',start:'13:15',end:'13:49',break:true},
-    {id:'6',label:'Periods 5 & 6',start:'13:53',end:'15:19'},{id:'7',label:'Period 7',start:'15:23',end:'15:45'},
+    {id:'2',label:'Period 2',start:'10:00',end:'11:30'},{id:'brunch',label:'Brunch',start:'11:30',end:'11:45',break:true},
+    {id:'4',label:'Period 4',start:'11:49',end:'13:15'},{id:'lunch',label:'Lunch',start:'13:15',end:'13:49',break:true},
+    {id:'6',label:'Period 6',start:'13:53',end:'15:19'},{id:'7',label:'Period 7',start:'15:23',end:'15:45'},
   ]},
 }
 const _NO_SCHOOL=['2025-09-01','2025-11-11','2025-11-27','2025-11-28','2025-12-22','2025-12-23','2025-12-24','2025-12-25','2025-12-26','2025-12-29','2025-12-30','2025-12-31','2026-01-01','2026-01-02','2026-01-05','2026-01-06','2026-01-07','2026-01-08','2026-01-09','2026-01-12','2026-01-19','2026-02-09','2026-02-16','2026-03-30','2026-03-31','2026-04-01','2026-04-02','2026-04-03','2026-05-25']
@@ -434,6 +435,12 @@ async function notifyReceivingTeacher({ toTeacher, studentName, issuedBy, timeIs
 }
 
 // ── Schedule picker with hover preview ───────────────────────────────────────
+function to12h(t) {
+  if (!t) return ''
+  const [h, m] = t.split(':').map(Number)
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
+}
+
 function ScheduleSelectWithPreview({ value, onChange, labels, schedules }) {
   const [open, setOpen] = useState(false)
   const [hovered, setHovered] = useState(null)
@@ -490,7 +497,7 @@ function ScheduleSelectWithPreview({ value, onChange, labels, schedules }) {
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2.5,
                     color: p.break ? '#9ca3af' : '#374151' }}>
                     <span style={{ fontStyle: p.break ? 'italic' : 'normal' }}>{p.label}</span>
-                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#6b7280' }}>{p.start}–{p.end}</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#6b7280' }}>{to12h(p.start)}–{to12h(p.end)}</span>
                   </div>
                 ))}
               </>
