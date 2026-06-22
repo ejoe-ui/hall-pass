@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 
@@ -129,6 +129,24 @@ function AnalyticsInner() {
   const [correlations, setCorrelations] = useState([])
   const [periodData, setPeriodData] = useState([])
   const [totalPassesDetail, setTotalPassesDetail] = useState([])
+
+  // Help panel
+  const [showHelp, setShowHelp] = useState(false)
+  const [helpSearch, setHelpSearch] = useState('')
+  const [helpPos, setHelpPos] = useState({ x: null, y: null })
+  const helpPanelRef = useRef(null)
+  const helpDragOffset = useRef({ x: 0, y: 0 })
+
+  const startHelpDrag = useCallback((e) => {
+    const panel = helpPanelRef.current
+    if (!panel) return
+    const rect = panel.getBoundingClientRect()
+    helpDragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    const onMove = (ev) => setHelpPos({ x: ev.clientX - helpDragOffset.current.x, y: ev.clientY - helpDragOffset.current.y })
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); setAuthLoading(false) })
@@ -476,6 +494,10 @@ function AnalyticsInner() {
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <a href="/teacher" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>← The Relay Station</a>
           {currentTeacher?.is_admin && <a href="/admin" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>Admin</a>}
+          <button
+            onClick={() => { setShowHelp(v => !v); setHelpSearch(''); setHelpPos({ x: null, y: null }) }}
+            style={{ background: showHelp ? 'white' : 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 15, fontWeight: 700, color: showHelp ? RHS_GREEN : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >?</button>
         </div>
       </div>
 
@@ -609,6 +631,80 @@ function AnalyticsInner() {
           )}
         </div>
       </div>
+
+      {/* ── Floating Help Panel ── */}
+      {showHelp && (() => {
+        const adminItems = [
+          { q: 'What am I looking at?', keys: 'overview analytics what is this page', a: 'Pass Analytics shows data for all rooms across the school — total passes issued, how long students are out, which students leave most often, and when the hallways are busiest. Use the date range buttons to focus on today, the last 7 days, 30 days, or all time.' },
+          { q: 'How do I see a specific teacher\'s data?', keys: 'teacher filter specific room', a: 'Go to that teacher\'s Relay Station and click the Analytics link from there. It will open this page scoped to their room only. The yellow banner at the top tells you when you\'re in admin (all-rooms) view.' },
+          { q: 'What does Total Passes mean?', keys: 'total passes count', a: 'Every pass issued in the selected time range — across all teachers and rooms. Tap the card to see the 20 most recent passes with student name, reason, period, date, and duration.' },
+          { q: 'What does Avg Duration mean?', keys: 'average duration minutes time', a: 'The average number of minutes students are out per pass (completed passes only — open passes with no return time are excluded). Tap the card for median, percent over 10 minutes, and which reason type runs longest.' },
+          { q: 'What are Frequent Flyers?', keys: 'frequent flyers top students', a: 'The 10 students school-wide with the most passes in the selected time range. Click any name to jump to their full pass history. Red average times mean they\'re consistently out over 10 minutes.' },
+          { q: 'What are Simultaneous Exit Patterns?', keys: 'correlations simultaneous patterns pairs together', a: 'Student pairs who were both out of class at the same time, 2+ times in the selected range. 🚨 = 5+ times, ⚠️ = 3–4 times, 👀 = 2 times. If a pair appears here regularly, consider adding them to a Conflict Group in the Admin panel to block them from going out at the same time.' },
+          { q: 'What is the Heat Map?', keys: 'heat map activity time of day busy', a: 'Shows when passes happen most — by day of week and hour. Darker green = more passes. Use this to spot patterns: if Thursday 10:00 is always dark, that period or day might need attention.' },
+          { q: 'What does "Currently Out" mean?', keys: 'currently out active open passes', a: 'Students with an open pass right now — they scanned out but haven\'t returned yet. Tap the card to see who\'s out and how long they\'ve been gone. Red times mean over 10 minutes.' },
+        ]
+        const teacherItems = [
+          { q: 'What am I looking at?', keys: 'overview analytics what is this page', a: 'Pass Analytics shows data for your room — total passes you\'ve issued, how long your students are out, which students leave most often, and your busiest times. Use the date range buttons to filter by today, 7 days, 30 days, or all time.' },
+          { q: 'What does Total Passes mean?', keys: 'total passes count', a: 'Every pass you\'ve issued in the selected time range. Tap the card to see the 20 most recent passes with student name, reason, period, date, and duration.' },
+          { q: 'What does Avg Duration mean?', keys: 'average duration minutes time', a: 'The average number of minutes your students are out per pass. Only completed passes (with a return time) count. Tap the card for median, how many ran over 10 minutes, and which reason type takes longest.' },
+          { q: 'What are Frequent Flyers?', keys: 'frequent flyers top students', a: 'Your top 10 students by pass count in the selected range. Click any name to see their full pass history. Red average times mean they\'re consistently out over 10 minutes — worth a check-in.' },
+          { q: 'What are Simultaneous Exit Patterns?', keys: 'correlations simultaneous patterns pairs together', a: 'Student pairs from your class who were both out at the same time, 2+ times. 🚨 = 5+ times, ⚠️ = 3–4 times, 👀 = 2 times. If the same two students keep leaving together, you can contact your admin about adding them to a Conflict Group.' },
+          { q: 'What is the Heat Map?', keys: 'heat map activity time of day busy', a: 'Shows your busiest pass times by day and hour. Darker green = more passes. Useful for spotting if a specific period or day consistently has more hallway traffic from your room.' },
+          { q: 'What does "Currently Out" mean?', keys: 'currently out active open passes', a: 'Students with an open pass right now — they scanned out but haven\'t returned. Tap the card to see names and how long they\'ve been gone. Red times = over 10 minutes.' },
+          { q: 'Why don\'t I see all students in Frequent Flyers?', keys: 'missing students frequent flyers why', a: 'Only students who have been issued at least one pass appear here. Students who haven\'t used a pass yet won\'t show up. The list is also limited to your top 10 by pass count.' },
+        ]
+        const items = isAdmin ? adminItems : teacherItems
+        const q = helpSearch.toLowerCase().trim()
+        const filtered = q ? items.filter(i => i.q.toLowerCase().includes(q) || i.keys.includes(q)) : items
+        const panelStyle = {
+          position: 'fixed',
+          top: helpPos.y !== null ? helpPos.y : 80,
+          left: helpPos.x !== null ? helpPos.x : 'auto',
+          right: helpPos.x !== null ? 'auto' : 24,
+          width: 360,
+          maxHeight: '80vh',
+          background: 'white',
+          borderRadius: 16,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          zIndex: 100,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          border: `2px solid ${RHS_GREEN}`,
+        }
+        return (
+          <div ref={helpPanelRef} style={panelStyle}>
+            <div onMouseDown={startHelpDrag} style={{ background: RHS_GREEN, padding: '12px 16px', cursor: 'grab', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}>
+              <span style={{ color: 'white', fontWeight: 700, fontSize: 14 }}>
+                Analytics Help — {isAdmin ? 'Admin View' : 'Teacher View'}
+              </span>
+              <button onClick={() => setShowHelp(false)} style={{ background: 'none', border: 'none', color: 'white', fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
+            </div>
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid #e5e7eb' }}>
+              <input
+                value={helpSearch}
+                onChange={e => setHelpSearch(e.target.value)}
+                placeholder="Search help…"
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+            <div style={{ overflowY: 'auto', padding: '8px 0', flex: 1 }}>
+              {filtered.length === 0 && (
+                <div style={{ padding: '16px', fontSize: 13, color: '#9ca3af', textAlign: 'center' }}>No results for "{helpSearch}"</div>
+              )}
+              {filtered.map((item, i) => (
+                <details key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                  <summary style={{ padding: '10px 16px', fontSize: 13, fontWeight: 600, color: '#1f2937', cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    {item.q}<span style={{ color: '#9ca3af', fontSize: 16, marginLeft: 8 }}>›</span>
+                  </summary>
+                  <div style={{ padding: '0 16px 12px', fontSize: 13, color: '#4b5563', lineHeight: 1.5 }}>{item.a}</div>
+                </details>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
