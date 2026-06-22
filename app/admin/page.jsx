@@ -718,7 +718,8 @@ export default function AdminPanel() {
 
   const ADMIN_HELP = [
     { title: 'Teachers', items: [
-      { q: 'How do I add a new teacher?', a: <>Click <strong>+ Add Teacher</strong>, fill in their name, email, and room number, then save. After saving, click <strong>🔑 Set Passcode</strong> to create their login. Their default passcode will be their room number doubled (Room 30 → <strong>3030</strong>).</> },
+      { q: 'How do I add a new teacher or admin?', a: <>Click <strong>+ Add Staff Member</strong>, fill in their name, email, and room number, select their department, then save. Check <strong>Admin access</strong> if they should have admin panel access. After saving, click <strong>🔑 Set Passcode</strong> to create their login. Their default passcode will be their room number doubled (Room 30 → <strong>3030</strong>).</> },
+      { q: 'What room number should I use?', a: 'Use the actual room number (e.g. 27). For shared spaces, add a suffix to keep rooms unique — gym-a / gym-b, office-1 / office-2. Admin-only staff with no classroom use admin. Getting this right from the start matters — changing a room number later requires a database update to re-link students.' },
       { q: 'A teacher forgot their passcode.', a: <>Click <strong>↩️ Reset Passcode</strong> next to their name. This resets it to their room number doubled and flags them to change it on next login. Tell them to check their room number if unsure what the default is.</> },
       { q: "A teacher can't log in at all.", a: <>If Reset Passcode doesn't work, go to <a href="https://supabase.com" target="_blank" rel="noopener" style={{color:RHS_GREEN,textDecoration:'underline'}}>supabase.com</a> → Authentication → Users → find them by email → Send password recovery. The link goes to their email (check spam).</> },
       { q: 'What does NEEDS PW CHANGE mean?', a: <>The teacher has been given a default passcode and hasn't changed it yet. Remind them to go to Settings on their teacher dashboard and set a personal passcode.</> },
@@ -902,7 +903,7 @@ export default function AdminPanel() {
                 <button onClick={() => { setShowForm(true); setTeacherError(''); setTeacherMsg('') }}
                   className="px-4 py-2 text-sm font-semibold rounded-xl text-white"
                   style={{ backgroundColor: RHS_GREEN }}>
-                  + Add Teacher
+                  + Add Staff Member
                 </button>
               </div>
             )}
@@ -960,14 +961,12 @@ export default function AdminPanel() {
             {showForm && (
               <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
                 <h2 className="text-base font-bold text-gray-800 mb-4">
-                  {editingTeacher ? `Edit — ${editingTeacher.name}` : 'Add New Teacher'}
+                  {editingTeacher ? `Edit — ${editingTeacher.name}` : 'Add New Staff Member'}
                 </h2>
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   {[
                     { label: 'Full Name *', key: 'name', placeholder: 'Jane Smith' },
                     { label: 'Email *', key: 'email', placeholder: 'jsmith@rjusd.org' },
-                    { label: 'Room', key: 'room', placeholder: '27' },
-                    { label: 'Department', key: 'department', placeholder: 'CTE' },
                     { label: 'PIN (optional)', key: 'pin', placeholder: '4-digit PIN' },
                   ].map(f => (
                     <div key={f.key}>
@@ -977,6 +976,33 @@ export default function AdminPanel() {
                         className="w-full p-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-800" />
                     </div>
                   ))}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Room</label>
+                    <input value={form.room} onChange={e => setForm(prev => ({ ...prev, room: e.target.value }))}
+                      placeholder="27"
+                      className="w-full p-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-800" />
+                    <p className="text-xs text-gray-400 mt-1">Use room number (e.g. 27). Shared spaces: gym-a / gym-b, office-1 / office-2. Admin only: use admin.</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Department</label>
+                    <select value={form.department || 'Other'} onChange={e => setForm(prev => ({ ...prev, department: e.target.value }))}
+                      className="w-full p-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-800">
+                      <option value="Other">Other</option>
+                      <option value="English / Language Arts">English / Language Arts</option>
+                      <option value="Math">Math</option>
+                      <option value="Science">Science</option>
+                      <option value="Social Studies">Social Studies</option>
+                      <option value="Physical Education">Physical Education</option>
+                      <option value="CTE">CTE</option>
+                      <option value="World Languages">World Languages</option>
+                      <option value="Arts">Arts</option>
+                      <option value="Special Programs">Special Programs</option>
+                      <option value="Counseling">Counseling</option>
+                      <option value="Administration">Administration</option>
+                      <option value="Office">Office</option>
+                      <option value="Library">Library</option>
+                    </select>
+                  </div>
                   <div className="flex flex-col gap-3 justify-center">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="checkbox" checked={form.is_admin} onChange={e => setForm(prev => ({ ...prev, is_admin: e.target.checked }))} />
@@ -1022,7 +1048,7 @@ export default function AdminPanel() {
                   <button onClick={handleSave} disabled={saving}
                     className="px-4 py-2 text-sm font-semibold rounded-xl text-white disabled:opacity-40"
                     style={{ backgroundColor: RHS_GREEN }}>
-                    {saving ? 'Saving...' : editingTeacher ? 'Save Changes' : 'Add Teacher'}
+                    {saving ? 'Saving...' : editingTeacher ? 'Save Changes' : 'Add Staff Member'}
                   </button>
                 </div>
               </div>
