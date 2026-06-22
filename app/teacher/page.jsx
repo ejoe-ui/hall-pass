@@ -1057,6 +1057,8 @@ function TeacherInner() {
               a: <>Opens your classroom kiosk on this device in full screen. Students use it to check themselves out and back in. To return to your teacher dashboard from the kiosk, use your teacher unlock QR (found in {settingsBtn} → Teacher Unlock QR) or navigate directly to {lnk('/teacher', 'hall-pass-lime.vercel.app/teacher')}.</> },
             { q: "Import Roster", keys: "import roster aeries excel upload students period",
               a: <>{lnk(`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`, 'Import Roster →')} is where you upload your Aeries class roster Excel file to populate your student list for each period.</> },
+            { q: "Match the Photos", keys: "match photos lifetouch pictures student photo missing upload",
+              a: <>Pulls the Lifetouch photos your admin uploaded and matches them to the students on your roster. Run this after your admin imports a new photo batch. If a student's photo still doesn't appear, the name in the photo file may not match their name in PassAble — contact your admin. You can also add a photo manually for any individual student by going to {lnk('/admin/students', 'Manage Students →')} and clicking Edit next to their name.</> },
             { q: "Analytics", keys: "analytics trends pass count reason busiest time pattern",
               a: <>{lnk(`/analytics?teacher_id=${currentTeacher?.id || ''}`, 'Analytics →')} (in the header) shows pass trends for your classroom — busiest times, most frequent reasons, and students with high pass counts.</> },
           ]},
