@@ -1,3 +1,14 @@
+/*
+  PassAble — RHS Hall Pass System
+  FILE:    app/admin/students/page.jsx
+  ROUTE:   /admin/students
+  PURPOSE: Teacher-facing student management — add, edit, remove, move periods,
+           upload individual photos.
+  REPO:    hall-pass (hall-pass-lime.vercel.app)
+  BACKEND: Supabase (students, student_periods tables)
+  UPDATED: 2026-06-21
+*/
+
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../../lib/supabase'
@@ -83,7 +94,6 @@ export default function StudentsAdmin() {
       setLoading(false)
       return
     }
-    // ── Include photo_url in query ────────────────────────────────────────────
     const { data } = await supabase
       .from('students')
       .select('id, first_name, last_name, full_name, period, nfc_uid, photo_file, photo_url')
@@ -94,16 +104,9 @@ export default function StudentsAdmin() {
   }
 
   function getPhotoUrl(student) {
-    // Prefer photo_url (Aeries/direct URL), fall back to storage file
     if (student.photo_url) return student.photo_url
     if (!student.photo_file) return null
     const { data } = supabase.storage.from('student-photos').getPublicUrl(student.photo_file)
-    return data?.publicUrl || null
-  }
-
-  function getStorageUrl(photo_file) {
-    if (!photo_file) return null
-    const { data } = supabase.storage.from('student-photos').getPublicUrl(photo_file)
     return data?.publicUrl || null
   }
 
@@ -339,7 +342,7 @@ export default function StudentsAdmin() {
         </div>
         <div className="flex items-center gap-4">
           <a href="/admin/photos" className="text-sm text-green-200 hover:text-white">📷 Photo Upload</a>
-          <a href="/teacher" className="text-sm text-green-200 hover:text-white">← Dashboard</a>
+          <a href="/teacher" className="text-sm text-green-200 hover:text-white">← Relay Station</a>
         </div>
       </div>
 
@@ -401,7 +404,6 @@ export default function StudentsAdmin() {
               const url = getPhotoUrl(s)
               return (
                 <div key={s.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                  {/* ── Photo: prefer photo_url, fall back to storage, then initials ── */}
                   <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center text-xs font-medium text-white"
                     style={{ backgroundColor: RHS_GREEN }}>
                     {url
