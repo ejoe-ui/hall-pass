@@ -306,10 +306,12 @@ export default function StudentsAdmin() {
               { q: 'Can I add a photo for an individual student?', a: 'Click Edit next to their name, then tap Add Photo or Replace Photo to upload a JPG. Useful if a student was missed in the Lifetouch batch or has a preferred photo.' },
               { q: 'A student shows up without a photo.', a: "Photos come from the Lifetouch batch your admin uploaded. If one student is missing, their name may be spelled differently in Lifetouch vs Aeries. Fix it in Edit, then ask your admin to re-run Match the Photos — or upload a photo manually." },
             ].map((item, i) => (
-              <div key={i} style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 14px' }}>
-                <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', margin: '0 0 4px' }}>{item.q}</p>
-                <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>{item.a}</p>
-              </div>
+              <details key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                <summary style={{ padding: '10px 16px', fontSize: 13, fontWeight: 600, color: '#1f2937', cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  {item.q}<span style={{ color: '#9ca3af', fontSize: 16, marginLeft: 8, flexShrink: 0 }}>›</span>
+                </summary>
+                <div style={{ padding: '0 16px 12px', fontSize: 13, color: '#4b5563', lineHeight: 1.5 }}>{item.a}</div>
+              </details>
             ))}
           </div>
         </div>
