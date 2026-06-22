@@ -273,7 +273,7 @@ function NFCEnrollment({ student, onEnrolled }) {
 function StudentDetailInner() {
   const { id } = useParams()
   const [currentTeacher, setCurrentTeacher] = useState(null)
-  const [studentTeacher, setStudentTeacher] = useState(null) // the student's actual teacher
+  const [studentTeachers, setStudentTeachers] = useState([]) // [{period, room, teacherName}]
   const [student, setStudent] = useState(null)
   const [photoUrl, setPhotoUrl] = useState(null)
   const [passes, setPasses] = useState([])
@@ -310,20 +310,25 @@ function StudentDetailInner() {
         const { data } = supabase.storage.from('student-photos').getPublicUrl(studentData.photo_file)
         if (data?.publicUrl) setPhotoUrl(`${data.publicUrl}?t=${Date.now()}`)
       }
-      // Load student's actual teacher via student_periods → teachers
-      const { data: periodData } = await supabase
+      // Load all of the student's classes + teachers via student_periods
+      const { data: periodRows } = await supabase
         .from('student_periods')
         .select('room, period')
         .eq('student_id', studentData.id)
-        .limit(1)
-        .maybeSingle()
-      if (periodData?.room) {
-        const { data: teacherData } = await supabase
+        .order('period')
+      if (periodRows && periodRows.length > 0) {
+        const rooms = [...new Set(periodRows.map(p => p.room))]
+        const { data: teacherRows } = await supabase
           .from('teachers')
           .select('name, room')
-          .eq('room', periodData.room)
-          .maybeSingle()
-        if (teacherData) setStudentTeacher(teacherData)
+          .in('room', rooms)
+        const teacherByRoom = Object.fromEntries((teacherRows || []).map(t => [String(t.room), t]))
+        const entries = periodRows.map(p => ({
+          period: p.period,
+          room: p.room,
+          teacherName: teacherByRoom[String(p.room)]?.name?.split(' ').pop() || `Rm ${p.room}`
+        }))
+        setStudentTeachers(entries)
       }
     }
 
@@ -387,11 +392,7 @@ function StudentDetailInner() {
   const teacherRoom = currentTeacher?.room || '—'
   const teacherName = currentTeacher?.name || 'RHS PassAble'
 
-  // Student's actual teacher info for the student card
-  const studentRoom = studentTeacher?.room || student?.teacher_room || '—'
-  const studentTeacherName = studentTeacher?.name
-    ? studentTeacher.name.split(' ').pop()
-    : null
+  // nothing needed — using studentTeachers array directly
 
   // Build period label from teacher's config or fallback
   function getPeriodLabel(period) {
@@ -456,12 +457,21 @@ function StudentDetailInner() {
 
             <div style={{ flex: 1 }}>
               <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#1f2937' }}>{student.full_name}</h2>
-              {/* Show student's ACTUAL teacher/room, not the logged-in teacher */}
-              <p style={{ margin: '4px 0 0', fontSize: 14, color: '#6b7280' }}>
-                {student.period ? `Period ${student.period}` : ''}
-                {studentRoom !== '—' ? ` · Room ${studentRoom}` : ''}
-                {studentTeacherName ? ` · ${studentTeacherName}` : ''}
-              </p>
+              {/* All enrolled classes — useful for interventions across teachers */}
+              {studentTeachers.length > 0 ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 10px', marginTop: 8 }}>
+                  {studentTeachers.map((t, i) => (
+                    <span key={i} style={{
+                      fontSize: 12, color: '#374151', background: '#f3f4f6',
+                      borderRadius: 6, padding: '3px 8px', whiteSpace: 'nowrap'
+                    }}>
+                      P{t.period} · {t.teacherName}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ margin: '4px 0 0', fontSize: 13, color: '#9ca3af' }}>No class enrollment found</p>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 8 }} className="no-print">
               <button onClick={exportCSV} style={{ padding: '8px 16px', fontSize: 13, border: '1px solid #e5e7eb', borderRadius: 8, background: 'white', color: '#374151', cursor: 'pointer' }}>
