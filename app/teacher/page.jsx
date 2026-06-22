@@ -1129,6 +1129,8 @@ function TeacherInner() {
               a: <>{lnk('/teacher/dnlo', 'Do Not Let Out →')} is where you manage your personal list of students who shouldn't leave your classroom. Admin can also add students here school-wide.</> },
             { q: "Open Kiosk", keys: "open kiosk fullscreen door return back teacher dashboard unlock",
               a: <>Opens your classroom kiosk on this device in full screen. Students use it to check themselves out and back in. To return to your teacher dashboard from the kiosk, use your teacher unlock QR (found in {settingsBtn} → Teacher Unlock QR) or navigate directly to {lnk('/teacher', 'hall-pass-lime.vercel.app/teacher')}.</> },
+            { q: "Mobile View", keys: "mobile phone gym pe portable outside classroom phone",
+              a: <>{lnk('/teacher/mobile', 'Mobile View →')} is a stripped-down version of this dashboard optimized for your phone. Ideal for PE teachers, portables, or anywhere you need to check students out and back in without being at a computer. Same login — bookmark it on your phone's home screen for quick access.</> },
             { q: "Import Roster", keys: "import roster aeries excel upload students period",
               a: <>{lnk(`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`, 'Import Roster →')} is where you upload your Aeries class roster Excel file to populate your student list for each period.</> },
             { q: "Match the Photos", keys: "match photos lifetouch pictures student photo missing upload",
@@ -1653,6 +1655,7 @@ function TeacherInner() {
           <a href="/log" className="text-sm text-gray-400 hover:text-gray-600">Pass Log →</a>
           <a href="/teacher/dnlo" className="text-sm text-gray-400 hover:text-gray-600">Do Not Let Out →</a>
           <a href={`/kiosk?room=${teacherRoom}`} className="text-sm text-gray-400 hover:text-gray-600">Open Kiosk →</a>
+          <a href="/teacher/mobile" className="text-sm text-gray-400 hover:text-gray-600">📱 Mobile View →</a>
         </div>
       </div>
     </div>
