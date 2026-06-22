@@ -14,7 +14,7 @@
 */
 
 'use client'
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { supabase } from '../../../lib/supabase'
 
 const RHS_GREEN = '#006938'
@@ -44,6 +44,24 @@ async function listRawPhotos() {
 
 export default function PhotoUpload() {
   const [showHelp, setShowHelp] = useState(false)
+  const [helpPos, setHelpPos] = useState({ x: null, y: null })
+  const helpRef = useRef(null)
+  const dragOffset = useRef(null)
+
+  const onHelpMouseDown = useCallback((e) => {
+    const rect = helpRef.current?.getBoundingClientRect()
+    if (!rect) return
+    dragOffset.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top }
+    const onMove = (mv) => {
+      setHelpPos({ x: mv.clientX - dragOffset.current.dx, y: mv.clientY - dragOffset.current.dy })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
 
   // Phase 1: Upload state
   const [uploading, setUploading] = useState(false)
@@ -184,35 +202,57 @@ export default function PhotoUpload() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* ── Help Panel ── */}
+      {/* ── Help Panel (draggable) ── */}
       {showHelp && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end p-4" onClick={() => setShowHelp(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl flex flex-col mt-16 mr-2"
-            style={{ width: 420, maxHeight: '85vh', border: '1px solid #e5e7eb' }}
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 rounded-t-2xl" style={{ backgroundColor: '#f9fafb' }}>
-              <div>
-                <p className="text-sm font-bold text-gray-800">Photo Import Help</p>
-                <p className="text-xs text-gray-400 mt-0.5">Two-step Lifetouch photo workflow</p>
+        <div
+          ref={helpRef}
+          style={{
+            position: 'fixed',
+            zIndex: 50,
+            width: 420,
+            maxHeight: '85vh',
+            top:  helpPos.y !== null ? helpPos.y : 80,
+            left: helpPos.x !== null ? helpPos.x : 'calc(100vw - 440px)',
+            background: 'white',
+            borderRadius: 16,
+            boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
+            border: '1px solid #e5e7eb',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <div
+            onMouseDown={onHelpMouseDown}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '14px 20px', borderBottom: '1px solid #f3f4f6',
+              background: '#f9fafb', borderRadius: '16px 16px 0 0', cursor: 'grab',
+            }}
+          >
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: '#1f2937', margin: 0 }}>Photo Import Help</p>
+              <p style={{ fontSize: 11, color: '#9ca3af', margin: '2px 0 0' }}>Two-step Lifetouch photo workflow</p>
+            </div>
+            <button
+              onClick={() => setShowHelp(false)}
+              style={{ background: 'none', border: 'none', fontSize: 20, color: '#9ca3af', cursor: 'pointer', lineHeight: 1 }}
+            >×</button>
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[
+              { q: 'What is Step 1 (Upload)?', a: 'Uploads all Lifetouch photos to a staging area by student name. Do this once — at the start of year or when retakes arrive. Photos stay stored until you replace them.' },
+              { q: 'What is Step 2 (Match All Students)?', a: 'Looks at every student in PassAble, finds their photo in the staging area by name, and assigns it. Run this whenever new teachers or students are added — no re-upload needed.' },
+              { q: 'Do I do this for every teacher?', a: 'No. One upload + one match covers the entire school. New teacher joins? Just click Match All Students.' },
+              { q: 'Retake photos came in mid-year. What do I do?', a: 'Upload just the retake files (Step 1). Then click Match All Students (Step 2). Only updated photos change.' },
+              { q: 'Some students say Skipped.', a: "Skipped means no stored photo matched that student's name. Common causes: student not yet in PassAble, or name spelling differs between Lifetouch and Aeries (e.g. \"Jose\" vs \"José\")." },
+              { q: 'What Lifetouch filename format is expected?', a: 'Standard format: 0043_LastName_FirstName_01.jpg — the number prefix and _01 suffix are ignored. Only the last and first name are used.' },
+              { q: 'Can teachers match just their own students?', a: "Yes. Teachers use Match the Photos from their Relay Station. Useful after retakes when only one room's photos changed." },
+            ].map((item, i) => (
+              <div key={i} style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 14px' }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', margin: '0 0 4px' }}>{item.q}</p>
+                <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>{item.a}</p>
               </div>
-              <button onClick={() => setShowHelp(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-            </div>
-            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
-              {[
-                { q: 'What is Step 1 (Upload)?', a: 'Uploads all Lifetouch photos to a staging area by student name. Do this once — at the start of year or when retakes arrive. Photos stay stored until you replace them.' },
-                { q: 'What is Step 2 (Match All Students)?', a: 'Looks at every student in PassAble, finds their photo in the staging area by name, and assigns it. Run this whenever new teachers or students are added — no re-upload needed.' },
-                { q: 'Do I do this for every teacher?', a: 'No. One upload + one match covers the entire school. New teacher joins? Just click Match All Students.' },
-                { q: 'Retake photos came in mid-year. What do I do?', a: 'Upload just the retake files (Step 1). Then click Match All Students (Step 2). Only updated photos change.' },
-                { q: 'Some students say Skipped.', a: 'Skipped means no stored photo matched that student\'s name. Common causes: student not yet in PassAble, or name spelling differs between Lifetouch and Aeries (e.g. "Jose" vs "José").' },
-                { q: 'What Lifetouch filename format is expected?', a: 'Standard format: 0043_LastName_FirstName_01.jpg — the number prefix and _01 suffix are ignored. Only the last and first name are used.' },
-                { q: 'Can teachers match just their own students?', a: 'Yes. Teachers visit /teacher/match-photos and click Match My Students. Useful after retakes when only one room\'s photos changed.' },
-              ].map((item, i) => (
-                <div key={i} className="bg-gray-50 rounded-xl px-4 py-3">
-                  <p className="text-xs font-semibold text-gray-700 mb-1">{item.q}</p>
-                  <p className="text-xs text-gray-500 leading-relaxed">{item.a}</p>
-                </div>
-              ))}
-            </div>
+            ))}
           </div>
         </div>
       )}
@@ -227,7 +267,15 @@ export default function PhotoUpload() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <button onClick={() => setShowHelp(true)} className="text-sm text-green-200 hover:text-white">❓ Help</button>
+          <button
+            onClick={() => { setShowHelp(v => !v); setHelpPos({ x: null, y: null }) }}
+            style={{
+              width: 32, height: 32, borderRadius: '50%', border: `2px solid ${RHS_GREEN}`,
+              background: showHelp ? RHS_GREEN : 'white', color: showHelp ? 'white' : RHS_GREEN,
+              fontWeight: 700, fontSize: 16, cursor: 'pointer', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >?</button>
           <a href="/admin" className="text-sm text-green-200 hover:text-white">← Admin Panel</a>
         </div>
       </div>
