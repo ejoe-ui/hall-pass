@@ -818,13 +818,15 @@ export default function AdminPanel() {
               )}
               {filtered.map(section => (
                 <div key={section.title}>
-                  <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>{section.title}</p>
-                  <div className="flex flex-col gap-3">
+                  <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: RHS_GREEN }}>{section.title}</p>
+                  <div>
                     {section.items.map((item, i) => (
-                      <div key={i}>
-                        <p className="text-sm font-medium text-gray-800">{item.q}</p>
-                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{item.a}</p>
-                      </div>
+                      <details key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                        <summary style={{ padding: '9px 4px', fontSize: 13, fontWeight: 600, color: '#1f2937', cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          {item.q}<span style={{ color: '#9ca3af', fontSize: 16, marginLeft: 8, flexShrink: 0 }}>›</span>
+                        </summary>
+                        <div style={{ padding: '0 4px 10px', fontSize: 12, color: '#4b5563', lineHeight: 1.5 }}>{item.a}</div>
+                      </details>
                     ))}
                   </div>
                 </div>
