@@ -433,6 +433,77 @@ async function notifyReceivingTeacher({ toTeacher, studentName, issuedBy, timeIs
   console.log('[PassAble] Late pass notification:', { to: `${toTeacher.toLowerCase().replace(/\s+/g, '.')}@rjusd.org`, subject: `Late Pass — ${studentName} heading your way`, body: `${studentName} issued a late pass to your class by ${issuedBy} at ${timeIssued}. Pass: ${passUrl}` })
 }
 
+// ── Schedule picker with hover preview ───────────────────────────────────────
+function ScheduleSelectWithPreview({ value, onChange, labels, schedules }) {
+  const [open, setOpen] = React.useState(false)
+  const [hovered, setHovered] = React.useState(null)
+  const ref = React.useRef(null)
+
+  React.useEffect(() => {
+    function handleOutside(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [])
+
+  const previewKey = hovered || value
+  const preview = schedules[previewKey]
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flex: 1 }}>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="w-full p-2 text-sm rounded-lg bg-white text-gray-800 text-left flex items-center justify-between border-2"
+        style={{ borderColor: RHS_GREEN }}>
+        <span>{labels[value] || value}</span>
+        <span style={{ fontSize: 9, color: '#6b7280', marginLeft: 6 }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 200, background: 'white', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.13)', display: 'flex', minWidth: '100%' }}>
+          {/* Option list */}
+          <div style={{ minWidth: 220, maxHeight: 300, overflowY: 'auto', padding: '4px 0' }}>
+            {Object.entries(labels).map(([k, v]) => (
+              <div key={k}
+                onMouseEnter={() => setHovered(k)}
+                onMouseLeave={() => setHovered(null)}
+                onClick={() => { onChange(k); setOpen(false) }}
+                style={{ padding: '7px 14px', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8,
+                  background: hovered === k ? '#f0fdf4' : 'transparent',
+                  color: k === value ? RHS_GREEN : '#374151',
+                  fontWeight: k === value ? 600 : 400 }}>
+                <span style={{ width: 12, fontSize: 10 }}>{k === value ? '✓' : ''}</span>
+                {v}
+              </div>
+            ))}
+          </div>
+
+          {/* Preview panel */}
+          <div style={{ width: 210, borderLeft: '1px solid #f3f4f6', background: '#fafafa', borderRadius: '0 10px 10px 0', padding: '10px 12px', minHeight: 80 }}>
+            {previewKey === 'custom' ? (
+              <>
+                <p style={{ fontSize: 11, fontWeight: 700, color: RHS_GREEN, marginBottom: 6 }}>Custom…</p>
+                <p style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.5 }}>You'll define your own period times below after selecting.</p>
+              </>
+            ) : preview ? (
+              <>
+                <p style={{ fontSize: 11, fontWeight: 700, color: RHS_GREEN, marginBottom: 6 }}>{preview.name}</p>
+                {preview.periods.map((p, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 2.5,
+                    color: p.break ? '#9ca3af' : '#374151' }}>
+                    <span style={{ fontStyle: p.break ? 'italic' : 'normal' }}>{p.label}</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#6b7280' }}>{p.start}–{p.end}</span>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <p style={{ fontSize: 11, color: '#9ca3af' }}>Hover a schedule to preview its periods.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 function TeacherInner() {
   const searchParams = useSearchParams()
@@ -1648,16 +1719,12 @@ function TeacherInner() {
                 </div>
               )}
               <div className="flex gap-2">
-                <select
+                <ScheduleSelectWithPreview
                   value={overridePickType}
-                  onChange={e => setOverridePickType(e.target.value)}
-                  className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
-                  style={{ borderColor: RHS_GREEN }}
-                >
-                  {Object.entries(SCHEDULE_LABELS).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
-                  ))}
-                </select>
+                  onChange={setOverridePickType}
+                  labels={SCHEDULE_LABELS}
+                  schedules={_SCHEDULES}
+                />
                 <button
                   onClick={saveScheduleOverride}
                   disabled={overrideSaving}
