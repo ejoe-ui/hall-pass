@@ -58,29 +58,29 @@ const _SCHEDULES = {
     {id:'4',label:'Period 4',start:'12:53',end:'13:33'},{id:'5',label:'Period 5',start:'13:37',end:'14:17'},
     {id:'6',label:'Period 6',start:'14:21',end:'15:01'},{id:'7',label:'Period 7',start:'15:05',end:'15:45'},
   ]},
-  codeDay:{name:'C.O.D.E Day',periods:[
+  codeDay:{name:'Midday Activity Alternate',periods:[
     {id:'1',label:'Period 1',start:'08:10',end:'08:56'},{id:'2',label:'Period 2',start:'09:00',end:'09:44'},
     {id:'brunch',label:'Brunch',start:'09:44',end:'09:59',break:true},{id:'3',label:'Period 3',start:'10:03',end:'10:47'},
-    {id:'4',label:'Period 4',start:'10:51',end:'11:35'},{id:'rally',label:'Kickball Rally',start:'11:39',end:'12:17',break:true},
+    {id:'4',label:'Period 4',start:'10:51',end:'11:35'},{id:'activity',label:'Activity',start:'11:39',end:'12:17',break:true},
     {id:'lunch',label:'Lunch',start:'12:17',end:'12:51',break:true},{id:'5',label:'Period 5',start:'12:55',end:'13:39'},
     {id:'6',label:'Period 6',start:'13:43',end:'14:27'},{id:'7',label:'Period 7',start:'14:31',end:'15:15'},
   ]},
   middayActivity:{name:'Midday Activity',periods:[
     {id:'1',label:'Period 1',start:'08:10',end:'08:54'},{id:'2',label:'Period 2',start:'08:58',end:'09:40'},
     {id:'brunch',label:'Brunch',start:'09:40',end:'09:55',break:true},{id:'3',label:'Period 3',start:'09:59',end:'10:41'},
-    {id:'4',label:'Period 4',start:'10:45',end:'11:27'},{id:'activity',label:'Assembly',start:'11:31',end:'12:05',break:true},
+    {id:'4',label:'Period 4',start:'10:45',end:'11:27'},{id:'activity',label:'Activity',start:'11:31',end:'12:05',break:true},
     {id:'lunch',label:'Lunch',start:'12:05',end:'12:39',break:true},{id:'5',label:'Period 5',start:'12:43',end:'13:23'},
     {id:'6',label:'Period 6',start:'13:27',end:'14:07'},{id:'7',label:'Period 7',start:'14:11',end:'14:51'},
   ]},
   middayActivityWed:{name:'Midday Activity — Wed Block',periods:[
     {id:'1',label:'Periods 1 & 2',start:'08:10',end:'09:55'},{id:'brunch',label:'Brunch',start:'09:55',end:'10:10',break:true},
-    {id:'3',label:'Periods 3 & 4',start:'10:14',end:'11:55'},{id:'activity',label:'Assembly',start:'11:55',end:'12:30',break:true},
+    {id:'3',label:'Periods 3 & 4',start:'10:14',end:'11:55'},{id:'activity',label:'Activity',start:'11:55',end:'12:30',break:true},
     {id:'lunch',label:'Lunch',start:'12:30',end:'13:00',break:true},{id:'5',label:'Periods 5 & 6',start:'13:04',end:'14:45'},
     {id:'7',label:'Period 7',start:'14:49',end:'15:15'},
   ]},
   middayActivityThu:{name:'Midday Activity — Thu Block',periods:[
     {id:'2',label:'Periods 1 & 2',start:'08:10',end:'09:55'},{id:'brunch',label:'Brunch',start:'09:55',end:'10:10',break:true},
-    {id:'4',label:'Periods 3 & 4',start:'10:14',end:'11:55'},{id:'activity',label:'Assembly',start:'11:55',end:'12:30',break:true},
+    {id:'4',label:'Periods 3 & 4',start:'10:14',end:'11:55'},{id:'activity',label:'Activity',start:'11:55',end:'12:30',break:true},
     {id:'lunch',label:'Lunch',start:'12:30',end:'13:00',break:true},{id:'6',label:'Periods 5 & 6',start:'13:04',end:'14:45'},
     {id:'7',label:'Period 7',start:'14:49',end:'15:15'},
   ]},
@@ -114,7 +114,7 @@ const SCHEDULE_LABELS = {
   foggy: 'Foggy — Regular',
   foggyBlockWed: 'Foggy Block — Wednesday',
   foggyBlockThu: 'Foggy Block — Thursday',
-  codeDay: 'Code Day',
+  codeDay: 'Midday Activity Alternate',
   custom: 'Custom…',
 }
 async function fetchTodayScheduleType(date=new Date(), room=null){
