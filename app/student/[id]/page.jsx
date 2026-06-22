@@ -547,6 +547,10 @@ function StudentDetailInner() {
                 q: 'Can I export this student\'s data?',
                 a: 'Yes — Export CSV downloads their full pass history as a spreadsheet, and Print / PDF gives you a printable summary. Both reflect whatever time filter you have selected (7 Days, 30 Days, etc.).'
               },
+              {
+                q: 'What is Teacher View?',
+                a: 'Teacher View is for admins who are also teachers. It filters pass history to your classroom only — the same view your teachers see. Use it when you want to check on a student in your own class. Toggle back to Admin View to see all classes combined.'
+              },
             ] : [
               {
                 q: 'Why do I see all of this student\'s teachers?',
