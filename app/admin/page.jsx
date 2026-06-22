@@ -636,7 +636,25 @@ export default function AdminPanel() {
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  const filteredStudents = students.filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()))
+  // Teacher lookup map: id → teacher object
+  const teacherMap = Object.fromEntries(teachers.map(t => [t.id, t]))
+
+  // Short period label: "Periods 1 & 2" → "P1&2", "1" → "P1"
+  function shortPeriod(period) {
+    if (!period) return ''
+    return 'P' + String(period).replace(/periods?\s*/i, '').replace(/\s*&\s*/g, '&').trim()
+  }
+
+  // Active students first, orphaned (no active teacher) at bottom
+  const filteredStudents = students
+    .filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()))
+    .sort((a, b) => {
+      const aActive = !!(teacherMap[a.teacher_id]?.is_active)
+      const bActive = !!(teacherMap[b.teacher_id]?.is_active)
+      if (aActive === bActive) return 0
+      return aActive ? -1 : 1
+    })
+
   const memberSearchResults = students.filter(s => s.full_name?.toLowerCase().includes(memberSearch.toLowerCase())).slice(0, 8)
 
   // ── Auth screens ──────────────────────────────────────────────────────────
@@ -713,7 +731,8 @@ export default function AdminPanel() {
       { q: 'When I get new Lifetouch photos mid-year, do I re-import?', a: <>Yes — just run the import again. The system uses <code>upsert</code>, so new photos safely replace old ones and existing data is untouched.</> },
     ]},
     { title: 'Students', items: [
-      { q: 'Where do I manage students?', a: <>The Students tab here gives a quick overview. For full editing (add, remove, move periods, upload individual photos), use the <a href="/admin/students" style={{color:RHS_GREEN,textDecoration:'underline'}}>Full Student Manager</a>.</> },
+      { q: 'Where do I manage students?', a: <>The Students tab here is a school-wide view of all students. Each student shows their period and teacher last name (e.g., P1 · Joe). Students flagged ⚠ "No active teacher" are orphaned — usually from a demo or removed teacher account and can be ignored or deleted.</> },
+      { q: 'What does "No active teacher" mean?', a: 'These are students linked to a teacher account that is inactive or was a demo account. They won\'t appear in any live classroom. You can safely ignore them unless you want to clean them up by removing that teacher account.' },
       { q: 'How do I print QR ID badges?', a: <>Go to <a href="/qr" style={{color:RHS_GREEN,textDecoration:'underline'}}>QR Badges</a>. It generates a printable sheet of QR codes for each student. Students can scan these at the kiosk instead of tapping their name.</> },
     ]},
     { title: 'Pass Log', items: [
@@ -1282,26 +1301,34 @@ export default function AdminPanel() {
               <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center">
                 <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Students ({filteredStudents.length})</p>
                 <div className="flex gap-3">
-                  <a href="/admin/students" className="text-xs text-gray-400 hover:text-gray-600">Full Manager →</a>
                   <a href="/qr" className="text-xs text-gray-400 hover:text-gray-600">Print QR Badges →</a>
                 </div>
               </div>
-              {filteredStudents.slice(0, 50).map(s => (
-                <div key={s.id + s.period} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                  {getStudentPhotoUrl(s)
-                    ? <img src={getStudentPhotoUrl(s)} alt={s.full_name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
-                    : <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
-                        {s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
-                      </div>
-                  }
-                  <div className="flex-1">
-                    <a href={`/student/${s.id}`} className="text-sm hover:underline" style={{ color: RHS_GREEN }}>{s.full_name}</a>
-                    <div className="text-xs text-gray-400">Period {s.period}</div>
+              {filteredStudents.slice(0, 200).map(s => {
+                const teacher = teacherMap[s.teacher_id]
+                const isOrphaned = !teacher || !teacher.is_active
+                const teacherLast = teacher?.name?.split(' ').pop() || null
+                const periodShort = shortPeriod(s.period)
+                const subtitle = isOrphaned
+                  ? '⚠ No active teacher'
+                  : [periodShort, teacherLast].filter(Boolean).join(' · ')
+                return (
+                  <div key={s.id + (s.period || '')} className={`flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0 ${isOrphaned ? 'opacity-50' : ''}`}>
+                    {getStudentPhotoUrl(s)
+                      ? <img src={getStudentPhotoUrl(s)} alt={s.full_name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                      : <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
+                          {s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                        </div>
+                    }
+                    <div className="flex-1">
+                      <a href={`/student/${s.id}`} className="text-sm hover:underline" style={{ color: RHS_GREEN }}>{s.full_name}</a>
+                      <div className={`text-xs ${isOrphaned ? 'text-amber-500' : 'text-gray-400'}`}>{subtitle}</div>
+                    </div>
                   </div>
-                </div>
-              ))}
-              {filteredStudents.length > 50 && (
-                <div className="px-4 py-3 text-xs text-gray-400 text-center">Showing 50 of {filteredStudents.length} — use Full Manager to see all</div>
+                )
+              })}
+              {filteredStudents.length > 200 && (
+                <div className="px-4 py-3 text-xs text-gray-400 text-center">Showing 200 of {filteredStudents.length} — use search to narrow results</div>
               )}
             </div>
           </>
