@@ -691,7 +691,7 @@ export default function AdminPanel() {
   }
 
   function isDemoTeacher(t) {
-    return t.room?.toLowerCase() === '11w' || t.email === 'connect.joe@gmail.com'
+    return t.room?.toLowerCase() === '11w'
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
