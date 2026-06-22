@@ -444,7 +444,10 @@ export default function AdminPanel() {
 
   // ── Student functions ─────────────────────────────────────────────────────
   async function loadStudents() {
-    const { data } = await supabase.from('students').select('*').order('last_name')
+    const { data } = await supabase
+      .from('students')
+      .select('*, teachers(id, name, room)')
+      .order('last_name')
     if (data) { setStudents(data); return data }
     return []
   }
@@ -645,12 +648,12 @@ export default function AdminPanel() {
     return 'P' + String(period).replace(/periods?\s*/i, '').replace(/\s*&\s*/g, '&').trim()
   }
 
-  // Active students first, orphaned (teacher not found in table) at bottom
+  // Active students first, orphaned (no teacher joined) at bottom
   const filteredStudents = students
     .filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()))
     .sort((a, b) => {
-      const aActive = !!teacherLookup[a.teacher_id]
-      const bActive = !!teacherLookup[b.teacher_id]
+      const aActive = !!a.teachers
+      const bActive = !!b.teachers
       if (aActive === bActive) return 0
       return aActive ? -1 : 1
     })
@@ -1305,7 +1308,7 @@ export default function AdminPanel() {
                 </div>
               </div>
               {filteredStudents.slice(0, 200).map(s => {
-                const teacher = teacherLookup[s.teacher_id]
+                const teacher = s.teachers
                 const isOrphaned = !teacher
                 const teacherLast = teacher?.name?.split(' ').pop() || null
                 const periodShort = shortPeriod(s.period)
