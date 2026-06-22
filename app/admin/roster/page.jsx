@@ -302,6 +302,54 @@ function RosterImportInner() {
             <li>Select all files here at once — period is read automatically</li>
           </ol>
         </div>
+
+        {/* Help panel */}
+        <div className="mt-6 bg-white rounded-2xl border border-gray-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
+            <p className="text-sm font-bold text-gray-700">Roster Import — Help</p>
+          </div>
+          <div className="px-5 py-4 space-y-3">
+            {[
+              {
+                q: '➕ Adding a Student Mid-Year',
+                a: 'The preferred method is importing an updated roster from Aeries — it ensures names are spelled consistently and match your Lifetouch photos. If needed, you can also add a student manually via Manage Students on your Relay Station dashboard, but double-check the spelling matches Aeries exactly or their photo won\'t match. If the student was already in PassAble from another teacher\'s class, their name and photo carry over automatically.',
+                link: { label: 'Manage Students', href: '/teacher' }
+              },
+              {
+                q: '➖ Removing a Student from Your Class',
+                a: 'Two ways: (1) Import an updated roster from Aeries that doesn\'t include them — they\'ll show up in the amber "no longer on your roster" section and you can check the box to remove them. (2) Go to Manage Students on your Relay Station dashboard and remove them directly from your class list.',
+                link: { label: 'Manage Students', href: '/teacher' }
+              },
+              {
+                q: 'What does "no longer on your roster" mean?',
+                a: 'These students are currently linked to your class in PassAble but aren\'t in your new import. Usually means they transferred, dropped, or had a schedule change. Check the box to remove them — or leave it unchecked and they stay on your roster as-is.'
+              },
+              {
+                q: 'Will removing a student delete their pass history?',
+                a: 'No. Removing a student from your class only unlinks them from your room. All their pass history stays intact and is always visible in the admin panel.'
+              },
+              {
+                q: 'What if I import the wrong file by mistake?',
+                a: 'The import only adds or updates — it never deletes unless you check the removal box. If something goes wrong, re-import the correct file and the data will be corrected.'
+              },
+              {
+                q: 'Can I import just one period at a time?',
+                a: 'Yes. Upload a single file or multiple at once. Only the periods in your uploaded files are affected — other periods are untouched.'
+              },
+            ].map((item, i) => (
+              <div key={i} className="bg-gray-50 rounded-xl px-4 py-3">
+                <p className="text-xs font-semibold text-gray-700 mb-1">{item.q}</p>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  {item.a}
+                  {item.link && (
+                    <> <a href={item.link.href} className="underline font-medium" style={{ color: RHS_GREEN }}>{item.link.label} →</a></>
+                  )}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <a href="/teacher" className="block text-center text-sm text-gray-400 hover:text-gray-600 mt-6">← Back to Dashboard</a>
       </div>
     </div>
