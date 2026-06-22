@@ -444,10 +444,7 @@ export default function AdminPanel() {
 
   // ── Student functions ─────────────────────────────────────────────────────
   async function loadStudents() {
-    const { data } = await supabase
-      .from('students')
-      .select('*, teachers(id, name, room)')
-      .order('last_name')
+    const { data } = await supabase.from('students').select('*').order('last_name')
     if (data) { setStudents(data); return data }
     return []
   }
@@ -639,21 +636,22 @@ export default function AdminPanel() {
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  // Full teacher lookup from teachers state (has is_active, name, room, etc.)
-  const teacherLookup = Object.fromEntries(teachers.map(t => [t.id, t]))
-
   // Short period label: "Periods 1 & 2" → "P1&2", "1" → "P1"
   function shortPeriod(period) {
     if (!period) return ''
     return 'P' + String(period).replace(/periods?\s*/i, '').replace(/\s*&\s*/g, '&').trim()
   }
 
-  // Active students first, orphaned (no teacher joined) at bottom
-  const filteredStudents = students
+  // Merge teacher info onto each student using the teachers state (loaded by loadTeachers)
+  const teacherLookup = Object.fromEntries(teachers.map(t => [t.id, t]))
+  const studentsWithTeacher = students.map(s => ({ ...s, teacherInfo: teacherLookup[s.teacher_id] || null }))
+
+  // Active students first, orphaned (no matched teacher) at bottom
+  const filteredStudents = studentsWithTeacher
     .filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()))
     .sort((a, b) => {
-      const aActive = !!a.teachers
-      const bActive = !!b.teachers
+      const aActive = !!a.teacherInfo
+      const bActive = !!b.teacherInfo
       if (aActive === bActive) return 0
       return aActive ? -1 : 1
     })
@@ -1308,7 +1306,7 @@ export default function AdminPanel() {
                 </div>
               </div>
               {filteredStudents.slice(0, 200).map(s => {
-                const teacher = s.teachers
+                const teacher = s.teacherInfo
                 const isOrphaned = !teacher
                 const teacherLast = teacher?.name?.split(' ').pop() || null
                 const periodShort = shortPeriod(s.period)
