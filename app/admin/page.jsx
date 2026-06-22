@@ -642,6 +642,9 @@ export default function AdminPanel() {
     return 'P' + String(period).replace(/periods?\s*/i, '').replace(/\s*&\s*/g, '&').trim()
   }
 
+  // Match students to teachers by room number (the actual join key in student_periods)
+  const teacherByRoom = Object.fromEntries(teachers.map(t => [String(t.room), t]))
+
   const filteredStudents = students
     .filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()))
 
@@ -1304,7 +1307,12 @@ export default function AdminPanel() {
                   }
                   <div className="flex-1">
                     <a href={`/student/${s.id}`} className="text-sm hover:underline" style={{ color: RHS_GREEN }}>{s.full_name}</a>
-                    {s.period && <div className="text-xs text-gray-400">{shortPeriod(s.period)}</div>}
+                    {(() => {
+                      const teacher = teacherByRoom[String(s.room)]
+                      const teacherLast = teacher?.name?.split(' ').pop()
+                      const parts = [s.period ? shortPeriod(s.period) : null, teacherLast].filter(Boolean)
+                      return parts.length > 0 ? <div className="text-xs text-gray-400">{parts.join(' · ')}</div> : null
+                    })()}
                   </div>
                 </div>
               ))}
