@@ -65,6 +65,35 @@ const _SCHEDULES = {
     {id:'lunch',label:'Lunch',start:'12:17',end:'12:51',break:true},{id:'5',label:'Period 5',start:'12:55',end:'13:39'},
     {id:'6',label:'Period 6',start:'13:43',end:'14:27'},{id:'7',label:'Period 7',start:'14:31',end:'15:15'},
   ]},
+  middayActivity:{name:'Midday Activity',periods:[
+    {id:'1',label:'Period 1',start:'08:10',end:'08:54'},{id:'2',label:'Period 2',start:'08:58',end:'09:40'},
+    {id:'brunch',label:'Brunch',start:'09:40',end:'09:55',break:true},{id:'3',label:'Period 3',start:'09:59',end:'10:41'},
+    {id:'4',label:'Period 4',start:'10:45',end:'11:27'},{id:'activity',label:'Assembly',start:'11:31',end:'12:05',break:true},
+    {id:'lunch',label:'Lunch',start:'12:05',end:'12:39',break:true},{id:'5',label:'Period 5',start:'12:43',end:'13:23'},
+    {id:'6',label:'Period 6',start:'13:27',end:'14:07'},{id:'7',label:'Period 7',start:'14:11',end:'14:51'},
+  ]},
+  middayActivityWed:{name:'Midday Activity — Wed Block',periods:[
+    {id:'1',label:'Periods 1 & 2',start:'08:10',end:'09:55'},{id:'brunch',label:'Brunch',start:'09:55',end:'10:10',break:true},
+    {id:'3',label:'Periods 3 & 4',start:'10:14',end:'11:55'},{id:'activity',label:'Assembly',start:'11:55',end:'12:30',break:true},
+    {id:'lunch',label:'Lunch',start:'12:30',end:'13:00',break:true},{id:'5',label:'Periods 5 & 6',start:'13:04',end:'14:45'},
+    {id:'7',label:'Period 7',start:'14:49',end:'15:15'},
+  ]},
+  middayActivityThu:{name:'Midday Activity — Thu Block',periods:[
+    {id:'2',label:'Periods 1 & 2',start:'08:10',end:'09:55'},{id:'brunch',label:'Brunch',start:'09:55',end:'10:10',break:true},
+    {id:'4',label:'Periods 3 & 4',start:'10:14',end:'11:55'},{id:'activity',label:'Assembly',start:'11:55',end:'12:30',break:true},
+    {id:'lunch',label:'Lunch',start:'12:30',end:'13:00',break:true},{id:'6',label:'Periods 5 & 6',start:'13:04',end:'14:45'},
+    {id:'7',label:'Period 7',start:'14:49',end:'15:15'},
+  ]},
+  foggyBlockWed:{name:'Foggy Block — Wednesday',periods:[
+    {id:'1',label:'Periods 1 & 2',start:'10:00',end:'11:30'},{id:'brunch',label:'Brunch',start:'11:30',end:'11:45',break:true},
+    {id:'3',label:'Periods 3 & 4',start:'11:49',end:'13:15'},{id:'lunch',label:'Lunch',start:'13:15',end:'13:49',break:true},
+    {id:'5',label:'Periods 5 & 6',start:'13:53',end:'15:19'},{id:'7',label:'Period 7',start:'15:23',end:'15:45'},
+  ]},
+  foggyBlockThu:{name:'Foggy Block — Thursday',periods:[
+    {id:'2',label:'Periods 1 & 2',start:'10:00',end:'11:30'},{id:'brunch',label:'Brunch',start:'11:30',end:'11:45',break:true},
+    {id:'4',label:'Periods 3 & 4',start:'11:49',end:'13:15'},{id:'lunch',label:'Lunch',start:'13:15',end:'13:49',break:true},
+    {id:'6',label:'Periods 5 & 6',start:'13:53',end:'15:19'},{id:'7',label:'Period 7',start:'15:23',end:'15:45'},
+  ]},
 }
 const _NO_SCHOOL=['2025-09-01','2025-11-11','2025-11-27','2025-11-28','2025-12-22','2025-12-23','2025-12-24','2025-12-25','2025-12-26','2025-12-29','2025-12-30','2025-12-31','2026-01-01','2026-01-02','2026-01-05','2026-01-06','2026-01-07','2026-01-08','2026-01-09','2026-01-12','2026-01-19','2026-02-09','2026-02-16','2026-03-30','2026-03-31','2026-04-01','2026-04-02','2026-04-03','2026-05-25']
 const _CAL_URL='https://script.google.com/macros/s/AKfycbwdoA4UVuCyq8RU7hP6dBrRWAMVcMqq-0DNmZE09j6oVst1iPa7KzWq7raoCT3i0SL_/exec'
@@ -75,12 +104,18 @@ function _sdw(date){const day=date.getDay(),mon=new Date(date);mon.setDate(date.
 const SCHEDULE_LABELS = {
   regular: 'Regular',
   earlyRelease: 'Early Release',
-  blockWed: 'Block Day (Wed)',
-  blockThu: 'Block Day (Thu)',
+  blockWed: 'Block — Wednesday',
+  blockThu: 'Block — Thursday',
   minimum: 'Minimum Day',
-  activity: 'Activity Day',
-  foggy: 'Foggy / Late Arrival',
+  activity: 'Activity (End of Day)',
+  middayActivity: 'Midday Activity',
+  middayActivityWed: 'Midday Activity — Wednesday',
+  middayActivityThu: 'Midday Activity — Thursday',
+  foggy: 'Foggy — Regular',
+  foggyBlockWed: 'Foggy Block — Wednesday',
+  foggyBlockThu: 'Foggy Block — Thursday',
   codeDay: 'Code Day',
+  custom: 'Custom…',
 }
 async function fetchTodayScheduleType(date=new Date(), room=null){
   const ds=_ds(date),dow=date.getDay();
@@ -95,7 +130,17 @@ async function fetchTodayScheduleType(date=new Date(), room=null){
       const roomRow = room ? data.find(r => r.key === `schedule_override_${room}_${ds}`) : null
       const globalRow = data.find(r => r.key === `schedule_override_global_${ds}`)
       const hit = roomRow || globalRow
-      if (hit && _SCHEDULES[hit.value]) return { type: hit.value, schedule: _SCHEDULES[hit.value], isOverride: true }
+      if (hit) {
+        if (hit.value === 'custom') {
+          const cpKey = room ? `schedule_override_custom_${room}_${ds}` : `schedule_override_custom_global_${ds}`
+          const { data: cpData } = await supabase.from('settings').select('value').eq('key', cpKey).single()
+          if (cpData?.value) {
+            try { return { type: 'custom', schedule: { name: 'Custom', periods: JSON.parse(cpData.value) }, isOverride: true } } catch(e) {}
+          }
+        } else if (_SCHEDULES[hit.value]) {
+          return { type: hit.value, schedule: _SCHEDULES[hit.value], isOverride: true }
+        }
+      }
     }
   } catch(e) {}
   // ── Fall back to calendar auto-detection ──────────────────────────────────
@@ -463,6 +508,9 @@ function TeacherInner() {
   const [scheduleIsOverride, setScheduleIsOverride] = useState(false)
   const [scheduleType, setScheduleType] = useState('regular')
   const [overridePickType, setOverridePickType] = useState('regular')
+  const [overrideCustomPeriods, setOverrideCustomPeriods] = useState([
+    { id: '1', label: 'Period 1', start: '', end: '', break: false }
+  ])
   const [overrideSaving, setOverrideSaving] = useState(false)
   const latestRoomRef = useRef(null)
 
@@ -549,8 +597,11 @@ function TeacherInner() {
     const room = latestRoomRef.current
     if (!room) return
     setOverrideSaving(true)
-    const key = `schedule_override_${room}_${_ds(new Date())}`
-    await supabase.from('settings').upsert({ key, value: overridePickType }, { onConflict: 'key' })
+    const ds = _ds(new Date())
+    await supabase.from('settings').upsert({ key: `schedule_override_${room}_${ds}`, value: overridePickType }, { onConflict: 'key' })
+    if (overridePickType === 'custom') {
+      await supabase.from('settings').upsert({ key: `schedule_override_custom_${room}_${ds}`, value: JSON.stringify(overrideCustomPeriods) }, { onConflict: 'key' })
+    }
     setOverrideSaving(false)
     detectSchedule()
   }
@@ -558,8 +609,8 @@ function TeacherInner() {
   async function clearScheduleOverride() {
     const room = latestRoomRef.current
     if (!room) return
-    const key = `schedule_override_${room}_${_ds(new Date())}`
-    await supabase.from('settings').delete().eq('key', key)
+    const ds = _ds(new Date())
+    await supabase.from('settings').delete().in('key', [`schedule_override_${room}_${ds}`, `schedule_override_custom_${room}_${ds}`])
     detectSchedule()
   }
 
@@ -1631,6 +1682,36 @@ function TeacherInner() {
                   {overrideSaving ? 'Saving…' : 'Set'}
                 </button>
               </div>
+              {overridePickType === 'custom' && (
+                <div className="mt-3">
+                  <p className="text-xs font-medium text-gray-600 mb-2">Define periods:</p>
+                  <div className="space-y-1.5">
+                    {overrideCustomPeriods.map((p, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <input type="text" value={p.label}
+                          onChange={e => setOverrideCustomPeriods(prev => prev.map((r, j) => j === i ? { ...r, label: e.target.value } : r))}
+                          placeholder="Label" className="p-1.5 text-xs border rounded-lg" style={{ width: 88 }} />
+                        <input type="time" value={p.start}
+                          onChange={e => setOverrideCustomPeriods(prev => prev.map((r, j) => j === i ? { ...r, start: e.target.value } : r))}
+                          className="p-1.5 text-xs border rounded-lg" style={{ width: 88 }} />
+                        <span className="text-xs text-gray-400">–</span>
+                        <input type="time" value={p.end}
+                          onChange={e => setOverrideCustomPeriods(prev => prev.map((r, j) => j === i ? { ...r, end: e.target.value } : r))}
+                          className="p-1.5 text-xs border rounded-lg" style={{ width: 88 }} />
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#6b7280', whiteSpace: 'nowrap' }}>
+                          <input type="checkbox" checked={p.break || false}
+                            onChange={e => setOverrideCustomPeriods(prev => prev.map((r, j) => j === i ? { ...r, break: e.target.checked } : r))} />
+                          Break
+                        </label>
+                        <button onClick={() => setOverrideCustomPeriods(prev => prev.filter((_, j) => j !== i))}
+                          className="text-red-400 text-xs" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => setOverrideCustomPeriods(prev => [...prev, { id: String(Date.now()), label: '', start: '', end: '', break: false }])}
+                    className="mt-2 text-xs underline" style={{ color: RHS_GREEN, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>+ Add period</button>
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
