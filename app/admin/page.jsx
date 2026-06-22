@@ -32,7 +32,7 @@ const SCHEDULE_DESCRIPTIONS = {
   foggy: 'Foggy / Late Arrival. School starts ~10:00 AM, all 7 periods.',
   foggyBlockWed: 'Foggy late start + Block Wednesday schedule.',
   foggyBlockThu: 'Foggy late start + Block Thursday schedule.',
-  codeDay: 'C.O.D.E Day. Regular periods + kickball rally during lunch.',
+  codeDay: 'Midday Activity Alternate. Regular periods + activity block during lunch.',
   custom: 'Define your own period times below after selecting.',
 }
 
@@ -264,7 +264,7 @@ export default function AdminPanel() {
     foggy: 'Foggy — Regular',
     foggyBlockWed: 'Foggy Block — Wednesday',
     foggyBlockThu: 'Foggy Block — Thursday',
-    codeDay: 'Code Day',
+    codeDay: 'Midday Activity Alternate',
     custom: 'Custom…',
   }
 
