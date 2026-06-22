@@ -12,7 +12,7 @@
 */
 
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import * as XLSX from 'xlsx'
 
@@ -134,6 +134,21 @@ export default function AdminPanel() {
 
   // ── Help panel ────────────────────────────────────────────────────────────
   const [showHelp, setShowHelp] = useState(false)
+  const [helpSearch, setHelpSearch] = useState('')
+  const [helpPos, setHelpPos] = useState({ x: null, y: null })
+  const helpPanelRef = useRef(null)
+  const helpDragOffset = useRef(null)
+
+  const startHelpDrag = useCallback((e) => {
+    if (e.target.closest('input, button, a')) return
+    const rect = helpPanelRef.current?.getBoundingClientRect()
+    if (!rect) return
+    helpDragOffset.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top }
+    const onMove = (mv) => setHelpPos({ x: mv.clientX - helpDragOffset.current.dx, y: mv.clientY - helpDragOffset.current.dy })
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -758,37 +773,69 @@ export default function AdminPanel() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* ── Admin Help Panel ── */}
-      {showHelp && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-end p-4" onClick={() => setShowHelp(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl flex flex-col mt-16 mr-2"
-            style={{ width: 420, maxHeight: '85vh', border: '1px solid #e5e7eb' }}
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 rounded-t-2xl" style={{ backgroundColor: '#f9fafb' }}>
-              <div>
+      {/* ── Admin Help Panel (draggable + searchable) ── */}
+      {showHelp && (() => {
+        const q = helpSearch.trim().toLowerCase()
+        const filtered = q
+          ? ADMIN_HELP.map(s => ({ ...s, items: s.items.filter(i => (s.title + ' ' + i.q + ' ' + (i.keys || '')).toLowerCase().includes(q)) })).filter(s => s.items.length > 0)
+          : ADMIN_HELP
+        return (
+          <div
+            ref={helpPanelRef}
+            className="bg-white rounded-2xl shadow-2xl flex flex-col"
+            style={{
+              position: 'fixed',
+              left: helpPos.x !== null ? helpPos.x : 'calc(100vw - 440px)',
+              top: helpPos.y !== null ? helpPos.y : 80,
+              width: 420, maxHeight: '85vh', zIndex: 9999,
+              border: '1px solid #e5e7eb',
+            }}
+          >
+            <div
+              className="flex items-center justify-between px-5 py-4 border-b border-gray-100 rounded-t-2xl select-none"
+              style={{ cursor: 'grab', backgroundColor: '#f9fafb' }}
+              onMouseDown={startHelpDrag}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-gray-300 text-sm">⠿</span>
                 <p className="text-sm font-bold text-gray-800">PassAble Admin Help</p>
-                <p className="text-xs text-gray-400 mt-0.5">Admin panel guide</p>
               </div>
-              <button onClick={() => setShowHelp(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              <button onClick={() => { setShowHelp(false); setHelpSearch('') }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
-            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-5">
-              {ADMIN_HELP.map(section => (
+            <div className="px-5 pt-3 pb-2">
+              <input
+                type="search"
+                placeholder="Search help topics…"
+                value={helpSearch}
+                onChange={e => setHelpSearch(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 outline-none"
+                autoComplete="off"
+              />
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-3 flex flex-col gap-5">
+              {filtered.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-6">No results for "{helpSearch}"</p>
+              )}
+              {filtered.map(section => (
                 <div key={section.title}>
                   <p className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: RHS_GREEN }}>{section.title}</p>
-                  <div className="space-y-3">
+                  <div className="flex flex-col gap-3">
                     {section.items.map((item, i) => (
-                      <div key={i} className="bg-gray-50 rounded-xl px-4 py-3">
-                        <p className="text-xs font-semibold text-gray-700 mb-1">{item.q}</p>
-                        <p className="text-xs text-gray-500 leading-relaxed">{item.a}</p>
+                      <div key={i}>
+                        <p className="text-sm font-medium text-gray-800">{item.q}</p>
+                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{item.a}</p>
                       </div>
                     ))}
                   </div>
                 </div>
               ))}
             </div>
+            <div className="px-5 py-4 border-t border-gray-100">
+              <button onClick={() => { setShowHelp(false); setHelpSearch('') }} className="w-full py-2.5 text-sm font-medium rounded-xl text-white" style={{ backgroundColor: RHS_GREEN }}>Got it</button>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ── Teacher Pass Log Modal ── */}
       {logModalTeacher && (
@@ -870,7 +917,7 @@ export default function AdminPanel() {
         </div>
         <div className="flex items-center gap-4">
           <a href="/admin/photos" className="text-sm text-green-200 hover:text-white">📷 Photo Import</a>
-          <button onClick={() => setShowHelp(true)} className="text-sm text-green-200 hover:text-white">❓ Help</button>
+          <button onClick={() => { setShowHelp(v => !v); setHelpSearch(''); setHelpPos({ x: null, y: null }) }} className="text-sm text-green-200 hover:text-white">❓ Help</button>
           <a href="/teacher" className="text-sm text-green-200 hover:text-white">← Dashboard</a>
           <button onClick={handleSignOut} className="text-sm text-green-200 hover:text-white">Sign Out</button>
         </div>
