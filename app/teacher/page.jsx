@@ -1381,7 +1381,7 @@ function TeacherInner() {
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
           <div>
             <h1 className="text-lg font-bold text-white">RHS PassAble · The Relay Station</h1>
-            <p className="text-green-200 text-xs">Room {teacherRoom} · {periodLabel} · {teacherDisplayName}</p>
+            <p className="text-green-200 text-xs">Room {teacherRoom} · {periodLabel} · {teacherDisplayName} · {SCHEDULE_LABELS[scheduleType] || 'Regular'}</p>
           </div>
         </div>
         <div className="flex gap-4 items-center">
