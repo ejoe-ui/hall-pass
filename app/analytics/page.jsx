@@ -1,3 +1,17 @@
+/*
+  PassAble — RHS Hall Pass System
+  FILE:    app/analytics/page.jsx
+  ROUTE:   /analytics
+  PURPOSE: Pass analytics dashboard — total passes, avg duration, currently out,
+           longest pass, daily bar chart, reason donut, period breakdown, heat map,
+           frequent flyers (top students), and simultaneous exit pattern detection.
+           Admin view shows all rooms school-wide; teacher view is scoped to their room.
+           Admin can drill into a specific teacher by navigating from that teacher's Relay Station.
+  REPO:    hall-pass (hall-pass-lime.vercel.app)
+  BACKEND: Supabase (passes, students, teachers)
+  AUTH:    Inherits session from Relay Station / Admin panel. Redirects to /teacher if not signed in.
+  UPDATED: 2026-06-22 — added draggable searchable help panel (context-aware: admin vs teacher)
+*/
 'use client'
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
