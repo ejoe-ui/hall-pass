@@ -11,7 +11,7 @@
 */
 
 'use client'
-import { useState, useEffect, useRef, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 
@@ -280,6 +280,29 @@ function StudentDetailInner() {
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState('semester')
 
+  // Floating help panel
+  const [showHelp, setShowHelp] = useState(false)
+  const [helpPos, setHelpPos] = useState({ x: null, y: null })
+  const helpRef = useRef()
+  const dragOffset = useRef(null)
+
+  const onHelpMouseDown = useCallback((e) => {
+    if (e.target.closest('a, button')) return
+    dragOffset.current = {
+      x: e.clientX - helpRef.current.getBoundingClientRect().left,
+      y: e.clientY - helpRef.current.getBoundingClientRect().top,
+    }
+    const onMove = (mv) => {
+      setHelpPos({ x: mv.clientX - dragOffset.current.x, y: mv.clientY - dragOffset.current.y })
+    }
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
   useEffect(() => { loadData() }, [id, timeRange])
 
   async function loadData() {
@@ -437,8 +460,83 @@ function StudentDetailInner() {
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <a href="/analytics" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>← Analytics</a>
           <a href="/log" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, textDecoration: 'none' }}>Pass Log</a>
+          <button
+            onClick={() => { setShowHelp(v => !v); setHelpPos({ x: null, y: null }) }}
+            title="Help"
+            style={{
+              width: 28, height: 28, borderRadius: '50%',
+              border: '2px solid rgba(255,255,255,0.6)',
+              background: showHelp ? 'white' : 'transparent',
+              color: showHelp ? RHS_GREEN : 'white',
+              fontWeight: 700, fontSize: 14, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >?</button>
         </div>
       </div>
+
+      {/* Floating draggable help panel */}
+      {showHelp && (
+        <div
+          ref={helpRef}
+          onMouseDown={onHelpMouseDown}
+          className="no-print"
+          style={{
+            position: 'fixed',
+            top: helpPos.y !== null ? helpPos.y : 80,
+            left: helpPos.x !== null ? helpPos.x : 'calc(100% - 380px)',
+            width: 340,
+            maxHeight: '80vh',
+            overflowY: 'auto',
+            background: 'white',
+            borderRadius: 16,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+            border: '1px solid #e5e7eb',
+            zIndex: 1000,
+            cursor: 'grab',
+            userSelect: 'none',
+          }}
+        >
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '12px 16px', borderBottom: '1px solid #f3f4f6',
+            background: '#f9fafb', borderRadius: '16px 16px 0 0',
+          }}>
+            <p style={{ fontWeight: 700, fontSize: 13, color: '#374151', margin: 0 }}>Student Profile — Help</p>
+            <button onClick={() => setShowHelp(false)}
+              style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#9ca3af', lineHeight: 1 }}>×</button>
+          </div>
+          <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[
+              {
+                q: 'Why do I see all of this student\'s teachers?',
+                a: 'Knowing a student\'s full schedule helps with intervention planning. If a student is leaving class too often, you can reach out to their other teachers to get the full picture before meeting with the student or their counselor.'
+              },
+              {
+                q: 'Why does pass history only show my class?',
+                a: 'Pass history is filtered to your class only — you see passes this student took while in your room. Admin sees all classes combined. This keeps things focused and protects student privacy across classrooms.'
+              },
+              {
+                q: 'What do the pass stats mean?',
+                a: 'Total Passes is how many times this student left your class. Avg Duration is their average time out. Total Time Out is cumulative time away. Over 10 Min counts passes that ran long. Longest Pass is the single longest on record.'
+              },
+              {
+                q: 'How do I assign an NFC card or sticker?',
+                a: 'Click Enroll Card, then tap or scan the student\'s NFC card or sticker when prompted. The card links to this student and works at any kiosk. If they already have one, enrolling again replaces it. Note: this requires an NFC card reader — not all teachers will have one. See your admin for details; readers are reasonably priced.'
+              },
+              {
+                q: 'Can I export this student\'s data?',
+                a: 'Yes — Export CSV downloads their pass history as a spreadsheet, and Print / PDF gives you a printable summary. Both use whatever time filter you have selected (7 Days, 30 Days, etc.).'
+              },
+            ].map((item, i) => (
+              <div key={i} style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 12px' }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', margin: '0 0 4px' }}>{item.q}</p>
+                <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>{item.a}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 16px' }}>
 
