@@ -445,8 +445,14 @@ export default function AdminPanel() {
   // ── Student functions ─────────────────────────────────────────────────────
   async function loadStudents() {
     const { data } = await supabase.from('students').select('*').order('last_name')
-    if (data) { setStudents(data); return data }
-    return []
+    if (!data) return []
+    // student_periods has the room link — fetch separately and merge
+    const { data: periods } = await supabase.from('student_periods').select('student_id, room')
+    const roomMap = {}
+    if (periods) periods.forEach(p => { roomMap[p.student_id] = p.room })
+    const enriched = data.map(s => ({ ...s, _room: roomMap[s.id] || null }))
+    setStudents(enriched)
+    return enriched
   }
 
   // ── Pass log functions ────────────────────────────────────────────────────
@@ -1308,11 +1314,10 @@ export default function AdminPanel() {
                   <div className="flex-1">
                     <a href={`/student/${s.id}`} className="text-sm hover:underline" style={{ color: RHS_GREEN }}>{s.full_name}</a>
                     {(() => {
-                      const teacher = teacherByRoom[String(s.room)]
+                      const teacher = teacherByRoom[String(s._room)]
                       const teacherLast = teacher?.name?.split(' ').pop()
                       const parts = [s.period ? shortPeriod(s.period) : null, teacherLast].filter(Boolean)
-                      // DEBUG: show raw room + teacher_id so we can see what fields are available
-                      return <div className="text-xs text-gray-400">{parts.join(' · ')} <span className="text-red-400">[rm:{String(s.room)} tid:{String(s.teacher_id).slice(0,6)}]</span></div>
+                      return parts.length > 0 ? <div className="text-xs text-gray-400">{parts.join(' · ')}</div> : null
                     })()}
                   </div>
                 </div>
