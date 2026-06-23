@@ -71,11 +71,30 @@ export default function TeacherMatchPhotos() {
 
     const log = []
 
-    // Load this teacher's students only
+    // Load this teacher's students via student_periods (source of truth for room assignments)
+    const { data: spRows, error: spErr } = await supabase
+      .from('student_periods')
+      .select('student_id')
+      .eq('room', teacher.room)
+
+    if (spErr) {
+      setStatus([{ status: 'error', msg: 'Could not load your roster: ' + spErr.message }])
+      setMatching(false)
+      return
+    }
+
+    const studentIds = spRows?.map(r => r.student_id) || []
+    if (studentIds.length === 0) {
+      setStatus([{ status: 'skip', msg: 'No students found in your roster.' }])
+      setMatching(false)
+      setDone(true)
+      return
+    }
+
     const { data: students, error: studErr } = await supabase
       .from('students')
       .select('id, first_name, last_name, full_name')
-      .eq('teacher_id', teacher.id)
+      .in('id', studentIds)
 
     if (studErr || !students) {
       setStatus([{ status: 'error', msg: 'Could not load your students: ' + (studErr?.message || 'unknown') }])
@@ -100,9 +119,14 @@ export default function TeacherMatchPhotos() {
     }
 
     for (const student of students) {
-      const key = normalizeNameKey(student.first_name, student.last_name)
+      // Try full first name first (e.g. "abigail_m"), then first word only (e.g. "abigail")
+      // Lifetouch files often omit the middle initial even when Aeries includes it
+      const key1 = normalizeNameKey(student.first_name, student.last_name)
+      const firstWordOnly = (student.first_name || '').split(' ')[0]
+      const key2 = normalizeNameKey(firstWordOnly, student.last_name)
+      const key = rawFiles.has(key1) ? key1 : rawFiles.has(key2) ? key2 : null
 
-      if (!rawFiles.has(key)) {
+      if (!key) {
         log.push({ status: 'skip', msg: `No photo for ${student.full_name}` })
         continue
       }
