@@ -8,7 +8,7 @@
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (teachers, students, passes, pass_holds, do_not_let_out)
   AUTH:    Same Supabase password auth as the main teacher dashboard.
-  UPDATED: 2026-06-23 — fixed photo bucket student-photos → lifetouch-raw;
+  UPDATED: 2026-06-23 — photos use student-photos bucket (private, signed URLs);
            added Career Counselor to REASONS for analytics consistency;
            added pass transfer notifications (incoming + outgoing) with Realtime
 */
@@ -62,7 +62,7 @@ function elapsed(timeOut) {
 }
 
 function getPhotoUrl(student, signedUrls) {
-  // Prefer signed URL from the pre-fetched map (lifetouch-raw is a private bucket)
+  // Prefer signed URL from the pre-fetched map (student-photos is a private bucket)
   if (signedUrls?.[student?.id]) return signedUrls[student.id]
   if (student?.photo_url) return student.photo_url
   return null
@@ -223,7 +223,7 @@ function MobilePageInner() {
     for (let i = 0; i < withPhotos.length; i += BATCH) {
       const batch = withPhotos.slice(i, i + BATCH)
       const { data } = await supabase.storage
-        .from('lifetouch-raw')
+        .from('student-photos')
         .createSignedUrls(batch.map(s => s.photo_file), 3600)
       if (data) data.forEach((item, j) => { if (item.signedUrl) map[batch[j].id] = item.signedUrl })
     }
