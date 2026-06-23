@@ -1306,19 +1306,19 @@ export default function AdminPanel() {
       )}
 
       {/* ── Header ── */}
-      <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
+      <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: '#1f2937' }}>
         <div className="flex items-center gap-3">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
           <div>
             <h1 className="text-lg font-bold text-white">Admin Panel</h1>
-            <p className="text-green-200 text-xs">{session?.user?.email}</p>
+            <p className="text-gray-400 text-xs">{session?.user?.email}</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <a href="/admin/photos" className="text-sm text-green-200 hover:text-white">📷 Photo Import</a>
-          <button onClick={() => { setShowHelp(v => !v); setHelpSearch(''); setHelpPos({ x: null, y: null }) }} className="text-sm text-green-200 hover:text-white">❓ Help</button>
-          <a href="/teacher" className="text-sm text-green-200 hover:text-white">← Dashboard</a>
-          <button onClick={handleSignOut} className="text-sm text-green-200 hover:text-white">Sign Out</button>
+          <a href="/admin/photos" className="text-sm text-gray-400 hover:text-white">📷 Photo Import</a>
+          <button onClick={() => { setShowHelp(v => !v); setHelpSearch(''); setHelpPos({ x: null, y: null }) }} className="text-sm text-gray-400 hover:text-white">❓ Help</button>
+          <a href="/teacher" className="text-sm text-gray-400 hover:text-white">← Dashboard</a>
+          <button onClick={handleSignOut} className="text-sm text-gray-400 hover:text-white">Sign Out</button>
         </div>
       </div>
 
@@ -1329,10 +1329,20 @@ export default function AdminPanel() {
         const schedName = sched?.name || SCHEDULE_LABELS[schedKey] || 'Regular'
         const t2m = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
         const mins = now.getHours() * 60 + now.getMinutes()
-        const currentSlot = sched?.periods?.find(p => mins >= t2m(p.start) && mins < t2m(p.end)) || null
+        const periods = sched?.periods || []
+        const currentSlot = periods.find(p => mins >= t2m(p.start) && mins < t2m(p.end)) || null
+        const lastPeriod = [...periods].filter(p => !p.break).at(-1)
+        const firstPeriod = periods.filter(p => !p.break)[0]
         const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
         let periodLabel, periodColor
-        if (!currentSlot) {
+        if (lastPeriod && mins >= t2m(lastPeriod.end)) {
+          periodLabel = '🎒 School day complete'
+          periodColor = '#6b7280'
+        } else if (!currentSlot && firstPeriod && mins < t2m(firstPeriod.start)) {
+          periodLabel = 'Before school'
+          periodColor = '#6b7280'
+        } else if (!currentSlot) {
           periodLabel = 'Between Periods'
           periodColor = '#6b7280'
         } else if (currentSlot.break) {
@@ -1342,6 +1352,7 @@ export default function AdminPanel() {
           periodLabel = currentSlot.label
           periodColor = RHS_GREEN
         }
+
         return (
           <div className="border-b border-gray-200 bg-white px-6 py-2 flex items-center gap-4">
             <span className="text-sm font-semibold text-gray-700">{timeStr}</span>
