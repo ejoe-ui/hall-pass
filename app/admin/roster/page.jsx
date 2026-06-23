@@ -1,7 +1,7 @@
 /*
   PassAble — RHS Hall Pass System
-  FILE:    app/roster/page.jsx
-  ROUTE:   /roster
+  FILE:    app/admin/roster/page.jsx
+  ROUTE:   /admin/roster
   PURPOSE: Teacher-scoped student roster management. Add, edit, remove, and move
            students between periods. Period membership sourced from student_periods
            table (not students.period). Supports manual photo upload.
@@ -14,7 +14,7 @@
 */
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { supabase } from '../../lib/supabase'
+import { supabase } from '../../../lib/supabase'
 
 const RHS_GREEN = '#006938'
 
