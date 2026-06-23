@@ -712,17 +712,22 @@ function TeacherInner() {
   }
 
   // ── Signed photo URLs ─────────────────────────────────────────────────────
-  // Batch-fetch signed URLs for students who have photo_file but no photo_url.
-  // One API call for all students. Merges into photoUrls map (keyed by student id).
+  // Batch-fetch signed URLs for all students who have photo_file (storage photos).
+  // Signed URL takes priority over photo_url in JSX — this handles students whose
+  // photo_url points to an old public bucket URL that is now private/broken.
+  // Chunks into batches of 50 to stay within Supabase limits.
   async function loadSignedPhotoUrls(studs) {
-    const withPhotos = (studs || []).filter(s => s?.photo_file && !s.photo_url)
+    const withPhotos = (studs || []).filter(s => s?.photo_file)
     if (withPhotos.length === 0) return
-    const { data } = await supabase.storage
-      .from('student-photos')
-      .createSignedUrls(withPhotos.map(s => s.photo_file), 3600)
-    if (!data) return
+    const BATCH = 50
     const map = {}
-    data.forEach((item, i) => { if (item.signedUrl) map[withPhotos[i].id] = item.signedUrl })
+    for (let i = 0; i < withPhotos.length; i += BATCH) {
+      const batch = withPhotos.slice(i, i + BATCH)
+      const { data } = await supabase.storage
+        .from('student-photos')
+        .createSignedUrls(batch.map(s => s.photo_file), 3600)
+      if (data) data.forEach((item, j) => { if (item.signedUrl) map[batch[j].id] = item.signedUrl })
+    }
     setPhotoUrls(prev => ({ ...prev, ...map }))
   }
 
@@ -1365,8 +1370,8 @@ function TeacherInner() {
             const isLatePass = pass.pass_type === 'late_pass'
             return (
               <div key={pass.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 ${isLatePass ? 'bg-blue-50' : ''}`}>
-                {(student?.photo_url || photoUrls[student?.id])
-                  ? <img src={student?.photo_url || photoUrls[student?.id]} alt={student.full_name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                {(photoUrls[student?.id] || student?.photo_url)
+                  ? <img src={photoUrls[student?.id] || student?.photo_url} alt={student.full_name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
                   : <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white" style={{ backgroundColor: isLatePass ? '#1d4ed8' : RHS_GREEN }}>
                       {student?.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
                     </div>
@@ -1469,8 +1474,8 @@ function TeacherInner() {
               const timeOut = new Date(pass.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               return (
                 <div key={pass.id} className="flex items-center gap-3 px-4 py-3 border-b border-orange-50 last:border-0">
-                  {(pass.students?.photo_url || photoUrls[pass.students?.id])
-                    ? <img src={pass.students?.photo_url || photoUrls[pass.students?.id]} alt={name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                  {(photoUrls[pass.students?.id] || pass.students?.photo_url)
+                    ? <img src={photoUrls[pass.students?.id] || pass.students?.photo_url} alt={name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
                     : <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white bg-orange-400">{initials}</div>
                   }
                   <div className="flex-1">
