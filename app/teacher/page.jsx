@@ -472,9 +472,13 @@ function TeacherInner() {
   const [teacherDnloList, setTeacherDnloList] = useState([])
   const [rotated, setRotated] = useState(false)
   const [photoUrls, setPhotoUrls] = useState({})
+  const [sessionTimeout, setSessionTimeout] = useState(30) // null=off, 30, 60 (minutes). Default 30.
+  const [sessionTimeoutSaved, setSessionTimeoutSaved] = useState(false)
 
   const prevHeldIds = useRef([])
   const prevActiveIds = useRef([])
+  const inactivityTimerRef = useRef(null)
+  const sessionTimeoutRef = useRef(30)
 
   // ── Schedule detection ─────────────────────────────────────────────────────
   // Keep a ref so the 60s interval always uses the latest room
@@ -543,6 +547,33 @@ function TeacherInner() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // ── Inactivity / auto sign-out ─────────────────────────────────────────────
+  // Keep ref in sync so the timer callback always sees the latest value
+  useEffect(() => { sessionTimeoutRef.current = sessionTimeout }, [sessionTimeout])
+
+  function resetInactivityTimer() {
+    const mins = sessionTimeoutRef.current
+    if (!mins) return
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
+    inactivityTimerRef.current = setTimeout(async () => {
+      await supabase.auth.signOut()
+    }, mins * 60 * 1000)
+  }
+
+  useEffect(() => {
+    if (!session) {
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
+      return
+    }
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click']
+    events.forEach(e => window.addEventListener(e, resetInactivityTimer, { passive: true }))
+    resetInactivityTimer()
+    return () => {
+      events.forEach(e => window.removeEventListener(e, resetInactivityTimer))
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current)
+    }
+  }, [session])
+
   // ── Auth effects ───────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); setAuthLoading(false) })
@@ -569,6 +600,10 @@ function TeacherInner() {
     if (currentTeacher.sub_code) setSubCode(currentTeacher.sub_code)
     if (currentTeacher.block_first_last_15 !== undefined) setBlockMinsEnabled(!!currentTeacher.block_first_last_15)
     if (currentTeacher.session_code) setSelfCheckoutCode(currentTeacher.session_code)
+    // session_timeout_minutes: undefined/null = use default (30), 0 = off, 30/60 = explicit
+    if ('session_timeout_minutes' in currentTeacher) {
+      setSessionTimeout(currentTeacher.session_timeout_minutes === 0 ? null : (currentTeacher.session_timeout_minutes || 30))
+    }
   }, [currentTeacher])
 
   useEffect(() => {
@@ -701,6 +736,15 @@ function TeacherInner() {
       setPasswordSaved(true); setTimeout(() => setPasswordSaved(false), 3000)
     }
     setSavingPassword(false)
+  }
+
+  async function saveSessionTimeout(val) {
+    setSessionTimeout(val)
+    if (currentTeacher?.id) {
+      await supabase.from('teachers').update({ session_timeout_minutes: val || 0 }).eq('id', currentTeacher.id)
+    }
+    setSessionTimeoutSaved(true)
+    setTimeout(() => setSessionTimeoutSaved(false), 2000)
   }
 
   async function generateCheckoutCode() {
@@ -1100,6 +1144,8 @@ function TeacherInner() {
               a: <>When on, the status bar turns red at the start and end of each period as a reminder not to let students out. It doesn't block checkout — just warns you and the students.</> },
             { q: "What's Printable Passes?", keys: "printable passes print default off automatic",
               a: <>Off by default. When turned on in {settingsBtn}, a printable pass opens automatically and sends to your default printer every time a student is checked out.</> },
+            { q: "What's Auto Sign-Out?", keys: "auto sign out session timeout inactivity security minutes idle",
+              a: <>When turned on in {settingsBtn}, the dashboard signs you out automatically after a set period of no activity — 30 or 60 minutes. Default is <strong>30 min</strong>. Any mouse movement, typing, or clicking resets the timer. Set it to <strong>None</strong> if you'd rather stay signed in indefinitely (not recommended on shared devices).</> },
             { q: "How do I change my password?", keys: "password change update reset minimum characters",
               a: <>Open {settingsBtn} → Change Password. Minimum 8 characters.</> },
           ]},
@@ -1583,6 +1629,23 @@ function TeacherInner() {
                 </button>
               </div>
               {printPassesSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="mb-3">
+                <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Auto Sign-Out</p>
+                <p className="text-xs text-gray-400">Sign out automatically after inactivity. Resets on any mouse or keyboard activity.</p>
+              </div>
+              <div className="flex gap-2">
+                {[{ label: 'None', val: null }, { label: '30 min', val: 30 }, { label: '60 min', val: 60 }].map(({ label, val }) => (
+                  <button key={label} onClick={() => saveSessionTimeout(val)}
+                    className="flex-1 py-2 text-sm font-semibold rounded-lg transition-colors"
+                    style={{ background: sessionTimeout === val ? RHS_GREEN : 'white', color: sessionTimeout === val ? 'white' : '#6b7280', outline: sessionTimeout !== val ? '1px solid #d1d5db' : 'none', border: 'none', cursor: 'pointer' }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {sessionTimeoutSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
