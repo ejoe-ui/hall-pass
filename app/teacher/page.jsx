@@ -475,6 +475,12 @@ function TeacherInner() {
   const [sessionTimeout, setSessionTimeout] = useState(30) // null=off, 30, 60 (minutes). Default 30.
   const [sessionTimeoutSaved, setSessionTimeoutSaved] = useState(false)
 
+  // Notifications
+  const [incomingNotifs, setIncomingNotifs] = useState([]) // students heading to me
+  const [outgoingNotifs, setOutgoingNotifs] = useState([]) // my sent students — return updates
+  const [receiveNotifications, setReceiveNotifications] = useState(true)
+  const [notifSaved, setNotifSaved] = useState(false)
+
   const prevHeldIds = useRef([])
   const prevActiveIds = useRef([])
   const inactivityTimerRef = useRef(null)
@@ -604,7 +610,22 @@ function TeacherInner() {
     if ('session_timeout_minutes' in currentTeacher) {
       setSessionTimeout(currentTeacher.session_timeout_minutes === 0 ? null : (currentTeacher.session_timeout_minutes || 30))
     }
+    if (currentTeacher.receive_notifications !== undefined) setReceiveNotifications(!!currentTeacher.receive_notifications)
   }, [currentTeacher])
+
+  // ── Realtime notification subscription ────────────────────────────────────
+  useEffect(() => {
+    if (!currentTeacher?.id) return
+    loadNotifications()
+    const channel = supabase
+      .channel(`notifs:${currentTeacher.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pass_notifications',
+        filter: `to_teacher_id=eq.${currentTeacher.id}` }, () => loadNotifications())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pass_notifications',
+        filter: `from_teacher_id=eq.${currentTeacher.id}` }, () => loadNotifications())
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [currentTeacher?.id])
 
   useEffect(() => {
     supabase.from('settings').select('value').eq('key', 'teacher_unlock_code').maybeSingle()
@@ -745,6 +766,66 @@ function TeacherInner() {
     }
     setSessionTimeoutSaved(true)
     setTimeout(() => setSessionTimeoutSaved(false), 2000)
+  }
+
+  // ── Notification functions ─────────────────────────────────────────────────
+  async function loadNotifications() {
+    if (!currentTeacher?.id) return
+    const { data } = await supabase
+      .from('pass_notifications')
+      .select('*')
+      .or(`to_teacher_id.eq.${currentTeacher.id},from_teacher_id.eq.${currentTeacher.id}`)
+      .neq('status', 'cleared')
+      .order('sent_at', { ascending: false })
+    if (!data) return
+    setIncomingNotifs(data.filter(n => n.to_teacher_id === currentTeacher.id && !n.cleared_by_receiver))
+    setOutgoingNotifs(data.filter(n => n.from_teacher_id === currentTeacher.id && !n.cleared_by_sender && n.status !== 'pending'))
+  }
+
+  async function sendPassNotification(passId, studentId, studentName, toTeacherName, reason) {
+    // Look up receiving teacher by name (case-insensitive partial match)
+    const { data: toTeacher } = await supabase
+      .from('teachers')
+      .select('id, name, receive_notifications')
+      .ilike('name', `%${toTeacherName}%`)
+      .eq('is_active', true)
+      .maybeSingle()
+    if (!toTeacher?.receive_notifications) return
+    await supabase.from('pass_notifications').insert({
+      pass_id: passId,
+      from_teacher_id: currentTeacher.id,
+      to_teacher_id: toTeacher.id,
+      from_teacher_name: currentTeacher.name || teacherDisplayName,
+      to_teacher_name: toTeacherName,
+      from_room: teacherRoom,
+      student_id: studentId,
+      student_name: studentName,
+      reason,
+      status: 'pending',
+    })
+  }
+
+  async function updateNotifStatus(notifId, status) {
+    const now = new Date().toISOString()
+    const updates = { status }
+    if (status === 'received') updates.received_at = now
+    if (status === 'returned') updates.returned_at = now
+    await supabase.from('pass_notifications').update(updates).eq('id', notifId)
+  }
+
+  async function clearNotif(notifId, role) {
+    // role = 'sender' | 'receiver'
+    const field = role === 'sender' ? 'cleared_by_sender' : 'cleared_by_receiver'
+    await supabase.from('pass_notifications').update({ [field]: true }).eq('id', notifId)
+  }
+
+  async function saveReceiveNotifications(val) {
+    setReceiveNotifications(val)
+    if (currentTeacher?.id) {
+      await supabase.from('teachers').update({ receive_notifications: val }).eq('id', currentTeacher.id)
+    }
+    setNotifSaved(true)
+    setTimeout(() => setNotifSaved(false), 2000)
   }
 
   async function generateCheckoutCode() {
@@ -898,6 +979,13 @@ function TeacherInner() {
       const timeIssued = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       printHallPass({ passId: passData.id, studentName, reason: finalReason, timeIssued, room: selectedRoom || teacherRoom })
     }
+    // Fire notification to receiving teacher if On Assignment or Errand with a teacher
+    const destTeacher = assignedTeacher || errandTeacher
+    if (destTeacher && passData?.id) {
+      const studentName = allStudents.find(s => s.id === selected)?.full_name || 'Student'
+      sendPassNotification(passData.id, selected, studentName, destTeacher, finalReason)
+    }
+
     setSelected(''); setReason(''); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText('')
     loadData()
   }
@@ -1144,6 +1232,8 @@ function TeacherInner() {
               a: <>When on, the status bar turns red at the start and end of each period as a reminder not to let students out. It doesn't block checkout — just warns you and the students.</> },
             { q: "What's Printable Passes?", keys: "printable passes print default off automatic",
               a: <>Off by default. When turned on in {settingsBtn}, a printable pass opens automatically and sends to your default printer every time a student is checked out.</> },
+            { q: "What are Student Transfer Notifications?", keys: "notification transfer student heading on assignment errand receiving sent alert panel",
+              a: <>When you check out a student to another teacher's room (On Assignment or Errand → teacher), a live notification appears on that teacher's dashboard instantly. They can mark <strong>Student Received</strong>, <strong>Not Here Yet</strong>, or <strong>Student Returned</strong>. When they mark the student as returned, you get a notification back with the time they left. All updates appear in the <strong>Student Transfer Notifications</strong> panel between your stats and the Students Out list. Everything is logged automatically — no action required. To opt out, go to {settingsBtn} → Student Transfer Notifications → toggle off.</> },
             { q: "What's Auto Sign-Out?", keys: "auto sign out session timeout inactivity security minutes idle",
               a: <>When turned on in {settingsBtn}, the dashboard signs you out automatically after a set period of no activity — 30 or 60 minutes. Default is <strong>30 min</strong>. Any mouse movement, typing, or clicking resets the timer. Set it to <strong>None</strong> if you'd rather stay signed in indefinitely (not recommended on shared devices).</> },
             { q: "How do I change my password?", keys: "password change update reset minimum characters",
@@ -1375,6 +1465,90 @@ function TeacherInner() {
             </div>
           ))}
         </div>
+
+        {/* ── Pass Notifications Panel ── */}
+        {(incomingNotifs.length > 0 || outgoingNotifs.length > 0) && (
+          <div className="bg-white rounded-xl border border-blue-200 mb-6 overflow-hidden">
+            <div className="px-4 py-2.5 bg-blue-50 border-b border-blue-100 flex items-center justify-between">
+              <span className="text-sm font-semibold text-blue-800">🔔 Student Transfer Notifications</span>
+              <span className="text-xs text-blue-500">Automated — updates in real time</span>
+            </div>
+            <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
+
+              {/* Incoming — student heading to me */}
+              {incomingNotifs.map(n => {
+                const sentTime = new Date(n.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                const statusColor = n.status === 'received' ? 'text-green-600' : n.status === 'not_here' ? 'text-amber-600' : n.status === 'returned' ? 'text-gray-400' : 'text-blue-600'
+                const statusLabel = n.status === 'received' ? '✓ Received' : n.status === 'not_here' ? '⚠ Not Here Yet' : n.status === 'returned' ? '↩ Returned' : '⏳ En Route'
+                return (
+                  <div key={n.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div>
+                        <span className="text-sm font-semibold text-gray-800">{n.student_name}</span>
+                        <span className="text-xs text-gray-400 ml-2">from {n.from_teacher_name} · Rm {n.from_room} · released {sentTime}</span>
+                        <p className="text-xs text-gray-500 mt-0.5">{n.reason}</p>
+                      </div>
+                      <span className={`text-xs font-semibold flex-shrink-0 ${statusColor}`}>{statusLabel}</span>
+                    </div>
+                    {n.status !== 'returned' && (
+                      <div className="flex gap-1.5 flex-wrap">
+                        {n.status === 'pending' && (
+                          <button onClick={() => updateNotifStatus(n.id, 'received')}
+                            className="text-xs px-2.5 py-1 rounded-lg font-medium text-white" style={{ backgroundColor: '#16a34a' }}>
+                            ✓ Student Received
+                          </button>
+                        )}
+                        {(n.status === 'pending' || n.status === 'received') && (
+                          <button onClick={() => updateNotifStatus(n.id, 'not_here')}
+                            className="text-xs px-2.5 py-1 rounded-lg font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                            ⚠ Not Here Yet
+                          </button>
+                        )}
+                        {n.status === 'received' && (
+                          <button onClick={() => updateNotifStatus(n.id, 'returned')}
+                            className="text-xs px-2.5 py-1 rounded-lg font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                            ↩ Student Returned
+                          </button>
+                        )}
+                        <button onClick={() => clearNotif(n.id, 'receiver')}
+                          className="text-xs px-2.5 py-1 rounded-lg font-medium bg-white text-gray-400 border border-gray-200 ml-auto">
+                          Clear
+                        </button>
+                      </div>
+                    )}
+                    {n.status === 'returned' && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-400">Returned at {new Date(n.returned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <button onClick={() => clearNotif(n.id, 'receiver')} className="text-xs text-gray-400 hover:text-gray-600 underline">Clear</button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
+              {/* Outgoing — return status of students I sent */}
+              {outgoingNotifs.map(n => {
+                const returnTime = n.returned_at ? new Date(n.returned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null
+                const receivedTime = n.received_at ? new Date(n.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null
+                return (
+                  <div key={n.id} className="px-4 py-3 bg-gray-50">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="text-sm font-semibold text-gray-800">{n.student_name}</span>
+                        <span className="text-xs text-gray-400 ml-2">→ {n.to_teacher_name}</span>
+                        {n.status === 'received' && receivedTime && <p className="text-xs text-green-600 mt-0.5">✓ Received by {n.to_teacher_name} at {receivedTime}</p>}
+                        {n.status === 'not_here' && <p className="text-xs text-amber-600 mt-0.5">⚠ {n.to_teacher_name} reports student hasn't arrived</p>}
+                        {n.status === 'returned' && returnTime && <p className="text-xs text-blue-600 mt-0.5">↩ Returning to you — left {n.to_teacher_name} at {returnTime}</p>}
+                      </div>
+                      <button onClick={() => clearNotif(n.id, 'sender')} className="text-xs text-gray-400 hover:text-gray-600 underline flex-shrink-0">Clear</button>
+                    </div>
+                  </div>
+                )
+              })}
+
+            </div>
+          </div>
+        )}
 
         {heldPasses.length > 0 && (
           <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
@@ -1629,6 +1803,20 @@ function TeacherInner() {
                 </button>
               </div>
               {printPassesSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Student Transfer Notifications</p>
+                  <p className="text-xs text-gray-400">Get notified on your dashboard when another teacher sends a student your way</p>
+                </div>
+                <button onClick={() => saveReceiveNotifications(!receiveNotifications)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${receiveNotifications ? 'bg-green-600' : 'bg-gray-200'}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${receiveNotifications ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+              {notifSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
