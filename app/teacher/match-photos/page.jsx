@@ -46,6 +46,7 @@ export default function TeacherMatchPhotos() {
   const [done, setDone] = useState(false)
   const [status, setStatus] = useState([])
   const [showHelp, setShowHelp] = useState(false)
+  const [forceOverwrite, setForceOverwrite] = useState(false)
 
   useEffect(() => {
     async function loadTeacher() {
@@ -93,7 +94,7 @@ export default function TeacherMatchPhotos() {
 
     const { data: students, error: studErr } = await supabase
       .from('students')
-      .select('id, first_name, last_name, full_name')
+      .select('id, first_name, last_name, full_name, photo_file')
       .in('id', studentIds)
 
     if (studErr || !students) {
@@ -119,6 +120,13 @@ export default function TeacherMatchPhotos() {
     }
 
     for (const student of students) {
+      // Skip students who already have a photo unless force overwrite is on
+      // This protects manually uploaded photos from being replaced by Lifetouch
+      if (student.photo_file && !forceOverwrite) {
+        log.push({ status: 'skip', msg: `Already has photo: ${student.full_name}` })
+        continue
+      }
+
       // Try full first name first (e.g. "abigail_m"), then first word only (e.g. "abigail")
       // Lifetouch files often omit the middle initial even when Aeries includes it
       const key1 = normalizeNameKey(student.first_name, student.last_name)
@@ -244,6 +252,16 @@ export default function TeacherMatchPhotos() {
             Run this after retake day, or any time new photos are available.
           </p>
 
+          <label className="flex items-center gap-2 mb-4 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={forceOverwrite}
+              onChange={e => setForceOverwrite(e.target.checked)}
+              className="w-4 h-4 rounded"
+            />
+            <span className="text-xs text-gray-600">Replace existing photos <span className="text-gray-400">(by default, students who already have a photo are skipped)</span></span>
+          </label>
+
           <button
             onClick={handleMatch}
             disabled={matching}
@@ -257,7 +275,7 @@ export default function TeacherMatchPhotos() {
               </>
             ) : '📷 Match My Students'}
           </button>
-          <p className="text-xs text-gray-400">Safe to run multiple times.</p>
+          <p className="text-xs text-gray-400">May take 30–60 seconds for a full roster. Safe to run multiple times.</p>
 
           {done && (
             <div className="mt-5">
