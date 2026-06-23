@@ -14,7 +14,8 @@
 */
 
 'use client'
-import { useState, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 
 const RHS_GREEN = '#006938'
@@ -43,6 +44,23 @@ async function listRawPhotos() {
 }
 
 export default function PhotoUpload() {
+  const router = useRouter()
+  const [authChecked, setAuthChecked] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    async function checkAdmin() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { router.replace('/teacher'); return }
+      const { data: teacher } = await supabase
+        .from('teachers').select('is_admin').eq('auth_id', session.user.id).maybeSingle()
+      if (!teacher?.is_admin) { router.replace('/teacher'); return }
+      setIsAdmin(true)
+      setAuthChecked(true)
+    }
+    checkAdmin()
+  }, [router])
+
   const [showHelp, setShowHelp] = useState(false)
   const [helpPos, setHelpPos] = useState({ x: null, y: null })
   const helpRef = useRef(null)
@@ -198,6 +216,13 @@ export default function PhotoUpload() {
   const matchMatched  = matchStatus.filter(s => s.status === 'ok').length
   const matchSkipped  = matchStatus.filter(s => s.status === 'skip').length
   const matchErrors   = matchStatus.filter(s => s.status === 'error').length
+
+  // Block render until admin auth confirmed (redirects happen in useEffect)
+  if (!authChecked) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="w-6 h-6 border-2 border-gray-300 rounded-full animate-spin" style={{ borderTopColor: '#006938' }} />
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-gray-50">
