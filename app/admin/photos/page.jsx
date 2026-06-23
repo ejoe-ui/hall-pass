@@ -166,9 +166,14 @@ export default function PhotoUpload() {
 
     // For each student: find photo → download → copy to student-photos → update DB
     for (const student of students) {
-      const key = normalizeNameKey(student.first_name, student.last_name)
+      // Try full first name (e.g. "abigail_m"), then first word only (e.g. "abigail")
+      // Lifetouch files often omit the middle initial even when Aeries includes it
+      const key1 = normalizeNameKey(student.first_name, student.last_name)
+      const firstWordOnly = (student.first_name || '').split(' ')[0]
+      const key2 = normalizeNameKey(firstWordOnly, student.last_name)
+      const key = rawFiles.has(key1) ? key1 : rawFiles.has(key2) ? key2 : null
 
-      if (!rawFiles.has(key)) {
+      if (!key) {
         log.push({ status: 'skip', msg: `No photo for ${student.full_name}` })
         continue
       }
