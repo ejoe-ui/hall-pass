@@ -1083,6 +1083,71 @@ export default function AdminPanel() {
     fetchStudentLog(student, 'week')
   }
 
+  function printStudentProfile() {
+    const s = studentLogModal
+    if (!s) return
+    const photoSrc = photoUrls[s.id] || s.photo_url || null
+    const completed = studentLogPasses.filter(p => p.duration_minutes != null)
+    const avgDur = completed.length > 0 ? Math.round(completed.reduce((a, p) => a + p.duration_minutes, 0) / completed.length) : null
+    const reasons = studentLogPasses.reduce((acc, p) => { acc[p.reason] = (acc[p.reason]||0)+1; return acc }, {})
+    const topReason = Object.entries(reasons).sort((a,b)=>b[1]-a[1])[0]?.[0]
+    const filterLabel = { today: 'Today', week: 'This Week', month: 'This Month', all: 'All Time' }[studentLogFilter] || 'All Time'
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pass Report — ${s.full_name}</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827;background:white;padding:40px}
+.hdr{display:flex;align-items:flex-start;justify-content:space-between;padding-bottom:18px;border-bottom:2px solid #006938;margin-bottom:24px}
+.logo{font-size:20px;font-weight:800;color:#006938}.logo span{color:#6b7280;font-weight:400;font-size:14px}
+.meta{text-align:right;font-size:11px;color:#6b7280;line-height:1.6}
+.sh{display:flex;align-items:center;gap:16px;margin-bottom:24px}
+.photo{width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid #e5e7eb;flex-shrink:0}
+.initials{width:64px;height:64px;border-radius:50%;background:#006938;display:flex;align-items:center;justify-content:center;color:white;font-size:20px;font-weight:700;flex-shrink:0}
+.sname{font-size:22px;font-weight:800}.ssub{font-size:13px;color:#6b7280;margin-top:3px}
+.lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9ca3af;margin-bottom:8px}
+.pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:24px}
+.pill{background:#f3f4f6;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:600;color:#374151}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
+.stat{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px;text-align:center}
+.sv{font-size:24px;font-weight:800;color:#006938}.sl{font-size:11px;color:#6b7280;margin-top:2px}
+.ap{background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:12px 16px;margin-bottom:20px}
+.apl{font-size:10px;font-weight:700;color:#d97706;margin-bottom:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 10px;border-bottom:2px solid #e5e7eb;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#6b7280}
+td{padding:8px 10px;border-bottom:1px solid #f3f4f6}
+tr:last-child td{border-bottom:none}
+.dur{font-weight:600;color:#006938}.out{color:#dc2626}
+.foot{margin-top:32px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;display:flex;justify-content:space-between}
+@media print{body{padding:24px}}
+</style></head><body>
+<div class="hdr">
+  <div><div class="logo">RHS PassAble <span>· Student Pass Report</span></div><div style="font-size:12px;color:#6b7280;margin-top:3px">Roseville High School</div></div>
+  <div class="meta">Generated: ${new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}<br>Period shown: ${filterLabel}</div>
+</div>
+<div class="sh">
+  ${photoSrc ? `<img src="${photoSrc}" class="photo" />` : `<div class="initials">${s.full_name?.split(' ').map(n=>n[0]).slice(0,2).join('')}</div>`}
+  <div><div class="sname">${s.full_name}</div><div class="ssub">Student Pass Report — ${filterLabel}</div></div>
+</div>
+${studentLogActivePass ? `<div class="ap"><div class="apl">🟡 CURRENTLY ON A PASS</div><div style="font-size:14px;font-weight:600">${studentLogActivePass.reason}</div><div style="font-size:12px;color:#6b7280;margin-top:3px">Left Rm ${studentLogActivePass.room}${studentLogActivePass.teacher?' · '+studentLogActivePass.teacher.split(' ').pop():''} · Issued ${new Date(studentLogActivePass.time_out).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div></div>` : ''}
+<div class="lbl">Schedule</div>
+<div class="pills">${studentLogSchedule.length>0 ? studentLogSchedule.map(p=>`<div class="pill">P${p.period} · Rm ${p.room}${p.teacher?' · '+p.teacher.split(' ').pop():''}</div>`).join('') : '<span style="font-size:12px;color:#9ca3af;font-style:italic">No schedule on file</span>'}</div>
+<div class="stats">
+  <div class="stat"><div class="sv">${studentLogPasses.length}</div><div class="sl">Total Passes</div></div>
+  <div class="stat"><div class="sv">${avgDur!=null?avgDur+'m':'—'}</div><div class="sl">Avg Duration</div></div>
+  <div class="stat"><div class="sv" style="font-size:${topReason&&topReason.length>10?'13px':'20px'}">${topReason||'—'}</div><div class="sl">Most Common</div></div>
+</div>
+<div class="lbl" style="margin-bottom:12px">Pass History</div>
+${studentLogPasses.length===0 ? '<p style="font-size:13px;color:#9ca3af;font-style:italic">No passes in this period.</p>' : `<table><thead><tr><th>Date &amp; Time</th><th>Reason</th><th>Teacher / Room</th><th>Period</th><th>Duration</th></tr></thead><tbody>${studentLogPasses.map(p=>{const isOut=!p.time_in;const dur=p.duration_minutes!=null?p.duration_minutes+'m':isOut?'Out now':'—';const tName=studentLogTeacherMap[p.room];return`<tr><td>${new Date(p.time_out).toLocaleDateString('en-US',{month:'short',day:'numeric'})} ${new Date(p.time_out).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</td><td>${p.reason}</td><td>${tName?tName.split(' ').pop()+' · ':''}Rm ${p.room}</td><td>P${p.period}</td><td class="dur${isOut?' out':''}">${dur}</td></tr>`}).join('')}</tbody></table>`}
+<div class="foot"><span>PassAble · Roseville High School</span><span>Printed ${new Date().toLocaleString()}</span></div>
+</body></html>`
+
+    const win = window.open('', '_blank', 'width=860,height=720')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 600)
+  }
+
   const TABS = [
     { id: 'teachers', label: 'Teachers' },
     { id: 'conflicts', label: 'Conflict Groups' },
@@ -1302,6 +1367,13 @@ export default function AdminPanel() {
                   <div className="text-xs text-gray-400">In class</div>
                 )}
               </div>
+              <button
+                onClick={printStudentProfile}
+                title="Print / Save as PDF"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-100 border border-gray-200 transition-colors"
+              >
+                🖨️ Print / PDF
+              </button>
               <button onClick={() => setStudentLogModal(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none ml-2">×</button>
             </div>
 
