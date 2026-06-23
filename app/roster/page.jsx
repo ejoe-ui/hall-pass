@@ -147,14 +147,17 @@ export default function StudentsAdmin() {
   }
 
   async function loadSignedPhotoUrls(studs) {
-    const withPhotos = (studs || []).filter(s => s?.photo_file && !s.photo_url)
+    const withPhotos = (studs || []).filter(s => s?.photo_file)
     if (withPhotos.length === 0) return
-    const { data } = await supabase.storage
-      .from('student-photos')
-      .createSignedUrls(withPhotos.map(s => s.photo_file), 3600)
-    if (!data) return
+    const BATCH = 50
     const map = {}
-    data.forEach((item, i) => { if (item.signedUrl) map[withPhotos[i].id] = item.signedUrl })
+    for (let i = 0; i < withPhotos.length; i += BATCH) {
+      const batch = withPhotos.slice(i, i + BATCH)
+      const { data } = await supabase.storage
+        .from('student-photos')
+        .createSignedUrls(batch.map(s => s.photo_file), 3600)
+      if (data) data.forEach((item, j) => { if (item.signedUrl) map[batch[j].id] = item.signedUrl })
+    }
     setPhotoUrls(prev => ({ ...prev, ...map }))
   }
 
@@ -1068,7 +1071,7 @@ export default function StudentsAdmin() {
             <div className="p-8 text-center text-gray-400 text-sm">No students in this period</div>
           ) : (
             students.map(s => {
-              const url = s.photo_url || photoUrls[s.id]
+              const url = photoUrls[s.id] || s.photo_url
               return (
                 <div key={s.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
                   {/* Photo: prefer photo_url, fall back to student-photos storage, then initials */}
