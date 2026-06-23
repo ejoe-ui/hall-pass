@@ -59,6 +59,8 @@ export default function StudentsAdmin() {
   const [detectedMeta, setDetectedMeta] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
   const [showImportHelp, setShowImportHelp] = useState(false)
+  const [currentRoster, setCurrentRoster] = useState([])
+  const [removeSelected, setRemoveSelected] = useState(new Set())
   const importFileRef = useRef()
 
   useEffect(() => {
@@ -306,14 +308,27 @@ export default function StudentsAdmin() {
     })
   }
 
+  async function fetchCurrentRoster(period) {
+    if (!period || !room) return
+    const { data: spRows } = await supabase
+      .from('student_periods').select('student_id').eq('period', period).eq('room', room)
+    const ids = spRows?.map(r => r.student_id) || []
+    if (ids.length === 0) { setCurrentRoster([]); return }
+    const { data: studs } = await supabase
+      .from('students').select('id, full_name').in('id', ids)
+    setCurrentRoster(studs || [])
+  }
+
   async function processImportFile(file) {
     if (!file) return
-    setImportParseError(''); setImportResults(null); setImportPreview([])
+    setImportParseError(''); setImportResults(null); setImportPreview([]); setRemoveSelected(new Set())
     try {
       const { students, detectedPeriod, detectedTeacher, detectedRoom } = await parseAeriesXlsx(file)
       setImportPreview(students)
       setDetectedMeta({ period: detectedPeriod, teacher: detectedTeacher, room: detectedRoom })
+      const targetPeriod = importPeriod || (periods.length > 0 ? periods[0].value : null)
       if (!importPeriod && periods.length > 0) setImportPeriod(periods[0].value)
+      if (targetPeriod) await fetchCurrentRoster(targetPeriod)
     } catch {
       setImportParseError('Could not read this file. Make sure it is an Aeries Class Roster .xlsx export.')
     }
@@ -327,13 +342,22 @@ export default function StudentsAdmin() {
     if (file) processImportFile(file)
   }
 
+  function toggleRemove(id) {
+    setRemoveSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
   async function handleImport() {
     if (!importPreview.length || !importPeriod) return
     setImportLoading(true)
-    let added = 0, existing = 0
+    let added = 0, updated = 0, removed = 0, dupsRemoved = 0
     const errors = []
+
+    // 1. Upsert all students from Aeries file (corrects names to match Aeries)
     for (const student of importPreview) {
-      // Upsert student record
       const { error: sErr } = await supabase.from('students').upsert({
         id: student.id,
         first_name: student.first,
@@ -343,20 +367,35 @@ export default function StudentsAdmin() {
         period: importPeriod,
       }, { onConflict: 'id' })
       if (sErr) { errors.push(`${student.full_name}: ${sErr.message}`); continue }
-      // Add to student_periods if not already linked to this room
-      const { data: spExists } = await supabase.from('student_periods')
-        .select('id').eq('student_id', student.id).eq('room', room).maybeSingle()
-      if (!spExists) {
+
+      // Add to student_periods if not already there
+      const { data: allSp } = await supabase.from('student_periods')
+        .select('id').eq('student_id', student.id).eq('room', room)
+      if (!allSp || allSp.length === 0) {
         await supabase.from('student_periods').insert({ student_id: student.id, period: importPeriod, room })
         added++
       } else {
-        existing++
+        // Deduplicate: keep first entry, delete the rest
+        if (allSp.length > 1) {
+          const idsToDelete = allSp.slice(1).map(r => r.id)
+          await supabase.from('student_periods').delete().in('id', idsToDelete)
+          dupsRemoved += idsToDelete.length
+        }
+        updated++
       }
     }
-    setImportResults({ added, existing, errors, total: importPreview.length })
+
+    // 2. Remove students checked for removal (not on Aeries list)
+    for (const id of removeSelected) {
+      await supabase.from('student_periods')
+        .delete().eq('student_id', id).eq('room', room).eq('period', importPeriod)
+      removed++
+    }
+
+    setImportResults({ added, updated, removed, dupsRemoved, errors })
     setImportLoading(false)
     if (errors.length === 0) {
-      setImportPreview([]); setDetectedMeta(null)
+      setImportPreview([]); setDetectedMeta(null); setCurrentRoster([]); setRemoveSelected(new Set())
       if (importFileRef.current) importFileRef.current.value = ''
       setActivePeriod(importPeriod)
       setTimeout(() => { setActiveView('manage'); loadStudents() }, 1800)
@@ -507,23 +546,58 @@ export default function StudentsAdmin() {
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <button onClick={() => setShowImportHelp(v => !v)}
                 className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-                <span>❓ How to export a class roster from Aeries</span>
+                <span>❓ How this works</span>
                 <span className="text-gray-400 text-xs">{showImportHelp ? '▲ Hide' : '▼ Show'}</span>
               </button>
               {showImportHelp && (
-                <div className="px-4 pb-4 border-t border-gray-100 text-xs text-gray-600 space-y-2 pt-3">
-                  <p className="font-semibold text-gray-700">Steps in Aeries:</p>
-                  <ol className="list-decimal list-inside space-y-1.5 ml-1">
-                    <li>Go to <strong>Reports → Print Class Rosters</strong></li>
-                    <li>Select <strong>one class/period</strong> from your course list</li>
-                    <li>Click <strong>Export to Excel</strong> (saves as .xlsx)</li>
-                    <li>Come back here and drop or upload that file</li>
-                    <li>Select which period to assign students to, then click Import</li>
-                    <li>Repeat for each of your other periods</li>
-                  </ol>
-                  <p className="text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mt-2">
-                    If you have 6 periods, repeat this 6 times — one file per period. Never select "All Classes" in Aeries before exporting.
-                  </p>
+                <div className="px-4 pb-5 border-t border-gray-100 pt-4 space-y-4 text-xs text-gray-600">
+
+                  <div>
+                    <p className="font-semibold text-gray-800 mb-2">Step 1 — Export from Aeries</p>
+                    <ol className="list-decimal list-inside space-y-1.5 ml-1">
+                      <li>Go to <strong>Reports → Print Class Rosters</strong></li>
+                      <li>Select <strong>one class/period</strong> only</li>
+                      <li>Click <strong>Export to Excel</strong> — saves as .xlsx</li>
+                      <li>Repeat for each period (6 periods = 6 exports)</li>
+                    </ol>
+                    <p className="bg-amber-50 text-amber-700 rounded-lg px-3 py-2 mt-2">
+                      Never export "All Classes" at once. One file per period, or students will end up in the wrong period.
+                    </p>
+                  </div>
+
+                  <div>
+                    <p className="font-semibold text-gray-800 mb-2">Step 2 — Upload the file</p>
+                    <p>Drag and drop the .xlsx file onto the upload box, or click to browse. PassAble reads the file and compares it against your current roster.</p>
+                  </div>
+
+                  <div>
+                    <p className="font-semibold text-gray-800 mb-2">Step 3 — Review the sync preview</p>
+                    <div className="space-y-2">
+                      <div className="flex items-start gap-2">
+                        <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0 mt-1" />
+                        <p><strong>New</strong> — students in Aeries but not yet in PassAble. They will be added automatically.</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0 mt-1" />
+                        <p><strong>Already in class</strong> — students in both. Their names will be corrected to match the exact spelling in Aeries so they match across all their classes.</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0 mt-1" />
+                        <p><strong>Not on Aeries list</strong> — students in PassAble but missing from this export. They may have transferred or dropped. Check the box next to anyone you want to remove. Nothing is deleted unless you check it.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="font-semibold text-gray-800 mb-1">Duplicates</p>
+                    <p>If a student appears more than once in your PassAble roster (same student, same period), the sync automatically removes the extra entries.</p>
+                  </div>
+
+                  <div>
+                    <p className="font-semibold text-gray-800 mb-1">Step 4 — Click Sync Roster</p>
+                    <p>Review the preview, check off anyone to remove, then click <strong>Sync Roster</strong>. When done, it switches back to Manage Students with your updated class list.</p>
+                  </div>
+
                 </div>
               )}
             </div>
@@ -563,62 +637,125 @@ export default function StudentsAdmin() {
               </div>
             )}
 
-            {importPreview.length > 0 && (
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                  <p className="text-sm font-semibold text-gray-800">{importPreview.length} students found</p>
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-gray-500">Assign to:</label>
-                    <select value={importPeriod || ''} onChange={e => setImportPeriod(e.target.value)}
-                      className="text-xs border rounded-lg px-2 py-1.5 text-gray-700 bg-white"
-                      style={{ borderColor: RHS_GREEN }}>
-                      {periods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                    </select>
+            {importPreview.length > 0 && (() => {
+              const importIds = new Set(importPreview.map(s => s.id))
+              const currentIds = new Set(currentRoster.map(s => s.id))
+              const newStudents = importPreview.filter(s => !currentIds.has(s.id))
+              const existingStudents = importPreview.filter(s => currentIds.has(s.id))
+              const missingStudents = currentRoster.filter(s => !importIds.has(s.id))
+              return (
+                <div className="space-y-3">
+                  {/* Period selector */}
+                  <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center justify-between">
+                    <p className="text-sm font-semibold text-gray-800">{importPreview.length} students in this file</p>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-500">Assign to:</label>
+                      <select value={importPeriod || ''} onChange={async e => { setImportPeriod(e.target.value); setRemoveSelected(new Set()); await fetchCurrentRoster(e.target.value) }}
+                        className="text-xs border rounded-lg px-2 py-1.5 text-gray-700 bg-white"
+                        style={{ borderColor: RHS_GREEN }}>
+                        {periods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* New students to add */}
+                  {newStudents.length > 0 && (
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                      <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                        <p className="text-xs font-semibold text-gray-700">{newStudents.length} new — will be added</p>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        {newStudents.map((s, i) => (
+                          <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
+                            <span className="text-xs text-gray-400 w-5">{i + 1}</span>
+                            <span className="text-xs font-mono text-gray-400 w-16">{s.id}</span>
+                            <span className="text-sm text-gray-800 flex-1">{s.full_name}</span>
+                            <span className="text-xs text-gray-400">Gr {s.grade || '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Already in class — names will sync */}
+                  {existingStudents.length > 0 && (
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                      <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0" />
+                        <p className="text-xs font-semibold text-gray-700">{existingStudents.length} already in class — names will sync to Aeries spelling</p>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        {existingStudents.map((s, i) => (
+                          <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0 opacity-60">
+                            <span className="text-xs text-gray-400 w-5">{i + 1}</span>
+                            <span className="text-xs font-mono text-gray-400 w-16">{s.id}</span>
+                            <span className="text-sm text-gray-600 flex-1">{s.full_name}</span>
+                            <span className="text-xs text-gray-400">Gr {s.grade || '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Missing from Aeries — likely dropped/transferred */}
+                  {missingStudents.length > 0 && (
+                    <div className="bg-white rounded-xl border border-red-200 overflow-hidden">
+                      <div className="px-4 py-2.5 border-b border-red-100 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
+                          <p className="text-xs font-semibold text-gray-700">{missingStudents.length} in PassAble but NOT on this Aeries export</p>
+                        </div>
+                        <button onClick={() => {
+                          const allIds = new Set(missingStudents.map(s => s.id))
+                          setRemoveSelected(prev => prev.size === missingStudents.length ? new Set() : allIds)
+                        }} className="text-xs text-red-500 hover:underline">
+                          {removeSelected.size === missingStudents.length ? 'Deselect all' : 'Select all'}
+                        </button>
+                      </div>
+                      <p className="px-4 pt-2 text-xs text-gray-500">These students may have transferred or dropped. Check the box to remove them from this period.</p>
+                      <div className="max-h-48 overflow-y-auto mt-1">
+                        {missingStudents.map(s => (
+                          <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
+                            <input type="checkbox" checked={removeSelected.has(s.id)} onChange={() => toggleRemove(s.id)}
+                              className="rounded" />
+                            <span className="text-xs font-mono text-gray-400 w-16">{s.id}</span>
+                            <span className={`text-sm flex-1 ${removeSelected.has(s.id) ? 'line-through text-gray-400' : 'text-gray-800'}`}>{s.full_name}</span>
+                            <span className="text-xs text-red-400">Not on list</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-gray-400">
+                      {removeSelected.size > 0 ? `${removeSelected.size} student${removeSelected.size !== 1 ? 's' : ''} will be removed` : 'No removals selected'}
+                    </p>
+                    <button onClick={handleImport} disabled={importLoading || !importPeriod}
+                      className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl disabled:opacity-40"
+                      style={{ backgroundColor: RHS_GREEN }}>
+                      {importLoading ? 'Syncing...' : `Sync Roster`}
+                    </button>
                   </div>
                 </div>
-                <div className="max-h-72 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-50 sticky top-0">
-                      <tr>
-                        {['#', 'Student ID', 'Name', 'Grade'].map(h => (
-                          <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium border-b border-gray-200">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {importPreview.map((s, i) => (
-                        <tr key={s.id} className="border-b border-gray-50 last:border-0">
-                          <td className="px-3 py-2 text-gray-400">{i + 1}</td>
-                          <td className="px-3 py-2 text-gray-500 font-mono">{s.id}</td>
-                          <td className="px-3 py-2 text-gray-800 font-medium">{s.full_name}</td>
-                          <td className="px-3 py-2 text-gray-500">{s.grade || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
-                  <p className="text-xs text-gray-400">Students already in the system will be updated, not duplicated.</p>
-                  <button onClick={handleImport} disabled={importLoading || !importPeriod}
-                    className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl disabled:opacity-40"
-                    style={{ backgroundColor: RHS_GREEN }}>
-                    {importLoading ? 'Importing...' : `Import ${importPreview.length} Students`}
-                  </button>
-                </div>
-              </div>
-            )}
+              )
+            })()}
 
             {importResults && (
               <div className={`rounded-xl border px-4 py-3 text-sm ${importResults.errors.length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
                 {importResults.errors.length === 0 ? (
-                  <p className="text-green-700 font-medium">
-                    ✅ Done — {importResults.added} student{importResults.added !== 1 ? 's' : ''} added
-                    {importResults.existing > 0 ? `, ${importResults.existing} already in your roster` : ''}.
-                    Switching to Manage view…
-                  </p>
+                  <div className="text-green-700 space-y-0.5">
+                    <p className="font-medium">✅ Roster synced</p>
+                    {importResults.added > 0 && <p className="text-xs">{importResults.added} student{importResults.added !== 1 ? 's' : ''} added</p>}
+                    {importResults.updated > 0 && <p className="text-xs">{importResults.updated} name{importResults.updated !== 1 ? 's' : ''} synced to Aeries spelling</p>}
+                    {importResults.removed > 0 && <p className="text-xs">{importResults.removed} student{importResults.removed !== 1 ? 's' : ''} removed</p>}
+                    {importResults.dupsRemoved > 0 && <p className="text-xs">{importResults.dupsRemoved} duplicate entr{importResults.dupsRemoved !== 1 ? 'ies' : 'y'} cleaned up</p>}
+                    <p className="text-xs text-green-600 mt-1">Switching to Manage view…</p>
+                  </div>
                 ) : (
                   <>
-                    <p className="text-amber-800 font-medium mb-2">⚠ {importResults.added} imported, {importResults.errors.length} error{importResults.errors.length !== 1 ? 's' : ''}:</p>
+                    <p className="text-amber-800 font-medium mb-2">⚠ Completed with {importResults.errors.length} error{importResults.errors.length !== 1 ? 's' : ''}:</p>
                     {importResults.errors.map((e, i) => <p key={i} className="text-xs text-amber-700">{e}</p>)}
                   </>
                 )}
