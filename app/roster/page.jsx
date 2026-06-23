@@ -388,10 +388,21 @@ export default function StudentsAdmin() {
     }
   }
 
-  function handleImportFile(e) { processImportFile(e.target.files[0]) }
+  function handleImportFile(e) {
+    if (e.target.files.length > 1) {
+      setImportParseError('One file at a time only. Each period needs its own import — drag one .xlsx file, sync it, then move to the next period.')
+      e.target.value = ''
+      return
+    }
+    processImportFile(e.target.files[0])
+  }
 
   function handleDrop(e) {
     e.preventDefault(); setIsDragging(false)
+    if (e.dataTransfer.files.length > 1) {
+      setImportParseError(`You dropped ${e.dataTransfer.files.length} files. Import one period at a time — drag a single .xlsx file for each class period.`)
+      return
+    }
     const file = e.dataTransfer.files[0]
     if (file) processImportFile(file)
   }
@@ -765,17 +776,15 @@ export default function StudentsAdmin() {
               const missingStudents = currentRoster.filter(s => !importIds.has(s.id))
               return (
                 <div className="space-y-3">
-                  {/* Period selector */}
+                  {/* File summary — no manual period selector, period is detected from file */}
                   <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center justify-between">
                     <p className="text-sm font-semibold text-gray-800">{importPreview.length} students in this file</p>
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs text-gray-500">Assign to:</label>
-                      <select value={importPeriod || ''} onChange={async e => { setImportPeriod(e.target.value); setRemoveSelected(new Set()); await fetchCurrentRoster(e.target.value) }}
-                        className="text-xs border rounded-lg px-2 py-1.5 text-gray-700 bg-white"
-                        style={{ borderColor: RHS_GREEN }}>
-                        {periods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                      </select>
-                    </div>
+                    {importPeriod && (
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
+                        style={{ backgroundColor: '#f0fdf4', color: RHS_GREEN }}>
+                        → {periods.find(p => p.value === importPeriod)?.label || `Period ${importPeriod}`}
+                      </div>
+                    )}
                   </div>
 
                   {/* New students to add */}
@@ -791,6 +800,9 @@ export default function StudentsAdmin() {
                             <span className="text-xs text-gray-400 w-5">{i + 1}</span>
                             <span className="text-xs font-mono text-gray-400 w-16">{s.id}</span>
                             <span className="text-sm text-gray-800 flex-1">{s.full_name}</span>
+                            <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: '#f0fdf4', color: RHS_GREEN }}>
+                              {periods.find(p => p.value === importPeriod)?.label || `P${importPeriod}`}
+                            </span>
                             <span className="text-xs text-gray-400">Gr {s.grade || '—'}</span>
                           </div>
                         ))}
@@ -811,6 +823,9 @@ export default function StudentsAdmin() {
                             <span className="text-xs text-gray-400 w-5">{i + 1}</span>
                             <span className="text-xs font-mono text-gray-400 w-16">{s.id}</span>
                             <span className="text-sm text-gray-600 flex-1">{s.full_name}</span>
+                            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                              {periods.find(p => p.value === importPeriod)?.label || `P${importPeriod}`}
+                            </span>
                             <span className="text-xs text-gray-400">Gr {s.grade || '—'}</span>
                           </div>
                         ))}
