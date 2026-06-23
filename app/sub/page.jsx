@@ -13,7 +13,7 @@
 */
 
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
@@ -45,7 +45,32 @@ export default function Sub() {
   const [kioskReturnSaved, setKioskReturnSaved] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [helpPos, setHelpPos] = useState({ x: 0, y: 80 })
+  const helpPanelRef = useRef(null)
+  const helpDragOffset = useRef({ x: 0, y: 0 })
   const [selectedStudentPreview, setSelectedStudentPreview] = useState(null)
+
+  useEffect(() => {
+    if (showHelp) setHelpPos({ x: Math.max(0, window.innerWidth - 440), y: 80 })
+  }, [showHelp])
+
+  function startHelpDrag(e) {
+    if (e.button !== 0) return
+    const rect = helpPanelRef.current.getBoundingClientRect()
+    helpDragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    function onMove(e) {
+      setHelpPos({
+        x: Math.max(0, Math.min(window.innerWidth - 400, e.clientX - helpDragOffset.current.x)),
+        y: Math.max(0, Math.min(window.innerHeight - 100, e.clientY - helpDragOffset.current.y)),
+      })
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   useEffect(() => { loadTeachers() }, [])
 
@@ -260,14 +285,24 @@ export default function Sub() {
   return (
     <div className="min-h-screen bg-gray-50">
 
-      {/* Help modal */}
+      {/* Help panel — draggable, no backdrop */}
       {showHelp && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-base font-bold text-gray-800">Sub Dashboard Help</h2>
-              <button onClick={() => setShowHelp(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        <div
+          ref={helpPanelRef}
+          className="bg-white rounded-2xl shadow-2xl flex flex-col"
+          style={{ position: 'fixed', left: helpPos.x, top: helpPos.y, width: 400, maxHeight: '85vh', zIndex: 9999, border: '1px solid #e5e7eb' }}
+        >
+          <div
+            className="flex items-center justify-between px-6 py-4 border-b border-gray-100 rounded-t-2xl select-none"
+            style={{ cursor: 'grab', backgroundColor: '#f9fafb' }}
+            onMouseDown={startHelpDrag}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-gray-300 text-sm">⠿</span>
+              <h2 className="text-sm font-semibold text-gray-800">Sub Dashboard Help</h2>
             </div>
+            <button onClick={() => setShowHelp(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          </div>
             <div className="overflow-y-auto px-6 py-4 flex flex-col gap-4 text-sm text-gray-700">
 
               {[
@@ -318,7 +353,6 @@ export default function Sub() {
                 className="w-full py-2.5 text-sm font-semibold rounded-xl text-white"
                 style={{ backgroundColor: RHS_GREEN }}>Got it</button>
             </div>
-          </div>
         </div>
       )}
 
