@@ -177,6 +177,7 @@ export default function AdminPanel() {
   // ── Students ──────────────────────────────────────────────────────────────
   const [students, setStudents] = useState([])
   const [studentSearch, setStudentSearch] = useState('')
+  const [scheduleConflicts, setScheduleConflicts] = useState([]) // [{ student_id, full_name, period, rooms: [{room, teacherName}] }]
 
   // ── Pass log ──────────────────────────────────────────────────────────────
   const [passes, setPasses] = useState([])
@@ -252,6 +253,7 @@ export default function AdminPanel() {
     loadPasses()
     loadDnlo()
     loadSchoolSettings()
+    loadScheduleConflicts()
   }, [isAdmin])
 
   async function handlePasswordLogin(e) {
@@ -681,6 +683,57 @@ export default function AdminPanel() {
     return enriched
   }
 
+  // ── Schedule conflict detection ───────────────────────────────────────────
+  async function loadScheduleConflicts() {
+    // Find students enrolled in the same period across 2+ different rooms
+    const { data: spRows } = await supabase
+      .from('student_periods').select('student_id, period, room')
+    if (!spRows || spRows.length === 0) { setScheduleConflicts([]); return }
+
+    // Group by student_id + period → collect rooms
+    const map = {} // `${student_id}::${period}` → Set of rooms
+    spRows.forEach(({ student_id, period, room }) => {
+      const key = `${student_id}::${period}`
+      if (!map[key]) map[key] = { student_id, period, rooms: new Set() }
+      map[key].rooms.add(room)
+    })
+
+    // Keep only entries with 2+ rooms (true cross-teacher conflict)
+    const conflicts = Object.values(map).filter(c => c.rooms.size > 1)
+    if (conflicts.length === 0) { setScheduleConflicts([]); return }
+
+    // Enrich with student names
+    const studentIds = [...new Set(conflicts.map(c => c.student_id))]
+    const { data: studs } = await supabase.from('students').select('id, full_name').in('id', studentIds)
+    const studMap = {}
+    if (studs) studs.forEach(s => { studMap[s.id] = s.full_name })
+
+    // Enrich with teacher names per room
+    const allRooms = [...new Set(spRows.map(r => r.room).filter(Boolean))]
+    const { data: tchrs } = await supabase.from('teachers').select('name, room').in('room', allRooms)
+    const teacherByRoom = {}
+    if (tchrs) tchrs.forEach(t => { teacherByRoom[String(t.room)] = t.name })
+
+    const enriched = conflicts.map(c => ({
+      student_id: c.student_id,
+      full_name: studMap[c.student_id] || 'Unknown Student',
+      period: c.period,
+      rooms: [...c.rooms].map(r => ({ room: r, teacherName: teacherByRoom[String(r)] || `Room ${r}` })),
+    })).sort((a, b) => a.full_name.localeCompare(b.full_name))
+
+    setScheduleConflicts(enriched)
+  }
+
+  async function removeFromRoom(studentId, period, room) {
+    await supabase.from('student_periods')
+      .delete()
+      .eq('student_id', studentId)
+      .eq('period', period)
+      .eq('room', room)
+    loadScheduleConflicts()
+    loadStudents()
+  }
+
   // ── Pass log functions ────────────────────────────────────────────────────
   async function loadPasses(filter) {
     const f = filter || logFilter
@@ -956,7 +1009,7 @@ export default function AdminPanel() {
     { id: 'teachers', label: 'Teachers' },
     { id: 'conflicts', label: 'Conflict Groups' },
     { id: 'dnlo', label: 'Do Not Let Out' },
-    { id: 'students', label: 'Students' },
+    { id: 'students', label: scheduleConflicts.length > 0 ? `Students ⚠️ ${scheduleConflicts.length}` : 'Students' },
     { id: 'log', label: 'Pass Log' },
     { id: 'settings', label: '⚙️ School Settings' },
   ]
@@ -978,7 +1031,8 @@ export default function AdminPanel() {
       { q: 'When I get new Lifetouch photos mid-year, do I re-import?', a: <>Yes — just run the import again. New photos replace old ones and existing data stays untouched. Teachers can also run <strong>Match the Photos</strong> from their Relay Station to pull in photos for just their class if needed.</> },
     ]},
     { title: 'Students', items: [
-      { q: 'What is the Students tab?', a: 'A school-wide read-only roster of every student enrolled in PassAble. Each entry shows their period and teacher (e.g., P1 · Chavira). Use the search bar to find any student by name.' },
+      { q: 'What is the Students tab?', a: 'A school-wide read-only roster of every student enrolled in PassAble. Each entry shows their period and teacher (e.g., P1 · Chavira). Use the search bar to find any student by name. If a scheduling conflict is detected — a student enrolled in the same period by two different teachers — a warning banner appears at the top so you can resolve it.' },
+      { q: 'What is a Scheduling Conflict?', a: 'A scheduling conflict means a student appears on two teachers\' rosters for the same period in different rooms. This usually happens during a class transition when one teacher added the student but the other hasn\'t removed them yet. The yellow warning banner shows each conflict with a Remove button to clear the old room enrollment.' },
       { q: 'What does clicking a student show?', a: 'Their full profile — all pass history across every class and teacher, NFC card status, and pass stats. Useful for counselor meetings, intervention planning, or spotting students who leave frequently across multiple rooms.' },
       { q: 'Can I add or delete students from here?', a: 'No. Students are added by teachers via Import Roster or manually through Manage Students. To remove a student from a class, the teacher handles it in Manage Students.' },
       { q: 'A student has no period or teacher listed.', a: 'That student is in the system but not linked to any active classroom — usually leftover from a demo or a removed teacher account. They can be safely ignored or cleaned up via Supabase.' },
@@ -1633,6 +1687,43 @@ export default function AdminPanel() {
         {/* ── STUDENTS ── */}
         {activeTab === 'students' && (
           <>
+            {/* ── Scheduling conflicts banner ── */}
+            {scheduleConflicts.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-amber-600 text-lg">⚠️</span>
+                  <p className="text-sm font-semibold text-amber-800">
+                    {scheduleConflicts.length} Scheduling Conflict{scheduleConflicts.length !== 1 ? 's' : ''} — students enrolled in the same period by multiple teachers
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {scheduleConflicts.map((c, i) => (
+                    <div key={i} className="bg-white border border-amber-100 rounded-lg px-3 py-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{c.full_name}</p>
+                          <p className="text-xs text-amber-700 mt-0.5">Period {c.period} — enrolled in {c.rooms.length} rooms</p>
+                          <div className="flex flex-wrap gap-2 mt-1.5">
+                            {c.rooms.map(({ room, teacherName }) => (
+                              <div key={room} className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                                <span className="text-xs text-gray-700">Room {room} · {teacherName}</span>
+                                <button
+                                  onClick={() => removeFromRoom(c.student_id, c.period, room)}
+                                  className="text-xs text-red-500 hover:text-red-700 font-medium ml-1"
+                                  title={`Remove ${c.full_name} from Room ${room}`}>
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="mb-4">
               <input placeholder="Search students..." value={studentSearch} onChange={e => setStudentSearch(e.target.value)}
                 className="w-full p-3 text-sm border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
