@@ -25,11 +25,12 @@ export default function TeacherDNLO() {
   const [reason, setReason] = useState('')
   const [msg, setMsg] = useState('')
   const [loading, setLoading] = useState(true)
+  const [notAuthed, setNotAuthed] = useState(false)
 
   useEffect(() => {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
+      if (!session) { setNotAuthed(true); setLoading(false); return }
       const { data: teacher } = await supabase
         .from('teachers')
         .select('*')
@@ -121,6 +122,13 @@ export default function TeacherDNLO() {
 
   const teacherName = currentTeacher?.name || 'Teacher'
   const teacherRoom = currentTeacher?.room || '27'
+
+  if (notAuthed) return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-3">
+      <p className="text-sm text-gray-500">You need to be signed in to view this page.</p>
+      <a href="/teacher" className="text-sm font-medium text-green-700 hover:underline">← Go to Teacher Login</a>
+    </div>
+  )
 
   if (loading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
