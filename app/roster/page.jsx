@@ -88,10 +88,12 @@ export default function StudentsAdmin() {
     window.addEventListener('mouseup', onUp)
   }, [])
 
+  const [notAuthed, setNotAuthed] = useState(false)
+
   useEffect(() => {
     async function loadTeacher() {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) return
+      if (!session) { setNotAuthed(true); return }
       const { data } = await supabase
         .from('teachers')
         .select('*')
@@ -576,6 +578,13 @@ export default function StudentsAdmin() {
       { q: 'Something isn\'t working or I want to suggest a change.', a: <a href="mailto:ejoe@rjusd.org" style={{color:RHS_GREEN,textDecoration:'underline'}}>ejoe@rjusd.org</a> },
     ]},
   ]
+
+  if (notAuthed) return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-3">
+      <p className="text-sm text-gray-500">You need to be signed in to view this page.</p>
+      <a href="/teacher" className="text-sm font-medium text-green-700 hover:underline">← Go to Teacher Login</a>
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-gray-50">
