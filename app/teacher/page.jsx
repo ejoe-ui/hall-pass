@@ -18,14 +18,12 @@ import { supabase } from '../../lib/supabase'
 import QRCode from 'qrcode'
 import { SCHEDULES, SCHEDULE_LABELS, fetchTodayScheduleType, getCurrentPeriodInfo, getCheckoutStatus, dateStr } from '../../lib/schedules'
 
-// ── Photo URL resolver (mirrors admin/students logic) ─────────────────────────
-// Prefers photo_url (direct), falls back to photo_file (Supabase storage)
+// ── Photo URL resolver ────────────────────────────────────────────────────────
+// Returns photo_url (direct) only. Storage photos (photo_file) are loaded
+// as signed URLs via the photoUrls state map in loadSignedPhotoUrls().
 function getStudentPhotoUrl(student) {
   if (!student) return null
-  if (student.photo_url) return student.photo_url
-  if (!student.photo_file) return null
-  const { data } = supabase.storage.from('student-photos').getPublicUrl(student.photo_file)
-  return data?.publicUrl || null
+  return student.photo_url || null
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -473,6 +471,7 @@ function TeacherInner() {
   const [rotating, setRotating] = useState(false)
   const [teacherDnloList, setTeacherDnloList] = useState([])
   const [rotated, setRotated] = useState(false)
+  const [photoUrls, setPhotoUrls] = useState({})
 
   const prevHeldIds = useRef([])
   const prevActiveIds = useRef([])
@@ -712,6 +711,21 @@ function TeacherInner() {
     }
   }
 
+  // ── Signed photo URLs ─────────────────────────────────────────────────────
+  // Batch-fetch signed URLs for students who have photo_file but no photo_url.
+  // One API call for all students. Merges into photoUrls map (keyed by student id).
+  async function loadSignedPhotoUrls(studs) {
+    const withPhotos = (studs || []).filter(s => s?.photo_file && !s.photo_url)
+    if (withPhotos.length === 0) return
+    const { data } = await supabase.storage
+      .from('student-photos')
+      .createSignedUrls(withPhotos.map(s => s.photo_file), 3600)
+    if (!data) return
+    const map = {}
+    data.forEach((item, i) => { if (item.signedUrl) map[withPhotos[i].id] = item.signedUrl })
+    setPhotoUrls(prev => ({ ...prev, ...map }))
+  }
+
   // ── Data ───────────────────────────────────────────────────────────────────
   async function loadData() {
     let passQuery = supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod).order('time_out')
@@ -749,7 +763,7 @@ function TeacherInner() {
       prevActiveIds.current = newIds
       setActivePasses(passes)
     }
-    if (studs) { setAllStudents(studs); const map = {}; studs.forEach(s => map[s.id] = s); setStudents(map) }
+    if (studs) { setAllStudents(studs); const map = {}; studs.forEach(s => map[s.id] = s); setStudents(map); loadSignedPhotoUrls(studs) }
     if (holds) {
       const newIds = holds.map(h => h.id)
       if (newIds.some(id => !prevHeldIds.current.includes(id)) && holds.length > 0) playAlert()
@@ -777,6 +791,7 @@ function TeacherInner() {
     const studMap = {}
     if (studs) studs.forEach(s => studMap[s.id] = s)
     setMissedPasses(missed.map(p => ({ ...p, students: studMap[p.student_id] || null })))
+    if (studs) loadSignedPhotoUrls(studs)
   }
 
   // ── Pass actions ───────────────────────────────────────────────────────────
@@ -1350,8 +1365,8 @@ function TeacherInner() {
             const isLatePass = pass.pass_type === 'late_pass'
             return (
               <div key={pass.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 ${isLatePass ? 'bg-blue-50' : ''}`}>
-                {getStudentPhotoUrl(student)
-                  ? <img src={getStudentPhotoUrl(student)} alt={student.full_name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                {(student?.photo_url || photoUrls[student?.id])
+                  ? <img src={student?.photo_url || photoUrls[student?.id]} alt={student.full_name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
                   : <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white" style={{ backgroundColor: isLatePass ? '#1d4ed8' : RHS_GREEN }}>
                       {student?.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
                     </div>
@@ -1454,8 +1469,8 @@ function TeacherInner() {
               const timeOut = new Date(pass.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
               return (
                 <div key={pass.id} className="flex items-center gap-3 px-4 py-3 border-b border-orange-50 last:border-0">
-                  {getStudentPhotoUrl(pass.students)
-                    ? <img src={getStudentPhotoUrl(pass.students)} alt={name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                  {(pass.students?.photo_url || photoUrls[pass.students?.id])
+                    ? <img src={pass.students?.photo_url || photoUrls[pass.students?.id]} alt={name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
                     : <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white bg-orange-400">{initials}</div>
                   }
                   <div className="flex-1">
