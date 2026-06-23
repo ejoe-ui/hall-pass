@@ -356,7 +356,7 @@ function PeriodChangeBanner({ label, onDismiss }) {
     return () => clearTimeout(t)
   }, [])
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center py-4 shadow-lg"
+    <div className="fixed top-[52px] left-0 right-0 z-50 flex items-center justify-center py-4 shadow-lg"
       style={{ backgroundColor: RHS_GREEN }}>
       <div className="text-white text-center">
         <p className="text-xs uppercase tracking-widest text-green-200 mb-1">Period Changed</p>
@@ -949,7 +949,7 @@ function KioskInner() {
       )}
 
       {periodInfo && (
-        <div className="w-full fixed top-0 left-0 right-0 z-40">
+        <div className="w-full fixed top-[52px] left-0 right-0 z-40">
           <PeriodStatusBar
             periodInfo={periodInfo}
             checkoutStatus={checkoutStatus}
