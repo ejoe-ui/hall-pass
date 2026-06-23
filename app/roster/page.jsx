@@ -359,11 +359,14 @@ export default function StudentsAdmin() {
         .from('students').select('id, full_name').in('id', ids)
       setCurrentRoster(studs || [])
     }
-    // Also fetch ALL period assignments for this room so we can detect moved students
+    // Also fetch ALL period assignments for this room so we can detect moved/multi-period students
     const { data: allRows } = await supabase
       .from('student_periods').select('student_id, period').eq('room', room)
     const periodMap = {}
-    if (allRows) allRows.forEach(r => { periodMap[r.student_id] = r.period })
+    if (allRows) allRows.forEach(r => {
+      if (!periodMap[r.student_id]) periodMap[r.student_id] = []
+      if (!periodMap[r.student_id].includes(r.period)) periodMap[r.student_id].push(r.period)
+    })
     setAllRoomPeriods(periodMap)
   }
 
@@ -443,16 +446,18 @@ export default function StudentsAdmin() {
       }, { onConflict: 'id' })
       if (sErr) { errors.push(`${student.full_name}: ${sErr.message}`); continue }
 
-      // Add to student_periods if not already there
-      const { data: allSp } = await supabase.from('student_periods')
-        .select('id').eq('student_id', student.id).eq('room', room)
-      if (!allSp || allSp.length === 0) {
+      // Add to student_periods if not already in this specific period
+      // IMPORTANT: filter by period so multi-period students (e.g. student aids)
+      // don't get their other period enrollments wiped during deduplication
+      const { data: periodSp } = await supabase.from('student_periods')
+        .select('id').eq('student_id', student.id).eq('room', room).eq('period', importPeriod)
+      if (!periodSp || periodSp.length === 0) {
         await supabase.from('student_periods').insert({ student_id: student.id, period: importPeriod, room })
         added++
       } else {
-        // Deduplicate: keep first entry, delete the rest
-        if (allSp.length > 1) {
-          const idsToDelete = allSp.slice(1).map(r => r.id)
+        // Deduplicate within this period only — other period enrollments are untouched
+        if (periodSp.length > 1) {
+          const idsToDelete = periodSp.slice(1).map(r => r.id)
           await supabase.from('student_periods').delete().in('id', idsToDelete)
           dupsRemoved += idsToDelete.length
         }
@@ -861,20 +866,22 @@ export default function StudentsAdmin() {
                       <p className="px-4 pt-2 text-xs text-gray-500">These students may have transferred or dropped. Check the box to remove them from this period.</p>
                       <div className="max-h-48 overflow-y-auto mt-1">
                         {missingStudents.map(s => {
-                          const movedToPeriod = allRoomPeriods[s.id]
-                          const movedToLabel = movedToPeriod
-                            ? (periods.find(p => p.value === movedToPeriod)?.label || `Period ${movedToPeriod}`)
-                            : null
-                          const wasMoved = movedToPeriod && movedToPeriod !== importPeriod
+                          // allRoomPeriods[s.id] is now an array of all periods this student is in
+                          const studentPeriods = allRoomPeriods[s.id] || []
+                          const otherPeriods = studentPeriods.filter(p => p !== importPeriod)
+                          const isInOtherPeriods = otherPeriods.length > 0
+                          const otherPeriodLabels = otherPeriods
+                            .map(p => periods.find(pp => pp.value === p)?.label || `Period ${p}`)
+                            .join(', ')
                           return (
                             <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
                               <input type="checkbox" checked={removeSelected.has(s.id)} onChange={() => toggleRemove(s.id)}
                                 className="rounded" />
                               <span className="text-xs font-mono text-gray-400 w-16">{s.id}</span>
                               <span className={`text-sm flex-1 ${removeSelected.has(s.id) ? 'line-through text-gray-400' : 'text-gray-800'}`}>{s.full_name}</span>
-                              {wasMoved ? (
+                              {isInOtherPeriods ? (
                                 <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">
-                                  Now in {movedToLabel}
+                                  Also in {otherPeriodLabels}
                                 </span>
                               ) : (
                                 <span className="text-xs text-red-400">Not on list</span>
