@@ -267,6 +267,10 @@ function SelfCheckoutInner() {
       })
     }
     setStage('done'); setLoading(false)
+    // Go fullscreen and warn on tab close
+    try { document.documentElement.requestFullscreen?.() } catch(e) {}
+    window._passableUnload = () => 'Please check back in at the classroom kiosk before leaving.'
+    window.addEventListener('beforeunload', window._passableUnload)
   }
 
   async function handleCheckin() {
@@ -289,6 +293,8 @@ function SelfCheckoutInner() {
   }
 
   function reset() {
+    try { document.exitFullscreen?.() } catch(e) {}
+    if (window._passableUnload) { window.removeEventListener('beforeunload', window._passableUnload); delete window._passableUnload }
     setStage('code'); setEnteredCode(''); setStudentId(''); setStudentIdInput('')
     setStudentName(''); setStudentPhoto(''); setPeriod(''); setReason('')
     setAssignedTeacher(''); setErrandTeacher(''); setPurposeText(''); setOtherText('')
@@ -468,12 +474,12 @@ function SelfCheckoutInner() {
   // ── Checked out ───────────────────────────────────────────────────────────
   if (stage === 'done') return (
     <div className="min-h-screen flex flex-col"
-      style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
+      style={{ background: 'linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)' }}>
       <Header />
       <div className="flex-1 flex flex-col items-center justify-center px-6">
         {checkoutTime && <TimerDisplay checkoutTime={checkoutTime} />}
         <h2 className="text-xl font-bold text-white mb-1">{studentName}</h2>
-        <p className="text-green-200 text-sm mb-6">Checked out → {reason}</p>
+        <p className="text-red-200 text-sm mb-6">Checked out → {reason}</p>
         {stats && (
           <div className="bg-white rounded-2xl p-5 w-full max-w-xs mb-6 shadow-xl">
             <h3 className="text-sm font-bold text-gray-700 mb-3">📊 Your Stats This Week</h3>
@@ -497,6 +503,9 @@ function SelfCheckoutInner() {
             </div>
           </div>
         )}
+        <div className="w-full max-w-xs mb-4 p-3 rounded-xl text-center text-sm font-medium text-white bg-white/20">
+          📍 When you return, check back in at the classroom kiosk before closing this page.
+        </div>
         {kioskReturnRequired ? (
           <div className="bg-white/20 rounded-xl p-4 w-full max-w-xs text-center">
             <p className="text-white text-sm font-medium">Return to the kiosk to check back in when you're done.</p>
