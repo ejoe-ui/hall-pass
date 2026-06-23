@@ -168,6 +168,8 @@ export default function AdminPanel() {
   // ── Demo reset ────────────────────────────────────────────────────────────
   const [resettingDemo, setResettingDemo] = useState(false)
   const [demoResetMsg, setDemoResetMsg] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState(null) // teacher id
+  const [deleting, setDeleting] = useState(false)
 
   const emptyForm = { name: '', email: '', room: '', department: '', pin: '', is_admin: false, is_active: true, periods: ['1','4','6'], period_labels: {} }
   const [form, setForm] = useState(emptyForm)
@@ -651,6 +653,21 @@ export default function AdminPanel() {
     setResettingDemo(false)
   }
 
+  async function handleDeleteTeacher(teacher) {
+    setDeleting(true)
+    // Nullify teacher_id on their passes so records stay but attribution is removed
+    await supabase.from('passes').update({ teacher_id: null }).eq('teacher_id', teacher.id)
+    // Remove from conflict groups
+    await supabase.from('conflict_group_members').delete().eq('student_id', teacher.id) // no-op but safe
+    // Delete the teacher record
+    await supabase.from('teachers').delete().eq('id', teacher.id)
+    setDeleting(false)
+    setDeleteConfirm(null)
+    setTeacherMsg(`${teacher.name} has been permanently deleted. Their pass records remain in the log with no teacher attribution.`)
+    loadTeachers()
+    setTimeout(() => setTeacherMsg(''), 7000)
+  }
+
   // ── Student functions ─────────────────────────────────────────────────────
   async function loadStudents() {
     const { data } = await supabase.from('students').select('*').order('last_name')
@@ -863,6 +880,21 @@ export default function AdminPanel() {
 
   // Match students to teachers by room number (the actual join key in student_periods)
   const teacherByRoom = Object.fromEntries(teachers.map(t => [String(t.room), t]))
+
+  // Active teachers first (alpha), then inactive (alpha)
+  const sortedTeachers = [
+    ...teachers.filter(t => t.is_active).sort((a, b) => a.name.localeCompare(b.name)),
+    ...teachers.filter(t => !t.is_active).sort((a, b) => a.name.localeCompare(b.name)),
+  ]
+
+  // Offer delete if deactivated and last pass was 4+ years ago (or never)
+  const FOUR_YEARS_MS = 4 * 365.25 * 24 * 60 * 60 * 1000
+  function isEligibleForDeletion(teacher) {
+    if (teacher.is_active) return false
+    const lastActive = teacherStats[teacher.id]?.lastActive
+    if (!lastActive) return true // never had a pass — safe to delete
+    return (Date.now() - new Date(lastActive).getTime()) > FOUR_YEARS_MS
+  }
 
   const filteredStudents = students
     .filter(s => s.full_name?.toLowerCase().includes(studentSearch.toLowerCase()))
@@ -1319,9 +1351,9 @@ export default function AdminPanel() {
               </div>
               {teachersLoading ? (
                 <div className="p-8 text-center text-gray-400 text-sm">Loading...</div>
-              ) : teachers.length === 0 ? (
+              ) : sortedTeachers.length === 0 ? (
                 <div className="p-8 text-center text-gray-400 text-sm">No teachers yet</div>
-              ) : teachers.map((t) => {
+              ) : sortedTeachers.map((t) => {
                 const stats = teacherStats[t.id] || { todayCount: 0, lastActive: null }
                 const isDemo = isDemoTeacher(t)
                 const passcodeState = settingPasscode[t.id]
@@ -1403,6 +1435,27 @@ export default function AdminPanel() {
                         style={{ background: t.is_active ? '#FEE2E2' : '#f0fdf4', color: t.is_active ? '#DC2626' : '#166534' }}>
                         {t.is_active ? 'Deactivate' : 'Activate'}
                       </button>
+                      {/* Delete — only offered for deactivated teachers inactive 4+ years */}
+                      {isEligibleForDeletion(t) && (
+                        deleteConfirm === t.id ? (
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => handleDeleteTeacher(t)} disabled={deleting}
+                              className="text-xs px-2 py-1.5 rounded-lg font-semibold bg-red-600 text-white disabled:opacity-50">
+                              {deleting ? '...' : 'Confirm Delete'}
+                            </button>
+                            <button onClick={() => setDeleteConfirm(null)}
+                              className="text-xs px-2 py-1.5 rounded-lg border border-gray-200 text-gray-500">
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setDeleteConfirm(t.id)}
+                            className="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-500 hover:bg-red-50"
+                            title="Inactive for 4+ years — eligible for permanent removal">
+                            🗑 Delete
+                          </button>
+                        )
+                      )}
                     </div>
                   </div>
                 )
