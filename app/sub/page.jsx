@@ -1,3 +1,17 @@
+/*
+  PassAble — RHS Hall Pass System
+  FILE:    app/sub/page.jsx
+  ROUTE:   /sub
+  PURPOSE: Substitute teacher dashboard — PIN entry matches against per-teacher sub_code,
+           hall pass checkout/return, self-checkout mode with room-specific session code.
+  REPO:    hall-pass (hall-pass-lime.vercel.app)
+  BACKEND: Supabase (teachers, students, student_periods, passes, settings)
+  AUTH:    4-digit sub_code stored per-teacher in teachers.sub_code
+  UPDATED: 2026-06-23 — per-teacher sub code auth; per-teacher session_code; lifetouch-raw
+           photos; student_periods roster; dynamic period list from teacher row;
+           room-specific self-checkout URL; file header added
+*/
+
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
@@ -5,19 +19,16 @@ import { supabase } from '../../lib/supabase'
 const RHS_GREEN = '#006938'
 const TIME_LIMIT = 10
 const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'School Store', 'Other']
-const PERIODS = [
-  { label: 'Periods 1 & 2', value: '1' },
-  { label: 'Periods 4 & 5', value: '4' },
-  { label: 'Periods 6 & 7', value: '6' },
-]
 
 export default function Sub() {
   const [unlocked, setUnlocked] = useState(false)
-  const [code, setCode] = useState('')
+  const [codeInput, setCodeInput] = useState('')
   const [codeError, setCodeError] = useState(false)
-  const [subCode, setSubCode] = useState('')
-  const [teacherName, setTeacherName] = useState('Mr. Joe')
-  const [teacherRoom, setTeacherRoom] = useState('27')
+  const [allTeachers, setAllTeachers] = useState([])
+  const [currentTeacher, setCurrentTeacher] = useState(null)
+  const [teacherName, setTeacherName] = useState('')
+  const [teacherRoom, setTeacherRoom] = useState('')
+  const [teacherPeriods, setTeacherPeriods] = useState([])
   const [activePeriod, setActivePeriod] = useState(null)
   const [activePasses, setActivePasses] = useState([])
   const [todayPasses, setTodayPasses] = useState([])
@@ -35,103 +46,109 @@ export default function Sub() {
   const [showHistory, setShowHistory] = useState(false)
   const [selectedStudentPreview, setSelectedStudentPreview] = useState(null)
 
-  useEffect(() => { loadSettings() }, [])
+  useEffect(() => { loadTeachers() }, [])
 
   useEffect(() => {
-    if (!activePeriod) return
+    if (!activePeriod || !currentTeacher) return
     loadData()
     const timer = setInterval(() => { setNow(Date.now()); loadData() }, 30000)
     return () => clearInterval(timer)
-  }, [activePeriod])
+  }, [activePeriod, currentTeacher])
 
-  async function loadSettings() {
-    const { data } = await supabase.from('settings').select('key, value')
-      .in('key', ['sub_code', 'kiosk_return_required', 'active_checkout_code'])
-    if (data) {
-      const subRow = data.find(r => r.key === 'sub_code')
-      const kioskRow = data.find(r => r.key === 'kiosk_return_required')
-      const checkoutRow = data.find(r => r.key === 'active_checkout_code')
-      if (subRow) setSubCode(subRow.value)
+  // ── Load all active teachers for sub code matching ─────────────────────────
+  async function loadTeachers() {
+    const { data: teachers } = await supabase.from('teachers')
+      .select('id, name, room, sub_code, session_code, periods, period_labels')
+      .eq('is_active', true)
+    if (teachers) setAllTeachers(teachers)
+
+    const { data: settings } = await supabase.from('settings').select('key, value')
+      .in('key', ['kiosk_return_required'])
+    if (settings) {
+      const kioskRow = settings.find(r => r.key === 'kiosk_return_required')
       if (kioskRow) setKioskReturnRequired(kioskRow.value !== 'false')
-      if (checkoutRow) setSelfCheckoutCode(checkoutRow.value)
-    }
-
-    const { data: teacherData } = await supabase.from('teachers')
-      .select('name, room').eq('is_active', true).limit(1).maybeSingle()
-    if (teacherData) {
-      setTeacherName(teacherData.name || 'Mr. Joe')
-      setTeacherRoom(teacherData.room || '27')
     }
   }
 
-  async function generateCheckoutCode() {
-    const code = Math.floor(1000 + Math.random() * 9000).toString()
-    setSelfCheckoutCode(code)
-    await supabase.from('settings').update({ value: code }).eq('key', 'active_checkout_code')
-  }
-
-  async function saveKioskReturn(val) {
-    await supabase.from('settings').upsert({ key: 'kiosk_return_required', value: val ? 'true' : 'false' })
-    setKioskReturnRequired(val)
-    setKioskReturnSaved(true)
-    setTimeout(() => setKioskReturnSaved(false), 2000)
-  }
-
+  // ── PIN entry — matches against teachers.sub_code ─────────────────────────
   function handlePin(digit) {
-    const next = code + digit
-    setCode(next)
+    const next = codeInput + digit
+    setCodeInput(next)
     if (next.length === 4) {
-      if (subCode && next === subCode) {
-        setUnlocked(true); setCodeError(false)
+      const matched = allTeachers.find(t => t.sub_code && t.sub_code === next)
+      if (matched) {
+        setCurrentTeacher(matched)
+        setTeacherName(matched.name || '')
+        setTeacherRoom(matched.room || '27')
+        setSelfCheckoutCode(matched.session_code || '')
+        // Build period list from teacher's own periods/period_labels
+        if (matched.periods?.length) {
+          setTeacherPeriods(
+            matched.periods.sort().map(p => ({
+              value: p,
+              label: matched.period_labels?.[p] || `Period ${p}`,
+            }))
+          )
+        } else {
+          setTeacherPeriods([
+            { value: '1', label: 'Periods 1 & 2' },
+            { value: '4', label: 'Periods 4 & 5' },
+            { value: '6', label: 'Periods 6 & 7' },
+          ])
+        }
+        setUnlocked(true)
+        setCodeError(false)
       } else {
         setCodeError(true)
-        setTimeout(() => { setCode(''); setCodeError(false) }, 1000)
+        setTimeout(() => { setCodeInput(''); setCodeError(false) }, 1000)
       }
     }
   }
 
+  // ── Data ───────────────────────────────────────────────────────────────────
   async function loadData() {
-    const { data: passes } = await supabase
-      .from('passes').select('*').is('time_in', null)
-      .eq('period', activePeriod).order('time_out')
+    if (!currentTeacher) return
+    const room = currentTeacher.room || '27'
+
+    const { data: passes } = await supabase.from('passes').select('*')
+      .is('time_in', null).eq('period', activePeriod).eq('teacher_id', currentTeacher.id)
+      .order('time_out')
 
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
-    const { data: today } = await supabase
-      .from('passes').select('*')
-      .eq('period', activePeriod)
-      .gte('time_out', todayStart.toISOString())
-      .not('time_in', 'is', null)
+    const { data: today } = await supabase.from('passes').select('*')
+      .eq('period', activePeriod).eq('teacher_id', currentTeacher.id)
+      .gte('time_out', todayStart.toISOString()).not('time_in', 'is', null)
       .order('time_out', { ascending: false })
 
-    const { data: studs } = await supabase
-      .from('students').select('id, full_name, photo_file')
-      .eq('period', activePeriod).order('first_name')
+    // Use student_periods table (same as teacher dashboard)
+    const { data: spRows } = await supabase.from('student_periods')
+      .select('student_id').eq('period', activePeriod).eq('room', room)
+    const studentIds = spRows?.map(r => r.student_id) || []
+    const { data: studs } = studentIds.length > 0
+      ? await supabase.from('students').select('id, full_name, photo_file, photo_url').in('id', studentIds).order('first_name')
+      : { data: [] }
 
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-    const { data: recentPasses } = await supabase
-      .from('passes').select('student_id')
-      .eq('period', activePeriod)
+    const { data: recentPasses } = await supabase.from('passes').select('student_id')
+      .eq('period', activePeriod).eq('teacher_id', currentTeacher.id)
       .gte('time_out', thirtyDaysAgo.toISOString())
 
     if (passes) setActivePasses(passes)
     if (today) setTodayPasses(today)
-
     if (studs) {
       setAllStudents(studs)
-      const map = {}
-      studs.forEach(s => map[s.id] = s)
-      setStudents(map)
-
+      const map = {}; studs.forEach(s => map[s.id] = s); setStudents(map)
       const urls = {}
       for (const s of studs) {
-        if (s.photo_file) {
-          const { data } = await supabase.storage.from('student-photos').createSignedUrl(s.photo_file, 3600)
+        if (s.photo_url) {
+          urls[s.id] = s.photo_url
+        } else if (s.photo_file) {
+          const { data } = await supabase.storage.from('lifetouch-raw').createSignedUrl(s.photo_file, 3600)
           if (data?.signedUrl) urls[s.id] = data.signedUrl
         }
       }
       setPhotoUrls(urls)
     }
-
     if (recentPasses) {
       const counts = {}
       recentPasses.forEach(p => { counts[p.student_id] = (counts[p.student_id] || 0) + 1 })
@@ -139,6 +156,7 @@ export default function Sub() {
     }
   }
 
+  // ── Pass actions ───────────────────────────────────────────────────────────
   async function handleReturn(passId) {
     const pass = activePasses.find(p => p.id === passId)
     const mins = Math.floor((new Date() - new Date(pass.time_out)) / 60000)
@@ -149,10 +167,27 @@ export default function Sub() {
   async function handleCheckout() {
     if (!selected || !reason) return
     await supabase.from('passes').insert({
-      student_id: selected, reason, room: teacherRoom, period: activePeriod, teacher_id: null,
+      student_id: selected, reason, room: teacherRoom,
+      period: activePeriod, teacher_id: currentTeacher?.id || null,
     })
     setSelected(''); setReason(''); setSelectedStudentPreview(null)
     loadData()
+  }
+
+  // ── Self-checkout code — writes to teachers.session_code ──────────────────
+  async function generateCheckoutCode() {
+    const newCode = Math.floor(1000 + Math.random() * 9000).toString()
+    setSelfCheckoutCode(newCode)
+    if (currentTeacher?.id) {
+      await supabase.from('teachers').update({ session_code: newCode }).eq('id', currentTeacher.id)
+    }
+  }
+
+  async function saveKioskReturn(val) {
+    await supabase.from('settings').upsert({ key: 'kiosk_return_required', value: val ? 'true' : 'false' })
+    setKioskReturnRequired(val)
+    setKioskReturnSaved(true)
+    setTimeout(() => setKioskReturnSaved(false), 2000)
   }
 
   function handleStudentSelect(id) {
@@ -160,13 +195,13 @@ export default function Sub() {
     setSelectedStudentPreview(id ? allStudents.find(s => s.id === id) || null : null)
   }
 
+  // ── Helpers ────────────────────────────────────────────────────────────────
   function elapsed(timeOut) { return Math.floor((now - new Date(timeOut)) / 60000) }
   function elapsedColor(mins) {
     if (mins >= TIME_LIMIT) return '#EF4444'
     if (mins >= TIME_LIMIT * 0.7) return '#F59E0B'
     return RHS_GREEN
   }
-
   function getFrequentFlyerBadge(studentId) {
     const count = passCountMap[studentId] || 0
     if (count >= 10) return { label: '🚨 High', color: '#FEE2E2', text: '#DC2626' }
@@ -175,38 +210,42 @@ export default function Sub() {
   }
 
   const overLimit = activePasses.filter(p => elapsed(p.time_out) >= TIME_LIMIT)
-  const periodLabel = PERIODS.find(p => p.value === activePeriod)?.label
+  const periodLabel = teacherPeriods.find(p => p.value === activePeriod)?.label || `Period ${activePeriod}`
 
+  // ── PIN screen ─────────────────────────────────────────────────────────────
   if (!unlocked) return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
       <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>Substitute Login</h1>
-      <p className="text-gray-400 text-sm mb-6">Room {teacherRoom} · {teacherName}</p>
-      <p className="text-gray-500 mb-4">Enter substitute code</p>
+      <p className="text-gray-400 text-sm mb-6">Enter your substitute code</p>
       <div className={`text-4xl tracking-widest mb-6 font-mono ${codeError ? 'text-red-500' : 'text-gray-800'}`}>
-        {code.length > 0 ? '●'.repeat(code.length) : '○○○○'}
+        {codeInput.length > 0 ? '●'.repeat(codeInput.length) : '○○○○'}
       </div>
-      <div className="grid grid-cols-3 gap-3 w-56 mb-6">
+      <div className="grid grid-cols-3 gap-3 w-56 mb-4">
         {[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map((d, i) => (
-          <button key={i} onClick={() => d === '⌫' ? setCode(c => c.slice(0,-1)) : d !== '' && handlePin(String(d))}
+          <button key={i}
+            onClick={() => d === '⌫' ? setCodeInput(c => c.slice(0,-1)) : d !== '' && handlePin(String(d))}
             className="h-14 text-xl font-bold bg-white border-2 rounded-xl shadow-sm hover:bg-green-50 disabled:opacity-0"
             style={{ borderColor: '#e5e7eb', color: RHS_GREEN }} disabled={d === ''}>
             {d}
           </button>
         ))}
       </div>
+      {codeError && <p className="text-red-500 text-sm mb-3">Incorrect code — try again</p>}
       <a href="/" className="text-sm text-gray-400 hover:text-gray-600">← Home</a>
     </div>
   )
 
+  // ── Period picker ──────────────────────────────────────────────────────────
   if (!activePeriod) return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center">
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
       <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>Substitute Dashboard</h1>
+      <p className="text-gray-400 text-sm mb-1">Room {teacherRoom} · {teacherName}</p>
       <p className="text-gray-400 text-sm mb-8">Select the current period</p>
       <div className="flex flex-col gap-3 w-full max-w-xs">
-        {PERIODS.map(p => (
-          <button key={p.value} onClick={() => { setActivePeriod(p.value); generateCheckoutCode() }}
+        {teacherPeriods.map(p => (
+          <button key={p.value} onClick={() => setActivePeriod(p.value)}
             className="py-4 text-lg font-bold bg-white border-2 rounded-xl shadow-sm hover:bg-green-50"
             style={{ borderColor: RHS_GREEN, color: RHS_GREEN }}>
             {p.label}
@@ -216,8 +255,11 @@ export default function Sub() {
     </div>
   )
 
+  // ── Main dashboard ─────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50">
+
+      {/* Header */}
       <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
         <div className="flex items-center gap-3">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
@@ -237,7 +279,7 @@ export default function Sub() {
 
       <div className="p-6 max-w-3xl mx-auto">
 
-        {/* Stat Cards */}
+        {/* Stat cards */}
         <div className="grid grid-cols-3 gap-4 mb-6">
           {[
             { label: 'Currently Out', value: activePasses.length, color: activePasses.length > 0 ? '#EF4444' : RHS_GREEN },
@@ -251,26 +293,26 @@ export default function Sub() {
           ))}
         </div>
 
-        {/* Today's History */}
+        {/* Today's history */}
         {showHistory && todayPasses.length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100">
               <span className="text-sm font-medium text-gray-700">Today's Completed Passes</span>
             </div>
-            {todayPasses.map((pass, i) => (
+            {todayPasses.map(pass => (
               <div key={pass.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
                 <div className="flex-1">
                   <span className="text-sm font-medium text-gray-800">{students[pass.student_id]?.full_name}</span>
                   <span className="text-xs text-gray-400 ml-2">{pass.reason}</span>
                 </div>
                 <div className="text-xs text-gray-400">{pass.duration_minutes}m</div>
-                <div className="text-xs text-gray-400">{new Date(pass.time_out).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>
+                <div className="text-xs text-gray-400">{new Date(pass.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Active Passes + Checkout */}
+        {/* Active passes + checkout */}
         <div className="bg-white rounded-xl border border-gray-200 mb-6">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <span className="text-sm font-medium" style={{ color: RHS_GREEN }}>Students Out</span>
@@ -289,8 +331,9 @@ export default function Sub() {
                   style={{ borderColor: elapsedColor(mins) }}>
                   {photoUrls[pass.student_id]
                     ? <img src={photoUrls[pass.student_id]} alt="" className="w-full h-full object-cover" />
-                    : <span className="text-xs font-medium text-white" style={{ backgroundColor: RHS_GREEN, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {student?.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                    : <span className="text-xs font-medium text-white flex items-center justify-center w-full h-full"
+                        style={{ backgroundColor: RHS_GREEN }}>
+                        {student?.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
                       </span>
                   }
                 </div>
@@ -302,7 +345,9 @@ export default function Sub() {
                         style={{ background: badge.color, color: badge.text }}>{badge.label}</span>
                     )}
                   </div>
-                  <div className="text-xs text-gray-400">{pass.reason} · out at {new Date(pass.time_out).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>
+                  <div className="text-xs text-gray-400">
+                    {pass.reason} · out at {new Date(pass.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
                 </div>
                 <span className="text-sm font-medium w-10 text-right" style={{ color: elapsedColor(mins) }}>{mins}m</span>
                 <button onClick={() => handleReturn(pass.id)}
@@ -314,7 +359,7 @@ export default function Sub() {
             )
           })}
 
-          {/* Checkout Mode Toggle */}
+          {/* Checkout mode toggle */}
           <div className="px-4 pt-3 pb-1 border-t border-gray-100 bg-gray-50">
             <div className="flex gap-2 mb-3">
               <button onClick={() => setCheckoutMode('manual')}
@@ -330,18 +375,17 @@ export default function Sub() {
             </div>
           </div>
 
-          {/* Manual Checkout */}
+          {/* Manual checkout */}
           {checkoutMode === 'manual' && (
             <div className="px-4 pb-4 bg-gray-50 rounded-b-xl">
               <div className="text-xs font-medium text-gray-500 mb-2">Check out a student</div>
-
               {selectedStudentPreview && (
                 <div className="flex items-center gap-3 mb-3 p-2 bg-white rounded-xl border border-gray-200">
                   <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-gray-100">
                     {photoUrls[selectedStudentPreview.id]
                       ? <img src={photoUrls[selectedStudentPreview.id]} alt="" className="w-full h-full object-cover" />
                       : <div className="w-full h-full flex items-center justify-center text-sm font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
-                          {selectedStudentPreview.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                          {selectedStudentPreview.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
                         </div>
                     }
                   </div>
@@ -356,7 +400,6 @@ export default function Sub() {
                   </div>
                 </div>
               )}
-
               <div className="flex gap-2 mb-3">
                 <select value={selected} onChange={e => handleStudentSelect(e.target.value)}
                   className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
@@ -376,8 +419,6 @@ export default function Sub() {
                   Send
                 </button>
               </div>
-
-              {/* Kiosk return toggle — visible in manual mode too */}
               <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
                 <span className="text-xs text-gray-600">Kiosk return required:</span>
                 <button onClick={() => saveKioskReturn(!kioskReturnRequired)}
@@ -393,14 +434,16 @@ export default function Sub() {
             </div>
           )}
 
-          {/* Self-Checkout Mode */}
+          {/* Self-checkout mode */}
           {checkoutMode === 'self' && (
             <div className="px-4 pb-4 bg-gray-50 rounded-b-xl">
               <div className="text-center py-4">
-                <div className="text-5xl font-black tracking-widest text-gray-800 mb-2 font-mono">{selfCheckoutCode || '—'}</div>
+                <div className="text-5xl font-black tracking-widest text-gray-800 mb-2 font-mono">
+                  {selfCheckoutCode || '—'}
+                </div>
                 <div className="text-sm text-gray-500 mb-1">Session code — share with students</div>
-                <div className="text-xs text-gray-400 mb-3">
-                  Students go to <span className="font-mono font-semibold">hall-pass-lime.vercel.app/self-checkout</span>
+                <div className="text-xs font-mono font-semibold mb-3" style={{ color: RHS_GREEN }}>
+                  hall-pass-lime.vercel.app/self-checkout?room={teacherRoom}
                 </div>
                 <button onClick={generateCheckoutCode}
                   className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 mb-3">
@@ -416,7 +459,7 @@ export default function Sub() {
                   {kioskReturnSaved && <span className="text-xs" style={{ color: RHS_GREEN }}>✓ Saved</span>}
                 </div>
                 <div className="text-xs text-gray-400 mt-2">
-                  {kioskReturnRequired ? 'Students must scan at kiosk to return' : "Students see an \"I'm Back\" button"}
+                  {kioskReturnRequired ? 'Students must scan at kiosk to return' : 'Students see an "I\'m Back" button'}
                 </div>
               </div>
             </div>
@@ -424,8 +467,9 @@ export default function Sub() {
         </div>
 
         <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
-          ⚠ Substitute view only — settings and QR management are not available. Contact {teacherName} for PIN changes.
+          ⚠ Substitute view only — settings and QR management are not available. Contact {teacherName} for code changes.
         </div>
+
       </div>
     </div>
   )
