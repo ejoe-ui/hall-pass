@@ -47,6 +47,7 @@ export default function StudentsAdmin() {
   const [saving, setSaving] = useState(false)
   const [photoUploading, setPhotoUploading] = useState(false)
   const [photoUrl, setPhotoUrl] = useState(null)
+  const [photoUrls, setPhotoUrls] = useState({})
   const photoRef = useRef()
 
   // ── Import ────────────────────────────────────────────────────────────────
@@ -141,24 +142,25 @@ export default function StudentsAdmin() {
       .select('id, first_name, last_name, full_name, period, nfc_uid, photo_file, photo_url')
       .in('id', studentIds)
       .order('first_name')
-    if (data) setStudents(data)
+    if (data) { setStudents(data); loadSignedPhotoUrls(data) }
     setLoading(false)
   }
 
-  function getPhotoUrl(student) {
-    // Prefer photo_url (Aeries/direct URL), fall back to storage file
-    if (student.photo_url) return student.photo_url
-    if (!student.photo_file) return null
-    // Numeric ID photos live in student-photos bucket
-    const { data } = supabase.storage.from('student-photos').getPublicUrl(student.photo_file)
-    return data?.publicUrl || null
+  async function loadSignedPhotoUrls(studs) {
+    const withPhotos = (studs || []).filter(s => s?.photo_file && !s.photo_url)
+    if (withPhotos.length === 0) return
+    const { data } = await supabase.storage
+      .from('student-photos')
+      .createSignedUrls(withPhotos.map(s => s.photo_file), 3600)
+    if (!data) return
+    const map = {}
+    data.forEach((item, i) => { if (item.signedUrl) map[withPhotos[i].id] = item.signedUrl })
+    setPhotoUrls(prev => ({ ...prev, ...map }))
   }
 
-  function getStorageUrl(photo_file) {
-    if (!photo_file) return null
-    // Numeric ID photos live in student-photos bucket
-    const { data } = supabase.storage.from('student-photos').getPublicUrl(photo_file)
-    return data?.publicUrl || null
+  function getPhotoUrl(student) {
+    // photo_url is a direct URL; storage photos now use signed URLs from photoUrls map
+    return student.photo_url || null
   }
 
   async function addStudent() {
@@ -240,7 +242,14 @@ export default function StudentsAdmin() {
     setEditLast(s.last_name || '')
     setEditDisplay(s.full_name || '')
     setEditId('')
-    setPhotoUrl(getPhotoUrl(s))
+    if (s.photo_url) {
+      setPhotoUrl(s.photo_url)
+    } else if (s.photo_file) {
+      const { data } = await supabase.storage.from('student-photos').createSignedUrl(s.photo_file, 3600)
+      setPhotoUrl(data?.signedUrl || null)
+    } else {
+      setPhotoUrl(null)
+    }
   }
 
   async function saveEdit() {
@@ -297,9 +306,9 @@ export default function StudentsAdmin() {
       .upload(path, file, { upsert: true, contentType: 'image/jpeg' })
     if (!uploadError) {
       await supabase.from('students').update({ photo_file: path }).eq('id', editStudent.id)
-      // Get public URL from student-photos bucket
-      const { data } = supabase.storage.from('student-photos').getPublicUrl(path)
-      setPhotoUrl(data?.publicUrl ? `${data.publicUrl}?t=${Date.now()}` : null)
+      // Get signed URL for immediate display (private bucket)
+      const { data } = await supabase.storage.from('student-photos').createSignedUrl(path, 3600)
+      setPhotoUrl(data?.signedUrl || null)
       setEditStudent(prev => ({ ...prev, photo_file: path }))
     }
     setPhotoUploading(false)
@@ -1059,7 +1068,7 @@ export default function StudentsAdmin() {
             <div className="p-8 text-center text-gray-400 text-sm">No students in this period</div>
           ) : (
             students.map(s => {
-              const url = getPhotoUrl(s)
+              const url = s.photo_url || photoUrls[s.id]
               return (
                 <div key={s.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
                   {/* Photo: prefer photo_url, fall back to student-photos storage, then initials */}
