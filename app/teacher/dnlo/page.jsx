@@ -1,3 +1,15 @@
+/*
+  PassAble — RHS Hall Pass System
+  FILE:    app/teacher/dnlo/page.jsx
+  ROUTE:   /teacher/dnlo
+  PURPOSE: Teacher-scoped Do Not Let Out list. Teachers can add/remove their own
+           student restrictions. Does not affect admin-level restrictions.
+           DNLO entries trigger a warning (not a block) on teacher checkout.
+  REPO:    hall-pass (hall-pass-lime.vercel.app)
+  BACKEND: Supabase (teachers, students, student_periods, do_not_let_out)
+  UPDATED: 2026-06-23 — added file header; scoped students fetch in loadDnlo to
+           DNLO IDs only; removed stale students.period display from search results
+*/
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../../lib/supabase'
@@ -42,9 +54,10 @@ export default function TeacherDNLO() {
       .eq('room', room)
     const ids = [...new Set(spRows?.map(r => r.student_id) || [])]
     if (ids.length === 0) { setStudents([]); return }
+    // Select only id and full_name — period comes from student_periods, not students table
     const { data } = await supabase
       .from('students')
-      .select('id, full_name, period')
+      .select('id, full_name')
       .in('id', ids)
       .order('first_name')
     if (data) setStudents(data)
@@ -60,11 +73,16 @@ export default function TeacherDNLO() {
       .eq('created_by', t?.id || t?.email || '')
       .order('created_at', { ascending: false })
     if (data) {
-      const { data: studs } = await supabase
-        .from('students')
-        .select('id, full_name')
+      // Scope students fetch to only the IDs in this DNLO list
+      const dnloStudentIds = data.map(d => d.student_id).filter(Boolean)
       const studMap = {}
-      if (studs) studs.forEach(s => studMap[s.id] = s.full_name)
+      if (dnloStudentIds.length > 0) {
+        const { data: studs } = await supabase
+          .from('students')
+          .select('id, full_name')
+          .in('id', dnloStudentIds)
+        if (studs) studs.forEach(s => { studMap[s.id] = s.full_name })
+      }
       setDnloList(data.map(d => ({ ...d, full_name: studMap[d.student_id] || d.student_id })))
     }
   }
@@ -149,7 +167,6 @@ export default function TeacherDNLO() {
                     onClick={() => { setSearch(s.full_name); setSearchResults([{ ...s, selected: true }]) }}
                     className="w-full text-left text-sm px-3 py-2 hover:bg-green-50 text-gray-700 border-b border-gray-50 last:border-0">
                     {s.full_name}
-                    <span className="text-xs text-gray-400 ml-2">· Period {s.period}</span>
                   </button>
                 ))}
               </div>
