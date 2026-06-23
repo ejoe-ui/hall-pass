@@ -63,6 +63,8 @@ export default function StudentsAdmin() {
   const [removeSelected, setRemoveSelected] = useState(new Set())
   const [roomMismatch, setRoomMismatch] = useState(null) // { detectedRoom, detectedTeacher }
   const [mismatchConfirmed, setMismatchConfirmed] = useState(false)
+  const [clearConfirm, setClearConfirm] = useState(null) // null | 'period-X' | 'all'
+  const [clearing, setClearing] = useState(false)
   const importFileRef = useRef()
 
   // ── Help panel ────────────────────────────────────────────────────────────
@@ -190,6 +192,22 @@ export default function StudentsAdmin() {
       await supabase.from('students').delete().eq('id', studentId)
     }
     setConfirmDelete(null)
+    loadStudents()
+  }
+
+  async function clearPeriod(periodValue) {
+    setClearing(true)
+    await supabase.from('student_periods').delete().eq('room', room).eq('period', periodValue)
+    setClearConfirm(null)
+    setClearing(false)
+    loadStudents()
+  }
+
+  async function clearAllPeriods() {
+    setClearing(true)
+    await supabase.from('student_periods').delete().eq('room', room)
+    setClearConfirm(null)
+    setClearing(false)
     loadStudents()
   }
 
@@ -964,6 +982,70 @@ export default function StudentsAdmin() {
               )
             })
           )}
+        </div>
+
+        {/* ── Clear Roster ── */}
+        <div className="mt-8 rounded-xl border border-red-200 overflow-hidden">
+          <div className="px-4 py-3 bg-red-50 border-b border-red-100 flex items-center gap-2">
+            <span className="text-red-500">⚠️</span>
+            <p className="text-sm font-semibold text-red-700">Clear Roster</p>
+            <p className="text-xs text-red-500 ml-1">Use this at the start of a new school year to remove students before re-importing from Aeries.</p>
+          </div>
+          <div className="p-4 bg-white space-y-3">
+
+            {/* Per-period clear buttons */}
+            <div>
+              <p className="text-xs font-medium text-gray-500 mb-2">Clear one period:</p>
+              <div className="flex flex-wrap gap-2">
+                {periods.map(p => (
+                  <div key={p.value}>
+                    {clearConfirm === `period-${p.value}` ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-red-600 font-medium">Remove all students from {p.label}?</span>
+                        <button onClick={() => clearPeriod(p.value)} disabled={clearing}
+                          className="text-xs px-2 py-1 bg-red-500 text-white rounded-lg disabled:opacity-50">
+                          {clearing ? '...' : 'Yes, clear'}
+                        </button>
+                        <button onClick={() => setClearConfirm(null)}
+                          className="text-xs px-2 py-1 border border-gray-200 text-gray-500 rounded-lg">
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setClearConfirm(`period-${p.value}`)}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50">
+                        Clear {p.label}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Clear all */}
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-xs font-medium text-gray-500 mb-2">Clear all periods at once:</p>
+              {clearConfirm === 'all' ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-red-600 font-semibold">This removes every student from all your periods. Are you sure?</span>
+                  <button onClick={clearAllPeriods} disabled={clearing}
+                    className="text-xs px-3 py-1.5 bg-red-600 text-white rounded-lg font-semibold disabled:opacity-50">
+                    {clearing ? 'Clearing...' : 'Yes, clear all'}
+                  </button>
+                  <button onClick={() => setClearConfirm(null)}
+                    className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg">
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setClearConfirm('all')}
+                  className="text-xs px-3 py-1.5 rounded-lg border-2 border-red-400 text-red-600 font-semibold hover:bg-red-50">
+                  Clear All Periods
+                </button>
+              )}
+            </div>
+
+          </div>
         </div>
 
         </> /* end manage view */}
