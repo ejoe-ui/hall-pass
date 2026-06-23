@@ -61,6 +61,8 @@ export default function StudentsAdmin() {
   const [showImportHelp, setShowImportHelp] = useState(false)
   const [currentRoster, setCurrentRoster] = useState([])
   const [removeSelected, setRemoveSelected] = useState(new Set())
+  const [roomMismatch, setRoomMismatch] = useState(null) // { detectedRoom, detectedTeacher }
+  const [mismatchConfirmed, setMismatchConfirmed] = useState(false)
   const importFileRef = useRef()
 
   useEffect(() => {
@@ -321,11 +323,16 @@ export default function StudentsAdmin() {
 
   async function processImportFile(file) {
     if (!file) return
-    setImportParseError(''); setImportResults(null); setImportPreview([]); setRemoveSelected(new Set())
+    setImportParseError(''); setImportResults(null); setImportPreview([])
+    setRemoveSelected(new Set()); setRoomMismatch(null); setMismatchConfirmed(false)
     try {
       const { students, detectedPeriod, detectedTeacher, detectedRoom } = await parseAeriesXlsx(file)
       setImportPreview(students)
       setDetectedMeta({ period: detectedPeriod, teacher: detectedTeacher, room: detectedRoom })
+      // Check if the file's room matches the logged-in teacher's room
+      if (detectedRoom && String(detectedRoom).trim() !== String(room).trim()) {
+        setRoomMismatch({ detectedRoom, detectedTeacher })
+      }
       const targetPeriod = importPeriod || (periods.length > 0 ? periods[0].value : null)
       if (!importPeriod && periods.length > 0) setImportPeriod(periods[0].value)
       if (targetPeriod) await fetchCurrentRoster(targetPeriod)
@@ -637,7 +644,37 @@ export default function StudentsAdmin() {
               </div>
             )}
 
-            {importPreview.length > 0 && (() => {
+            {/* ⚠ Room mismatch warning */}
+            {roomMismatch && !mismatchConfirmed && (
+              <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4">
+                <div className="flex gap-3 items-start mb-3">
+                  <span className="text-2xl flex-shrink-0">🚫</span>
+                  <div>
+                    <p className="text-sm font-bold text-red-700">Wrong class file</p>
+                    <p className="text-xs text-red-600 mt-1">
+                      This file is for <strong>Room {roomMismatch.detectedRoom} ({roomMismatch.detectedTeacher})</strong> — but you're logged in as <strong>Room {room} ({teacherName})</strong>.
+                    </p>
+                    <p className="text-xs text-red-600 mt-1">
+                      Importing this will add {roomMismatch.detectedTeacher}'s students to your class list. Make sure you exported the right period from Aeries.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setImportPreview([]); setDetectedMeta(null); setRoomMismatch(null); if (importFileRef.current) importFileRef.current.value = '' }}
+                    className="flex-1 py-2 text-sm font-semibold rounded-xl border-2 border-red-300 text-red-600 bg-white hover:bg-red-50">
+                    Cancel — pick a different file
+                  </button>
+                  <button
+                    onClick={() => setMismatchConfirmed(true)}
+                    className="px-4 py-2 text-xs text-red-500 hover:underline">
+                    Import anyway
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {importPreview.length > 0 && (mismatchConfirmed || !roomMismatch) && (() => {
               const importIds = new Set(importPreview.map(s => s.id))
               const currentIds = new Set(currentRoster.map(s => s.id))
               const newStudents = importPreview.filter(s => !currentIds.has(s.id))
