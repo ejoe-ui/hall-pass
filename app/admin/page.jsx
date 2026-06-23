@@ -670,14 +670,17 @@ export default function AdminPanel() {
 
   // ── Signed photo URLs ─────────────────────────────────────────────────────
   async function loadSignedPhotoUrls(studs) {
-    const withPhotos = (studs || []).filter(s => s?.photo_file && !s.photo_url)
+    const withPhotos = (studs || []).filter(s => s?.photo_file)
     if (withPhotos.length === 0) return
-    const { data } = await supabase.storage
-      .from('student-photos')
-      .createSignedUrls(withPhotos.map(s => s.photo_file), 3600)
-    if (!data) return
+    const BATCH = 50
     const map = {}
-    data.forEach((item, i) => { if (item.signedUrl) map[withPhotos[i].id] = item.signedUrl })
+    for (let i = 0; i < withPhotos.length; i += BATCH) {
+      const batch = withPhotos.slice(i, i + BATCH)
+      const { data } = await supabase.storage
+        .from('student-photos')
+        .createSignedUrls(batch.map(s => s.photo_file), 3600)
+      if (data) data.forEach((item, j) => { if (item.signedUrl) map[batch[j].id] = item.signedUrl })
+    }
     setPhotoUrls(prev => ({ ...prev, ...map }))
   }
 
@@ -1749,8 +1752,8 @@ export default function AdminPanel() {
               </div>
               {filteredStudents.slice(0, 200).map(s => (
                 <div key={s.id + (s.period || '')} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                  {(s.photo_url || photoUrls[s.id])
-                    ? <img src={s.photo_url || photoUrls[s.id]} alt={s.full_name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                  {(photoUrls[s.id] || s.photo_url)
+                    ? <img src={photoUrls[s.id] || s.photo_url} alt={s.full_name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
                     : <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
                         {s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
                       </div>
