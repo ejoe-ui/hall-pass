@@ -14,7 +14,7 @@
 */
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { supabase } from '../../../lib/supabase'
+import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
 
@@ -107,7 +107,6 @@ export default function StudentsAdmin() {
   }
 
   function getPhotoUrl(student) {
-    // Prefer photo_url (Aeries/direct URL), fall back to storage file
     if (student.photo_url) return student.photo_url
     if (!student.photo_file) return null
     // Uses lifetouch-raw bucket (not student-photos)
@@ -242,7 +241,6 @@ export default function StudentsAdmin() {
       .upload(path, file, { upsert: true, contentType: 'image/jpeg' })
     if (!uploadError) {
       await supabase.from('students').update({ photo_file: path }).eq('id', editStudent.id)
-      // Get public URL from lifetouch-raw bucket (not student-photos)
       const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(path)
       setPhotoUrl(data?.publicUrl ? `${data.publicUrl}?t=${Date.now()}` : null)
       setEditStudent(prev => ({ ...prev, photo_file: path }))
