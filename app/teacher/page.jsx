@@ -1058,8 +1058,8 @@ function TeacherInner() {
           { title: 'Kiosk & Self-Checkout', items: [
             { q: "What's the Kiosk?", keys: "kiosk tablet door check out in tap name record dashboard",
               a: <>A tablet or dedicated computer at your classroom door where students check themselves out and back in. Students tap their name to check out — it's recorded instantly and shows up on your dashboard. When they return to class, they tap to check back in, which is also recorded. Your kiosk link is in {settingsBtn} → Kiosk URL.</> },
-            { q: "What's Self-Checkout Mode?", keys: "self checkout phone laptop code session california law",
-              a: <>Students go to <span className="font-mono text-xs">hall-pass-lime.vercel.app/self-checkout</span> and enter the 4-digit session code shown on your dashboard. Works on school laptops. Note: students may not be able to use personal phones in class under California law — we're still testing this flow.</> },
+            { q: "What's Self-Checkout Mode?", keys: "self checkout phone laptop code session url room",
+              a: <>Students go to the URL shown on your dashboard (e.g. <span className="font-mono text-xs">hall-pass-lime.vercel.app/self-checkout?room={teacherRoom}</span>) and enter the 4-digit session code you generate. The code is specific to your room — other teachers' codes won't work here. Works on school Chromebooks and laptops. Once checked out, the student's screen turns red and stays up until they check back in at your classroom kiosk. If the kiosk isn't available, they can ask you or a sub to check them back in.</> },
           ]},
           { title: 'Settings', items: [
             { q: "How do I access Settings?", keys: "settings open show hide access find scroll",
@@ -1418,7 +1418,7 @@ function TeacherInner() {
                 <div className="bg-white rounded-xl p-4 border border-gray-200 text-center">
                   <div className="text-4xl font-mono font-black tracking-widest text-gray-800 mb-1">{selfCheckoutCode || '—'}</div>
                   <div className="text-xs text-gray-500 mb-1">Teacher session code — tell students to go to:</div>
-                  <div className="text-xs font-mono font-bold mb-3" style={{ color: RHS_GREEN }}>hall-pass-lime.vercel.app/self-checkout</div>
+                  <div className="text-xs font-mono font-bold mb-3" style={{ color: RHS_GREEN }}>hall-pass-lime.vercel.app/self-checkout?room={teacherRoom}</div>
                   <button onClick={generateCheckoutCode} className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 mb-3">🔄 Generate New Code</button>
                   <div className="flex items-center justify-center gap-2">
                     <span className="text-xs text-gray-700">Kiosk return required:</span>
