@@ -1,3 +1,15 @@
+/*
+  PassAble — RHS Hall Pass System
+  FILE:    app/qr/page.jsx
+  ROUTE:   /qr
+  PURPOSE: Generate and print student QR badge cards or sticker labels (Spartan R011 3"×2").
+           Students scan their QR at the kiosk to check out/in without typing their ID.
+           Badges are per-period, per-teacher room. Two print templates: badge cards (3-up)
+           and sticker sheets (2-up, 10 per sheet).
+  REPO:    hall-pass (hall-pass-lime.vercel.app)
+  BACKEND: Supabase (students, student_periods, teachers) + lifetouch-raw storage bucket
+  UPDATED: 2026-06-23 — added file header; fixed photo bucket student-photos → lifetouch-raw
+*/
 'use client'
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
@@ -65,7 +77,7 @@ export default function QRPage() {
     const studentIds = spRows?.map(r => r.student_id) || []
     if (studentIds.length === 0) { setStudents([]); return }
 
-    // Step 2: fetch ALL rows for these students (may have duplicates across periods)
+    // Step 2: fetch students scoped to this period's IDs
     const { data } = await supabase
       .from('students')
       .select('id, full_name, photo_file')
@@ -79,7 +91,6 @@ export default function QRPage() {
         if (!seen.has(s.id)) {
           seen.set(s.id, s)
         } else {
-          // Replace existing entry only if current row has a photo and existing doesn't
           const existing = seen.get(s.id)
           if (!existing.photo_file && s.photo_file) {
             seen.set(s.id, s)
@@ -106,7 +117,8 @@ export default function QRPage() {
     const urls = {}
     for (const s of studentList) {
       if (s.photo_file) {
-        const { data } = supabase.storage.from('student-photos').getPublicUrl(s.photo_file)
+        // Uses lifetouch-raw bucket (not student-photos)
+        const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(s.photo_file)
         if (data?.publicUrl) urls[s.id] = data.publicUrl
       }
     }
@@ -216,7 +228,6 @@ export default function QRPage() {
             flex-direction: column !important;
           }
 
-          /* Top content row fills remaining height above brand strip */
           .sticker-top {
             display: flex;
             flex-direction: row;
@@ -284,7 +295,6 @@ export default function QRPage() {
             line-height: 1.3;
           }
 
-          /* Brand strip — locked inside label, fixed height */
           .sticker-brand {
             flex-shrink: 0;
             border-top: 0.5pt solid #d1d5db;
@@ -497,7 +507,6 @@ export default function QRPage() {
             ) : (
               <button
                 onClick={() => {
-                  // Build label rows HTML
                   const labelsHtml = students.map(s => {
                     const photo = photoUrls[s.id]
                       ? `<img src="${photoUrls[s.id]}" style="width:1.05in;height:1.05in;object-fit:cover;border-radius:5pt;display:block;" />`
