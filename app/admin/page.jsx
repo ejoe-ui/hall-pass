@@ -18,6 +18,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import * as XLSX from 'xlsx'
+import { SCHEDULES } from '../../lib/schedules'
 
 const RHS_GREEN = '#006938'
 
@@ -218,6 +219,13 @@ export default function AdminPanel() {
   const [yearEndWorking, setYearEndWorking] = useState(false)
   const [yearEndMsg, setYearEndMsg] = useState('')
   const [exportingPassLog, setExportingPassLog] = useState(false)
+
+  // ── Live clock ───────────────────────────────────────────────────────────
+  const [now, setNow] = useState(new Date())
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30000)
+    return () => clearInterval(t)
+  }, [])
 
   // ── Student Locator ──────────────────────────────────────────────────────
   const [locatorQuery, setLocatorQuery] = useState('')
@@ -1313,6 +1321,37 @@ export default function AdminPanel() {
           <button onClick={handleSignOut} className="text-sm text-green-200 hover:text-white">Sign Out</button>
         </div>
       </div>
+
+      {/* ── Schedule status bar ── */}
+      {(() => {
+        const schedKey = globalOverrideActive ? globalOverrideActiveType : 'regular'
+        const sched = SCHEDULES[schedKey] || SCHEDULES.regular
+        const schedName = sched?.name || SCHEDULE_LABELS[schedKey] || 'Regular'
+        const t2m = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+        const mins = now.getHours() * 60 + now.getMinutes()
+        const currentSlot = sched?.periods?.find(p => mins >= t2m(p.start) && mins < t2m(p.end)) || null
+        const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        let periodLabel, periodColor
+        if (!currentSlot) {
+          periodLabel = 'Between Periods'
+          periodColor = '#6b7280'
+        } else if (currentSlot.break) {
+          periodLabel = currentSlot.label
+          periodColor = '#d97706'
+        } else {
+          periodLabel = currentSlot.label
+          periodColor = RHS_GREEN
+        }
+        return (
+          <div className="border-b border-gray-200 bg-white px-6 py-2 flex items-center gap-4">
+            <span className="text-sm font-semibold text-gray-700">{timeStr}</span>
+            <span className="text-gray-300">·</span>
+            <span className="text-sm font-medium" style={{ color: periodColor }}>{periodLabel}</span>
+            <span className="text-gray-300">·</span>
+            <span className="text-xs text-gray-400">{schedName}{globalOverrideActive ? ' (Override)' : ''}</span>
+          </div>
+        )
+      })()}
 
       <div className="max-w-4xl mx-auto p-6">
         {/* Tabs */}
