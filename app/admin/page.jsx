@@ -227,11 +227,14 @@ export default function AdminPanel() {
     return () => clearInterval(t)
   }, [])
 
-  // ── Student Locator ──────────────────────────────────────────────────────
-  const [locatorQuery, setLocatorQuery] = useState('')
-  const [locatorResults, setLocatorResults] = useState([])
-  const [locatorLoading, setLocatorLoading] = useState(false)
-  const locatorTimerRef = useRef(null)
+  // ── Student analytics modal ──────────────────────────────────────────────
+  const [studentLogModal, setStudentLogModal] = useState(null)
+  const [studentLogPasses, setStudentLogPasses] = useState([])
+  const [studentLogLoading, setStudentLogLoading] = useState(false)
+  const [studentLogFilter, setStudentLogFilter] = useState('week')
+  const [studentLogSchedule, setStudentLogSchedule] = useState([])
+  const [studentLogActivePass, setStudentLogActivePass] = useState(null)
+  const [studentLogTeacherMap, setStudentLogTeacherMap] = useState({})
 
   // ── Help panel ────────────────────────────────────────────────────────────
   const [showHelp, setShowHelp] = useState(false)
@@ -1035,79 +1038,49 @@ export default function AdminPanel() {
     </div>
   )
 
-  // ── Student Locator search ─────────────────────────────────────────────────
-  async function runLocatorSearch(query) {
-    if (!query.trim()) { setLocatorResults([]); return }
-    setLocatorLoading(true)
+  // ── Student analytics fetch ────────────────────────────────────────────────
+  async function fetchStudentLog(student, filter) {
+    setStudentLogLoading(true)
+    setStudentLogPasses([])
+    setStudentLogSchedule([])
+    setStudentLogActivePass(null)
 
-    // 1. Find matching students
-    const { data: studs } = await supabase
-      .from('students')
-      .select('id, full_name, photo_url, photo_file')
-      .ilike('full_name', `%${query.trim()}%`)
-      .limit(20)
+    // Load schedule + active pass + pass history in parallel
+    const [spRes, activeRes] = await Promise.all([
+      supabase.from('student_periods').select('period, room').eq('student_id', student.id).order('period'),
+      supabase.from('passes').select('id, time_out, reason, room, period').eq('student_id', student.id).is('time_in', null).limit(1),
+    ])
 
-    if (!studs || studs.length === 0) { setLocatorResults([]); setLocatorLoading(false); return }
-
-    const ids = studs.map(s => s.id)
-
-    // 2. Get all scheduled periods for these students
-    const { data: spRows } = await supabase
-      .from('student_periods')
-      .select('student_id, period, room')
-      .in('student_id', ids)
-
-    // 3. Get any active passes (time_in is null)
-    const { data: activePasses } = await supabase
-      .from('passes')
-      .select('id, student_id, time_out, reason, room, period, teacher_id')
-      .in('student_id', ids)
-      .is('time_in', null)
-
-    // 4. Look up teacher names for all rooms that appear
-    const allRooms = [...new Set([
-      ...(spRows || []).map(r => r.room),
-      ...(activePasses || []).map(p => p.room),
-    ])]
-    const teachersByRoom = {}
+    // Resolve teacher names for all rooms
+    const allRooms = [...new Set([...(spRes.data||[]).map(r => r.room), ...(activeRes.data||[]).map(p => p.room)])]
+    const tMap = {}
     if (allRooms.length > 0) {
-      const { data: tchrs } = await supabase
-        .from('teachers')
-        .select('name, room')
-        .in('room', allRooms)
-        .eq('is_active', true)
-      if (tchrs) tchrs.forEach(t => { teachersByRoom[t.room] = t.name })
+      const { data: tchrs } = await supabase.from('teachers').select('name, room').in('room', allRooms).eq('is_active', true)
+      if (tchrs) tchrs.forEach(t => { tMap[t.room] = t.name })
     }
+    setStudentLogTeacherMap(tMap)
+    setStudentLogSchedule((spRes.data||[]).map(r => ({ ...r, teacher: tMap[r.room] || null })))
+    const ap = activeRes.data?.[0]
+    setStudentLogActivePass(ap ? { ...ap, teacher: tMap[ap.room] || null } : null)
 
-    // 5. Assemble results
-    const results = studs.map(s => {
-      const periods = (spRows || [])
-        .filter(r => r.student_id === s.id)
-        .sort((a, b) => Number(a.period) - Number(b.period))
-        .map(r => ({ period: r.period, room: r.room, teacher: teachersByRoom[r.room] || null }))
-
-      const active = (activePasses || [])
-        .filter(p => p.student_id === s.id)
-        .map(p => ({
-          id: p.id,
-          time_out: p.time_out,
-          reason: p.reason,
-          room: p.room,
-          period: p.period,
-          teacher: teachersByRoom[p.room] || null,
-        }))
-
-      return { student: s, periods, activePasses: active }
-    })
-
-    setLocatorResults(results)
-    setLocatorLoading(false)
+    // Pass history
+    let query = supabase
+      .from('passes')
+      .select('id, time_out, time_in, duration_minutes, reason, room, period, teacher_id')
+      .eq('student_id', student.id)
+      .order('time_out', { ascending: false })
+    if (filter === 'today') query = query.gte('time_out', new Date().toISOString().split('T')[0])
+    else if (filter === 'week') query = query.gte('time_out', new Date(Date.now() - 7 * 86400000).toISOString())
+    else if (filter === 'month') query = query.gte('time_out', new Date(Date.now() - 30 * 86400000).toISOString())
+    const { data } = await query.limit(500)
+    setStudentLogPasses(data || [])
+    setStudentLogLoading(false)
   }
 
-  function handleLocatorInput(val) {
-    setLocatorQuery(val)
-    if (locatorTimerRef.current) clearTimeout(locatorTimerRef.current)
-    locatorTimerRef.current = setTimeout(() => runLocatorSearch(val), 300)
+  function openStudentLog(student) {
+    setStudentLogModal(student)
+    setStudentLogFilter('week')
+    fetchStudentLog(student, 'week')
   }
 
   const TABS = [
@@ -1115,7 +1088,6 @@ export default function AdminPanel() {
     { id: 'conflicts', label: 'Conflict Groups' },
     { id: 'dnlo', label: 'Do Not Let Out' },
     { id: 'students', label: scheduleConflicts.length > 0 ? `Students ⚠️ ${scheduleConflicts.length}` : 'Students' },
-    { id: 'locator', label: '🔍 Locate Student' },
     { id: 'log', label: 'Pass Log' },
     { id: 'settings', label: '⚙️ School Settings' },
   ]
@@ -1305,6 +1277,145 @@ export default function AdminPanel() {
         </div>
       )}
 
+      {/* ── Student Profile Modal ── */}
+      {studentLogModal && (
+        <div className="fixed inset-0 z-50 flex items-stretch justify-end">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setStudentLogModal(null)} />
+          <div className="relative bg-white w-full max-w-lg flex flex-col shadow-2xl">
+
+            {/* Modal header */}
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
+              {(photoUrls[studentLogModal.id] || studentLogModal.photo_url)
+                ? <img src={photoUrls[studentLogModal.id] || studentLogModal.photo_url} alt={studentLogModal.full_name} className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
+                : <div className="w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
+                    {studentLogModal.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                  </div>
+              }
+              <div className="flex-1 min-w-0">
+                <div className="text-base font-bold text-gray-800">{studentLogModal.full_name}</div>
+                {studentLogActivePass ? (
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                    <span className="text-xs font-medium text-amber-700">Currently on a pass</span>
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-400">In class</div>
+                )}
+              </div>
+              <button onClick={() => setStudentLogModal(null)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none ml-2">×</button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 px-5 py-4 flex flex-col gap-4">
+
+              {/* Active pass */}
+              {studentLogActivePass && (() => {
+                const mins = Math.floor((Date.now() - new Date(studentLogActivePass.time_out).getTime()) / 60000)
+                return (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                    <div className="text-xs font-semibold text-amber-700 mb-1">🟡 Currently Out</div>
+                    <div className="text-sm font-semibold text-gray-800">{studentLogActivePass.reason}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      Left Rm {studentLogActivePass.room}{studentLogActivePass.teacher ? ` · ${studentLogActivePass.teacher.split(' ').pop()}` : ''} · {mins} min ago · issued {new Date(studentLogActivePass.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Schedule */}
+              <div>
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Schedule</div>
+                {studentLogSchedule.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {studentLogSchedule.map(p => (
+                      <span key={p.period + p.room} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 font-medium">
+                        P{p.period} · Rm {p.room}{p.teacher ? ` · ${p.teacher.split(' ').pop()}` : ''}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 italic">No schedule on file</p>
+                )}
+              </div>
+
+              {/* Analytics header */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Pass History</div>
+                  <div className="flex gap-1.5">
+                    {[{ id: 'today', label: 'Today' }, { id: 'week', label: 'Week' }, { id: 'month', label: 'Month' }, { id: 'all', label: 'All Time' }].map(f => (
+                      <button key={f.id}
+                        onClick={() => { setStudentLogFilter(f.id); fetchStudentLog(studentLogModal, f.id) }}
+                        className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors ${studentLogFilter === f.id ? 'text-white border-transparent' : 'text-gray-500 bg-white border-gray-200'}`}
+                        style={studentLogFilter === f.id ? { backgroundColor: RHS_GREEN } : {}}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {studentLogLoading ? (
+                  <div className="flex items-center justify-center py-10">
+                    <div className="w-5 h-5 border-2 border-gray-200 rounded-full animate-spin" style={{ borderTopColor: RHS_GREEN }} />
+                  </div>
+                ) : studentLogPasses.length === 0 ? (
+                  <div className="text-center text-gray-400 text-sm py-10">No passes in this period</div>
+                ) : (
+                  <>
+                    {/* Stats row */}
+                    {(() => {
+                      const completed = studentLogPasses.filter(p => p.duration_minutes != null)
+                      const avgDur = completed.length > 0 ? Math.round(completed.reduce((s, p) => s + p.duration_minutes, 0) / completed.length) : null
+                      const reasons = studentLogPasses.reduce((acc, p) => { acc[p.reason] = (acc[p.reason]||0)+1; return acc }, {})
+                      const topReason = Object.entries(reasons).sort((a,b) => b[1]-a[1])[0]?.[0]
+                      return (
+                        <div className="grid grid-cols-3 gap-3 mb-4">
+                          <div className="bg-gray-50 rounded-xl p-3 text-center">
+                            <div className="text-xl font-bold" style={{ color: RHS_GREEN }}>{studentLogPasses.length}</div>
+                            <div className="text-xs text-gray-400 mt-0.5">Total Passes</div>
+                          </div>
+                          <div className="bg-gray-50 rounded-xl p-3 text-center">
+                            <div className="text-xl font-bold text-gray-700">{avgDur != null ? `${avgDur}m` : '—'}</div>
+                            <div className="text-xs text-gray-400 mt-0.5">Avg Duration</div>
+                          </div>
+                          <div className="bg-gray-50 rounded-xl p-3 text-center">
+                            <div className="text-sm font-bold text-gray-700 truncate">{topReason || '—'}</div>
+                            <div className="text-xs text-gray-400 mt-0.5">Most Common</div>
+                          </div>
+                        </div>
+                      )
+                    })()}
+
+                    {/* Pass list */}
+                    {studentLogPasses.map(p => {
+                      const isOut = !p.time_in
+                      const duration = p.duration_minutes != null ? `${p.duration_minutes}m` : isOut ? 'Out now' : '—'
+                      const tName = studentLogTeacherMap[p.room]
+                      return (
+                        <div key={p.id} className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
+                          <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                            style={{ backgroundColor: isOut ? '#dc2626' : RHS_GREEN }}>
+                            {p.reason?.[0] || '?'}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-gray-800 truncate">{p.reason}</div>
+                            <div className="text-xs text-gray-400">
+                              {tName ? `${tName.split(' ').pop()} · ` : ''}Rm {p.room} · P{p.period} · {new Date(p.time_out).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} {new Date(p.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${isOut ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-700'}`}>
+                            {duration}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Header ── */}
       <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: '#1f2937' }}>
         <div className="flex items-center gap-3">
@@ -1315,7 +1426,6 @@ export default function AdminPanel() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <a href="/admin/photos" className="text-sm text-gray-400 hover:text-white">📷 Photo Import</a>
           <button onClick={() => { setShowHelp(v => !v); setHelpSearch(''); setHelpPos({ x: null, y: null }) }} className="text-sm text-gray-400 hover:text-white">❓ Help</button>
           <a href="/teacher" className="text-sm text-gray-400 hover:text-white">← Dashboard</a>
           <button onClick={handleSignOut} className="text-sm text-gray-400 hover:text-white">Sign Out</button>
@@ -1884,12 +1994,16 @@ export default function AdminPanel() {
             <div className="bg-white rounded-xl border border-gray-200">
               <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center">
                 <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Students ({filteredStudents.length})</p>
-                <div className="flex gap-3">
+                <div className="flex gap-4 items-center">
+                  <a href="/admin/photos" className="text-xs text-gray-400 hover:text-gray-600">📷 Import Lifetouch Photos →</a>
                   <a href="/qr" className="text-xs text-gray-400 hover:text-gray-600">Print QR Badges →</a>
                 </div>
               </div>
+              <p className="px-4 py-2 text-xs text-gray-400 border-b border-gray-50">Click a student to view their full pass history</p>
               {filteredStudents.slice(0, 200).map(s => (
-                <div key={s.id + (s.period || '')} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
+                <button key={s.id + (s.period || '')}
+                  onClick={() => openStudentLog(s)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors text-left">
                   {(photoUrls[s.id] || s.photo_url)
                     ? <img src={photoUrls[s.id] || s.photo_url} alt={s.full_name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
                     : <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
@@ -1897,8 +2011,7 @@ export default function AdminPanel() {
                       </div>
                   }
                   <div className="flex-1">
-                    {/* no confirmed /student/[id] route — plain span instead of link */}
-                    <span className="text-sm" style={{ color: RHS_GREEN }}>{s.full_name}</span>
+                    <span className="text-sm font-medium" style={{ color: RHS_GREEN }}>{s.full_name}</span>
                     {(() => {
                       const teacher = teacherByRoom[String(s._room)]
                       const teacherLast = teacher?.name?.split(' ').pop()
@@ -1906,118 +2019,14 @@ export default function AdminPanel() {
                       return parts.length > 0 ? <div className="text-xs text-gray-400">{parts.join(' · ')}</div> : null
                     })()}
                   </div>
-                </div>
+                  <span className="text-gray-300 text-sm">›</span>
+                </button>
               ))}
               {filteredStudents.length > 200 && (
                 <div className="px-4 py-3 text-xs text-gray-400 text-center">Showing 200 of {filteredStudents.length} — use search to narrow results</div>
               )}
             </div>
           </>
-        )}
-
-        {/* ── STUDENT LOCATOR ── */}
-        {activeTab === 'locator' && (
-          <div>
-            <p className="text-sm text-gray-500 mb-4">
-              Search any student to see their scheduled period and room — and whether they're currently on a pass.
-            </p>
-
-            <div className="relative mb-6">
-              <input
-                autoFocus
-                type="search"
-                placeholder="Search student by name…"
-                value={locatorQuery}
-                onChange={e => handleLocatorInput(e.target.value)}
-                className="w-full p-3 text-sm border-2 rounded-xl bg-white text-gray-800 pr-10"
-                style={{ borderColor: RHS_GREEN }}
-              />
-              {locatorLoading && (
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-gray-300 rounded-full animate-spin" style={{ borderTopColor: RHS_GREEN }} />
-              )}
-            </div>
-
-            {/* Empty state */}
-            {!locatorQuery && (
-              <div className="text-center py-16 text-gray-400">
-                <div className="text-5xl mb-3">🔍</div>
-                <p className="text-sm font-medium">Type a student's name above</p>
-                <p className="text-xs mt-1 text-gray-300">Shows scheduled room and any active pass</p>
-              </div>
-            )}
-
-            {/* No results */}
-            {locatorQuery && !locatorLoading && locatorResults.length === 0 && (
-              <div className="text-center py-12 text-gray-400 text-sm">No students match "{locatorQuery}"</div>
-            )}
-
-            {/* Results */}
-            <div className="flex flex-col gap-3">
-              {locatorResults.map(({ student: s, periods, activePasses: ap }) => {
-                const photoSrc = photoUrls[s.id] || s.photo_url || null
-                const hasActivePass = ap.length > 0
-
-                return (
-                  <div key={s.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    {/* Student header */}
-                    <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
-                      {photoSrc
-                        ? <img src={photoSrc} alt={s.full_name} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
-                        : <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
-                            {s.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
-                          </div>
-                      }
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-gray-800">{s.full_name}</div>
-                        {hasActivePass ? (
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-                            <span className="text-xs font-medium text-amber-700">Currently on a pass</span>
-                          </div>
-                        ) : (
-                          <div className="text-xs text-gray-400 mt-0.5">In class</div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="px-4 py-3 flex flex-col gap-3">
-                      {/* Active pass */}
-                      {ap.map(pass => {
-                        const mins = Math.floor((Date.now() - new Date(pass.time_out).getTime()) / 60000)
-                        return (
-                          <div key={pass.id} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
-                            <div className="text-xs font-semibold text-amber-800 mb-1">🟡 On a Pass</div>
-                            <div className="text-sm text-gray-800 font-medium">{pass.reason}</div>
-                            <div className="text-xs text-gray-500 mt-0.5">
-                              Left Rm {pass.room}{pass.teacher ? ` · ${pass.teacher.split(' ').pop()}` : ''} · {mins} min ago
-                              {' · '}issued {new Date(pass.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                          </div>
-                        )
-                      })}
-
-                      {/* Schedule */}
-                      {periods.length > 0 ? (
-                        <div>
-                          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Schedule</div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {periods.map(p => (
-                              <span key={p.period + p.room}
-                                className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 font-medium">
-                                P{p.period} · Rm {p.room}{p.teacher ? ` · ${p.teacher.split(' ').pop()}` : ''}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-xs text-gray-400 italic">No schedule on file</div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
         )}
 
         {/* ── PASS LOG ── */}
