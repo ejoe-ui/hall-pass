@@ -13,7 +13,7 @@
            removed dead /student/[id] link (no confirmed route)
 */
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import * as XLSX from 'xlsx'
 
@@ -64,6 +64,24 @@ export default function StudentsAdmin() {
   const [roomMismatch, setRoomMismatch] = useState(null) // { detectedRoom, detectedTeacher }
   const [mismatchConfirmed, setMismatchConfirmed] = useState(false)
   const importFileRef = useRef()
+
+  // ── Help panel ────────────────────────────────────────────────────────────
+  const [showHelp, setShowHelp] = useState(false)
+  const [helpSearch, setHelpSearch] = useState('')
+  const [helpPos, setHelpPos] = useState({ x: null, y: null })
+  const helpPanelRef = useRef(null)
+  const helpDragOffset = useRef(null)
+
+  const startHelpDrag = useCallback((e) => {
+    if (e.target.closest('input, button, a')) return
+    const rect = helpPanelRef.current?.getBoundingClientRect()
+    if (!rect) return
+    helpDragOffset.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top }
+    const onMove = (mv) => setHelpPos({ x: mv.clientX - helpDragOffset.current.dx, y: mv.clientY - helpDragOffset.current.dy })
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
 
   useEffect(() => {
     async function loadTeacher() {
@@ -417,8 +435,96 @@ export default function StudentsAdmin() {
     </div>
   )
 
+  const ROSTER_HELP = [
+    { title: 'Importing from Aeries', items: [
+      { q: 'How do I export a class roster from Aeries?', a: 'In Aeries, go to Reports → Print Class Rosters. Select one class/period only, then click Export to Excel. This saves a .xlsx file. Repeat for each period — 6 periods means 6 separate exports.' },
+      { q: 'Why one file per period?', a: 'Each Aeries export is tied to one period and room. If you export multiple classes together, PassAble can\'t tell which student belongs to which period and will assign everyone to the wrong one.' },
+      { q: 'What does the sync preview show?', a: <>The preview has three sections: <strong>🟢 New</strong> — in Aeries, not yet in PassAble, will be added. <strong>⚫ Already in class</strong> — in both, names will be corrected to match Aeries spelling. <strong>🔴 Not on Aeries list</strong> — in PassAble but not in this export, may have transferred — check the box to remove them. Nothing is deleted until you click Sync Roster.</> },
+      { q: 'What does "Sync Roster" actually do?', a: 'It adds new students, corrects name spellings for existing students to match Aeries exactly, removes anyone you checked off, and deduplicates any student who appears more than once in your roster for the same period.' },
+      { q: 'I uploaded the wrong file. What happens?', a: 'If the file is for a different room, a red warning appears and the sync is blocked. Click "Cancel — pick a different file" to start over. Nothing is changed until you click Sync Roster.' },
+    ]},
+    { title: 'Managing Students', items: [
+      { q: 'How do I add a student manually?', a: 'In the Manage Students tab, use the Add Student form at the top. Enter first name, last name, and optionally their Aeries student ID (6 digits). Select the period and click Add. If you leave the ID blank, one is auto-generated.' },
+      { q: 'How do I fix a student\'s name?', a: 'Click Edit next to the student\'s name. You can update first name, last name, or student ID. If you re-import from Aeries later, names will be corrected automatically to match the Aeries spelling.' },
+      { q: 'How do I move a student to a different period?', a: 'Click the period dropdown next to their name and select the new period. The change saves immediately.' },
+      { q: 'How do I remove a student from my class?', a: 'Click Remove next to their name. This removes them from your roster only — it does not delete their record from the system.' },
+      { q: 'What does NFC mean next to a student\'s name?', a: 'NFC means the student has been assigned an NFC card. They can tap their card at the kiosk instead of searching for their name.' },
+    ]},
+    { title: 'Photos', items: [
+      { q: 'How do student photos get added?', a: 'Your admin imports the Lifetouch photo batch for the whole school. After they do that, click Match the Photos from your dashboard to pull in photos for your class specifically.' },
+      { q: 'A student\'s photo is missing after matching.', a: "Usually means the name in the Lifetouch file doesn't match the name in PassAble. Contact your admin — they can check the photo filename and fix the mismatch. You can also add a photo manually by clicking Edit next to the student's name." },
+      { q: 'Can I upload a photo for one student?', a: 'Yes. Click Edit next to their name, then use the photo upload option. Accepts JPG or PNG.' },
+    ]},
+    { title: 'Feedback & Feature Requests', items: [
+      { q: 'Something isn\'t working or I want to suggest a change.', a: <a href="mailto:ejoe@rjusd.org" style={{color:RHS_GREEN,textDecoration:'underline'}}>ejoe@rjusd.org</a> },
+    ]},
+  ]
+
   return (
     <div className="min-h-screen bg-gray-50">
+
+      {/* ── Help Panel (draggable + searchable) ── */}
+      {showHelp && (() => {
+        const q = helpSearch.trim().toLowerCase()
+        const filtered = q
+          ? ROSTER_HELP.map(s => ({ ...s, items: s.items.filter(i => (s.title + ' ' + i.q).toLowerCase().includes(q)) })).filter(s => s.items.length > 0)
+          : ROSTER_HELP
+        return (
+          <div
+            ref={helpPanelRef}
+            className="bg-white rounded-2xl shadow-2xl flex flex-col"
+            style={{
+              position: 'fixed',
+              left: helpPos.x !== null ? helpPos.x : 'calc(100vw - 440px)',
+              top: helpPos.y !== null ? helpPos.y : 80,
+              width: 420, maxHeight: '85vh', zIndex: 9999,
+              border: '1px solid #e5e7eb',
+            }}>
+            <div
+              className="flex items-center justify-between px-5 py-4 border-b border-gray-100 rounded-t-2xl select-none"
+              style={{ cursor: 'grab', backgroundColor: '#f9fafb' }}
+              onMouseDown={startHelpDrag}>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-300 text-sm">⠿</span>
+                <p className="text-sm font-bold text-gray-800">Student Roster Help</p>
+              </div>
+              <button onClick={() => { setShowHelp(false); setHelpSearch('') }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="px-5 pt-3 pb-2">
+              <input
+                type="search"
+                placeholder="Search help topics…"
+                value={helpSearch}
+                onChange={e => setHelpSearch(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 outline-none"
+                autoComplete="off" />
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-3 flex flex-col gap-5">
+              {filtered.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-6">No results for "{helpSearch}"</p>
+              )}
+              {filtered.map(section => (
+                <div key={section.title}>
+                  <p className="text-xs font-bold uppercase tracking-wider mb-1" style={{ color: RHS_GREEN }}>{section.title}</p>
+                  <div>
+                    {section.items.map((item, i) => (
+                      <details key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                        <summary style={{ padding: '9px 4px', fontSize: 13, fontWeight: 600, color: '#1f2937', cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          {item.q}<span style={{ color: '#9ca3af', fontSize: 16, marginLeft: 8, flexShrink: 0 }}>›</span>
+                        </summary>
+                        <div style={{ padding: '0 4px 10px', fontSize: 12, color: '#4b5563', lineHeight: 1.5 }}>{item.a}</div>
+                      </details>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100">
+              <button onClick={() => { setShowHelp(false); setHelpSearch('') }} className="w-full py-2.5 text-sm font-medium rounded-xl text-white" style={{ backgroundColor: RHS_GREEN }}>Got it</button>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Edit Modal */}
       {editStudent && (
@@ -509,12 +615,13 @@ export default function StudentsAdmin() {
         <div className="flex items-center gap-3">
           <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
           <div>
-            <h1 className="text-lg font-bold text-white">Student Management</h1>
+            <h1 className="text-lg font-bold text-white">Manage &amp; Import Students</h1>
             <p className="text-green-200 text-xs">Room {room} · {teacherName}</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
           <a href="/admin/photos" className="text-sm text-green-200 hover:text-white">📷 Photo Upload</a>
+          <button onClick={() => { setShowHelp(v => !v); setHelpSearch(''); setHelpPos({ x: null, y: null }) }} className="text-sm text-green-200 hover:text-white">❓ Help</button>
           <a href="/teacher" className="text-sm text-green-200 hover:text-white">← Dashboard</a>
         </div>
       </div>
@@ -549,65 +656,12 @@ export default function StudentsAdmin() {
               </div>
             </div>
 
-            {/* Help section */}
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <button onClick={() => setShowImportHelp(v => !v)}
-                className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-                <span>❓ How this works</span>
-                <span className="text-gray-400 text-xs">{showImportHelp ? '▲ Hide' : '▼ Show'}</span>
-              </button>
-              {showImportHelp && (
-                <div className="px-4 pb-5 border-t border-gray-100 pt-4 space-y-4 text-xs text-gray-600">
-
-                  <div>
-                    <p className="font-semibold text-gray-800 mb-2">Step 1 — Export from Aeries</p>
-                    <ol className="list-decimal list-inside space-y-1.5 ml-1">
-                      <li>Go to <strong>Reports → Print Class Rosters</strong></li>
-                      <li>Select <strong>one class/period</strong> only</li>
-                      <li>Click <strong>Export to Excel</strong> — saves as .xlsx</li>
-                      <li>Repeat for each period (6 periods = 6 exports)</li>
-                    </ol>
-                    <p className="bg-amber-50 text-amber-700 rounded-lg px-3 py-2 mt-2">
-                      Never export "All Classes" at once. One file per period, or students will end up in the wrong period.
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="font-semibold text-gray-800 mb-2">Step 2 — Upload the file</p>
-                    <p>Drag and drop the .xlsx file onto the upload box, or click to browse. PassAble reads the file and compares it against your current roster.</p>
-                  </div>
-
-                  <div>
-                    <p className="font-semibold text-gray-800 mb-2">Step 3 — Review the sync preview</p>
-                    <div className="space-y-2">
-                      <div className="flex items-start gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0 mt-1" />
-                        <p><strong>New</strong> — students in Aeries but not yet in PassAble. They will be added automatically.</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <span className="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0 mt-1" />
-                        <p><strong>Already in class</strong> — students in both. Their names will be corrected to match the exact spelling in Aeries so they match across all their classes.</p>
-                      </div>
-                      <div className="flex items-start gap-2">
-                        <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0 mt-1" />
-                        <p><strong>Not on Aeries list</strong> — students in PassAble but missing from this export. They may have transferred or dropped. Check the box next to anyone you want to remove. Nothing is deleted unless you check it.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="font-semibold text-gray-800 mb-1">Duplicates</p>
-                    <p>If a student appears more than once in your PassAble roster (same student, same period), the sync automatically removes the extra entries.</p>
-                  </div>
-
-                  <div>
-                    <p className="font-semibold text-gray-800 mb-1">Step 4 — Click Sync Roster</p>
-                    <p>Review the preview, check off anyone to remove, then click <strong>Sync Roster</strong>. When done, it switches back to Manage Students with your updated class list.</p>
-                  </div>
-
-                </div>
-              )}
-            </div>
+            {/* Help link */}
+            <button
+              onClick={() => { setShowHelp(true); setHelpSearch('import'); setHelpPos({ x: null, y: null }) }}
+              className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1.5">
+              ❓ How this works
+            </button>
 
             {/* Drop zone */}
             <div className="bg-white rounded-xl border border-gray-200 p-5">
