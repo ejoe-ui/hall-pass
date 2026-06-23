@@ -58,6 +58,7 @@ export default function Log() {
   const [currentTeacher, setCurrentTeacher] = useState(null)
   const [passes, setPasses] = useState([])
   const [loading, setLoading] = useState(true)
+  const [notAuthed, setNotAuthed] = useState(false)
   const [filterPeriod, setFilterPeriod] = useState('month')
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
@@ -66,7 +67,7 @@ export default function Log() {
   useEffect(() => {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { setLoading(false); return }
+      if (!session) { setNotAuthed(true); setLoading(false); return }
       const { data: teacher } = await supabase
         .from('teachers')
         .select('*')
@@ -194,6 +195,13 @@ export default function Log() {
   const teacherName = currentTeacher?.name || 'Teacher'
   const teacherRoom = currentTeacher?.room || '27'
   const filterLabel = FILTER_OPTIONS.find(o => o.id === filterPeriod)?.label || 'All Time'
+
+  if (notAuthed) return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-3">
+      <p className="text-sm text-gray-500">You need to be signed in to view this page.</p>
+      <a href="/teacher" className="text-sm font-medium text-green-700 hover:underline">← Go to Teacher Login</a>
+    </div>
+  )
 
   return (
     <>
