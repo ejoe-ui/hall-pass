@@ -464,16 +464,36 @@ export default function StudentsAdmin() {
     let added = 0, updated = 0, removed = 0, dupsRemoved = 0
     const errors = []
 
-    // 1. Upsert all students from Aeries file (corrects names to match Aeries)
+    // 1. Sync all students from Aeries file (corrects names to Aeries spelling)
+    // Batch-fetch which IDs already exist so we can insert vs. update appropriately.
+    // (Upsert with onConflict:'id' requires a UNIQUE constraint — using select+insert/update instead.)
+    const allImportIds = importPreview.map(s => s.id)
+    const { data: existingStudentRows } = await supabase
+      .from('students').select('id').in('id', allImportIds)
+    const existingIdSet = new Set((existingStudentRows || []).map(s => s.id))
+
     for (const student of importPreview) {
-      const { error: sErr } = await supabase.from('students').upsert({
-        id: student.id,
-        first_name: student.first,
-        last_name: student.last,
-        full_name: student.full_name,
-        grade: student.grade || null,
-        period: importPeriod,
-      }, { onConflict: 'id' })
+      let sErr = null
+      if (existingIdSet.has(student.id)) {
+        const { error } = await supabase.from('students').update({
+          first_name: student.first,
+          last_name: student.last,
+          full_name: student.full_name,
+          grade: student.grade || null,
+          period: importPeriod,
+        }).eq('id', student.id)
+        sErr = error
+      } else {
+        const { error } = await supabase.from('students').insert({
+          id: student.id,
+          first_name: student.first,
+          last_name: student.last,
+          full_name: student.full_name,
+          grade: student.grade || null,
+          period: importPeriod,
+        })
+        sErr = error
+      }
       if (sErr) { errors.push(`${student.full_name}: ${sErr.message}`); continue }
 
       // Add to student_periods if not already in this specific period
