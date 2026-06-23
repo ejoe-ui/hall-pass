@@ -810,6 +810,13 @@ function TeacherInner() {
   async function handleTeacherCheckout() {
     if (!selected || !reason) return
     if (reason === 'On Assignment' && !assignedTeacher) return
+
+    // Block if student already has an active pass
+    if (activePasses.some(p => p.student_id === selected)) {
+      alert(`${allStudents.find(s => s.id === selected)?.full_name || 'This student'} is already out. Return them first before issuing a new pass.`)
+      return
+    }
+
     if (dnloList.includes(selected)) {
       playDnloAlert()
       await supabase.from('do_not_let_out').insert({ student_id: selected, reason: 'Teacher override on teacher page', scope: 'override_log', created_by: currentTeacher?.email || session?.user?.email || 'teacher', active: false }).catch(() => {})
@@ -820,8 +827,9 @@ function TeacherInner() {
     else if (reason === 'Errand' && purposeText.trim()) finalReason = `Errand — ${purposeText.trim()}`
     else if (reason === 'Other' && purposeText.trim()) finalReason = `Other — ${purposeText.trim()}`
     const { data: passData } = await supabase.from('passes').insert({ student_id: selected, reason: finalReason, room: selectedRoom || teacherRoom, period: activePeriod, teacher_id: currentTeacher?.id || null }).select().single()
+    // Only print if printable passes is enabled
     const PRINT_REASONS = ['Restroom', 'Library', 'Office', 'Errand', 'On Assignment', 'Other']
-    if (PRINT_REASONS.includes(finalReason.split(' — ')[0]) && passData?.id) {
+    if (printPasses && PRINT_REASONS.includes(finalReason.split(' — ')[0]) && passData?.id) {
       const studentName = allStudents.find(s => s.id === selected)?.full_name || 'Student'
       const timeIssued = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       printHallPass({ passId: passData.id, studentName, reason: finalReason, timeIssued, room: selectedRoom || teacherRoom })
