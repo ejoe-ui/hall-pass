@@ -9,7 +9,7 @@
   AUTH:    4-digit sub_code stored per-teacher in teachers.sub_code
   UPDATED: 2026-06-23 — per-teacher sub code auth; per-teacher session_code; lifetouch-raw
            photos; student_periods roster; dynamic period list from teacher row;
-           room-specific self-checkout URL; file header added
+           room-specific self-checkout URL; file header added; help modal added
 */
 
 'use client'
@@ -44,6 +44,7 @@ export default function Sub() {
   const [kioskReturnRequired, setKioskReturnRequired] = useState(true)
   const [kioskReturnSaved, setKioskReturnSaved] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
   const [selectedStudentPreview, setSelectedStudentPreview] = useState(null)
 
   useEffect(() => { loadTeachers() }, [])
@@ -259,6 +260,68 @@ export default function Sub() {
   return (
     <div className="min-h-screen bg-gray-50">
 
+      {/* Help modal */}
+      {showHelp && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="text-base font-bold text-gray-800">Sub Dashboard Help</h2>
+              <button onClick={() => setShowHelp(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="overflow-y-auto px-6 py-4 flex flex-col gap-4 text-sm text-gray-700">
+
+              {[
+                {
+                  q: 'How do I check out a student?',
+                  a: 'Use Manual Checkout at the bottom of the page. Pick the student\'s name and a reason from the dropdowns, then hit Send. They\'ll appear in the Students Out list immediately.',
+                },
+                {
+                  q: 'How do I check a student back in?',
+                  a: `Click Return next to their name in the Students Out list. If the kiosk is set up at the classroom door, students can also scan themselves back in there.`,
+                },
+                {
+                  q: 'What does the timer color mean?',
+                  a: `Green = under 7 min, yellow = getting long, red = over ${TIME_LIMIT} min. A student showing red has been out too long — consider sending someone to check on them.`,
+                },
+                {
+                  q: 'What are the 🚨 High and ⚠️ Frequent badges?',
+                  a: 'These flag students with high pass counts over the last 30 days. High = 10+ passes, Frequent = 5+. Just a heads-up — you can still let them go.',
+                },
+                {
+                  q: 'What\'s Self-Checkout Mode?',
+                  a: `Students go to hall-pass-lime.vercel.app/self-checkout?room=${teacherRoom} on their Chromebook and enter the session code shown. They check themselves out from their own device. When they return, they scan back in at the classroom kiosk.`,
+                },
+                {
+                  q: 'What does "Kiosk return required" mean?',
+                  a: 'When ON, students must scan at the classroom kiosk to check back in. When OFF, they see an "I\'m Back" button on their device instead. Leave it ON unless the kiosk isn\'t working.',
+                },
+                {
+                  q: 'How do I switch periods?',
+                  a: 'Tap ← Period in the top-right of the header to go back to the period picker.',
+                },
+                {
+                  q: 'Something isn\'t working.',
+                  a: `Contact ${teacherName} or check with the front office. This is a sub-only view — settings changes require the regular teacher login.`,
+                },
+              ].map(item => (
+                <details key={item.q} className="border-b border-gray-100 last:border-0 pb-3">
+                  <summary className="font-semibold text-gray-800 cursor-pointer py-1 list-none flex justify-between items-center">
+                    {item.q}<span className="text-gray-400 text-base ml-2 flex-shrink-0">›</span>
+                  </summary>
+                  <p className="mt-2 text-gray-500 text-sm leading-relaxed">{item.a}</p>
+                </details>
+              ))}
+
+            </div>
+            <div className="px-6 py-4 border-t border-gray-100">
+              <button onClick={() => setShowHelp(false)}
+                className="w-full py-2.5 text-sm font-semibold rounded-xl text-white"
+                style={{ backgroundColor: RHS_GREEN }}>Got it</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
         <div className="flex items-center gap-3">
@@ -272,6 +335,7 @@ export default function Sub() {
           <button onClick={() => setShowHistory(h => !h)} className="text-sm text-green-200 hover:text-white">
             {showHistory ? 'Hide History' : "Today's History"}
           </button>
+          <button onClick={() => setShowHelp(true)} className="text-sm text-green-200 hover:text-white">? Help</button>
           <button onClick={() => setActivePeriod(null)} className="text-sm text-green-200 hover:text-white">← Period</button>
           <a href="/" className="text-sm text-green-200 hover:text-white">Home</a>
         </div>
