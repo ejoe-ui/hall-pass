@@ -1,657 +1,475 @@
 /*
   PassAble — RHS Hall Pass System
-  FILE:    app/admin/roster/page.jsx
-  ROUTE:   /admin/roster?room=XX
-  PURPOSE: Teacher roster import from Aeries XLSX. Detects dropped students
-           (on current roster but missing from new import) and offers to
-           remove them with teacher confirmation before any deletions occur.
+  FILE:    app/roster/page.jsx
+  ROUTE:   /roster
+  PURPOSE: Teacher-scoped student roster management. Add, edit, remove, and move
+           students between periods. Period membership sourced from student_periods
+           table (not students.period). Supports manual photo upload.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
-  BACKEND: Supabase (students, student_periods tables)
-  UPDATED: 2026-06-21
+  BACKEND: Supabase (teachers, students, student_periods)
+  STORAGE: lifetouch-raw bucket for all student photos
+  UPDATED: 2026-06-23 — added file header; fixed photo bucket (student-photos →
+           lifetouch-raw) in getPhotoUrl, getStorageUrl, and handlePhotoUpload;
+           removed dead /student/[id] link (no confirmed route)
 */
-
 'use client'
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { supabase } from '../../../lib/supabase'
-import * as XLSX from 'xlsx'
+import { useState, useEffect, useRef } from 'react'
+import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
-const RHS_GRAY = '#C4BEB5'
 
-// ── Parser — auto-detects period and term from Aeries header ──────────────
-function parseAeriesXLSX(workbook, fileName) {
-  const sheet = workbook.Sheets[workbook.SheetNames[0]]
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false, blankrows: true })
+const DEFAULT_PERIODS = [
+  { label: 'Periods 1 & 2', value: '1' },
+  { label: 'Periods 4 & 5', value: '4' },
+  { label: 'Periods 6 & 7', value: '6' },
+]
 
-  let period = null
-  let term = null
-  let courseTitle = ''
-  const students = []
-  let inStudents = false
+export default function StudentsAdmin() {
+  const [currentTeacher, setCurrentTeacher] = useState(null)
+  const [periods, setPeriods] = useState(DEFAULT_PERIODS)
+  const [room, setRoom] = useState('27')
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
-    const cells = row.map(c => String(c || '').trim())
-    const nonEmpty = cells.filter(c => c !== '')
-    if (nonEmpty.length === 0) continue
+  const [activePeriod, setActivePeriod] = useState(null)
+  const [students, setStudents] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [addPeriod, setAddPeriod] = useState(null)
+  const [addId, setAddId] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [editStudent, setEditStudent] = useState(null)
+  const [editFirst, setEditFirst] = useState('')
+  const [editLast, setEditLast] = useState('')
+  const [editDisplay, setEditDisplay] = useState('')
+  const [editId, setEditId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const [photoUrl, setPhotoUrl] = useState(null)
+  const photoRef = useRef()
 
-    if (!period && /^[1-7]$/.test(nonEmpty[0])) {
-      period = nonEmpty[0]
-      courseTitle = nonEmpty[1] || ''
-      const termVal = nonEmpty.find(v => v === 'F' || v === 'S')
-      term = termVal === 'F' ? 'Fall' : termVal === 'S' ? 'Spring' : ''
-      continue
+  useEffect(() => {
+    async function loadTeacher() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const { data } = await supabase
+        .from('teachers')
+        .select('*')
+        .eq('auth_id', session.user.id)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (data) {
+        setCurrentTeacher(data)
+        const teacherRoom = data.room || '27'
+        setRoom(teacherRoom)
+        if (data.periods?.length) {
+          const sorted = [...data.periods].sort()
+          const builtPeriods = sorted.map(p => ({
+            value: p,
+            label: data.period_labels?.[p] || `Period ${p}`,
+          }))
+          setPeriods(builtPeriods)
+          setActivePeriod(sorted[0])
+          setAddPeriod(sorted[0])
+        } else {
+          setActivePeriod('1')
+          setAddPeriod('1')
+        }
+      }
     }
-
-    if (nonEmpty.some(v => v === 'Student ID')) { inStudents = true; continue }
-    if (!inStudents) continue
-
-    const idVal = nonEmpty.find(v => /^\d{6}$/.test(v))
-    const nameVal = nonEmpty.find(v => v.includes(',') && v.length > 3 && !/^\d/.test(v))
-
-    if (idVal && nameVal) {
-      const parts = nameVal.split(',')
-      const lastName = parts[0]?.trim() || ''
-      const firstFull = parts[1]?.trim() || ''
-      const firstName = firstFull.split(' ')[0] || firstFull
-      const full_name = `${firstFull} ${lastName}`.trim()
-      const nameIdx = nonEmpty.indexOf(nameVal)
-      const grade = nonEmpty.slice(nameIdx + 1).find(v => ['09','10','11','12'].includes(v)) || ''
-      students.push({ id: idVal, full_name, first_name: firstName, last_name: lastName, grade, period })
-    }
-  }
-
-  return { period, term, courseTitle, students, fileName }
-}
-
-function RosterImportInner() {
-  const searchParams = useSearchParams()
-  const teacherRoom = searchParams.get('room') || '27'
-
-  const [stage, setStage] = useState('upload')
-  const [parsedFiles, setParsedFiles] = useState([])
-  const [importResult, setImportResult] = useState(null)
-  const [errorMsg, setErrorMsg] = useState('')
-  const [expandedIdx, setExpandedIdx] = useState(null)
-  const [isDragging, setIsDragging] = useState(false)
-
-  // Dropped student state
-  const [droppedStudents, setDroppedStudents] = useState([])   // [{id, full_name, period}]
-  const [removeDropped, setRemoveDropped] = useState(false)    // teacher confirmed removal
-  const [checkingDiff, setCheckingDiff] = useState(false)
-
-  // Floating help panel
-  const [showHelp, setShowHelp] = useState(false)
-  const [helpPos, setHelpPos] = useState({ x: null, y: null })
-  const helpRef = useRef()
-  const dragOffset = useRef(null)
-
-  const fileRef = useRef()
-
-  const onHelpMouseDown = useCallback((e) => {
-    if (e.target.closest('a, button')) return
-    dragOffset.current = {
-      x: e.clientX - helpRef.current.getBoundingClientRect().left,
-      y: e.clientY - helpRef.current.getBoundingClientRect().top,
-    }
-    const onMove = (mv) => {
-      setHelpPos({ x: mv.clientX - dragOffset.current.x, y: mv.clientY - dragOffset.current.y })
-    }
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    loadTeacher()
   }, [])
 
-  // After parsedFiles are set, check DB for dropped students
   useEffect(() => {
-    if (parsedFiles.length === 0 || stage !== 'preview') return
-    checkDropped()
-  }, [parsedFiles, stage])
+    if (activePeriod && room) loadStudents()
+  }, [activePeriod, room])
 
-  async function checkDropped() {
-    setCheckingDiff(true)
-    setDroppedStudents([])
-    setRemoveDropped(false)
-
-    // All student IDs in the incoming files
-    const incomingIds = new Set(parsedFiles.flatMap(f => f.students.map(s => s.id)))
-
-    // Current roster in DB for this room
-    const { data: currentPeriods } = await supabase
+  async function loadStudents() {
+    setLoading(true)
+    const { data: spRows } = await supabase
       .from('student_periods')
       .select('student_id')
-      .eq('room', teacherRoom)
-
-    if (!currentPeriods || currentPeriods.length === 0) {
-      setCheckingDiff(false)
+      .eq('period', activePeriod)
+      .eq('room', room)
+    const studentIds = spRows?.map(r => r.student_id) || []
+    if (studentIds.length === 0) {
+      setStudents([])
+      setLoading(false)
       return
     }
-
-    const droppedIds = [...new Set(
-      currentPeriods.map(p => p.student_id).filter(sid => !incomingIds.has(sid))
-    )]
-
-    if (droppedIds.length === 0) {
-      setCheckingDiff(false)
-      return
-    }
-
-    // Fetch names for dropped students so we can show them
-    const { data: droppedData } = await supabase
+    const { data } = await supabase
       .from('students')
-      .select('id, full_name, period')
-      .in('id', droppedIds)
-
-    setDroppedStudents(droppedData || [])
-    setCheckingDiff(false)
+      .select('id, first_name, last_name, full_name, period, nfc_uid, photo_file, photo_url')
+      .in('id', studentIds)
+      .order('first_name')
+    if (data) setStudents(data)
+    setLoading(false)
   }
 
-  function processFiles(files) {
-    const results = []
-    const errors = []
-    let pending = files.length
+  function getPhotoUrl(student) {
+    // Prefer photo_url (Aeries/direct URL), fall back to storage file
+    if (student.photo_url) return student.photo_url
+    if (!student.photo_file) return null
+    // Uses lifetouch-raw bucket (not student-photos)
+    const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(student.photo_file)
+    return data?.publicUrl || null
+  }
 
-    Array.from(files).forEach(file => {
-      if (!file.name.endsWith('.xlsx')) {
-        errors.push(`${file.name} is not an XLSX file`)
-        pending--
-        if (pending === 0) finalize(results, errors)
-        return
-      }
-      const reader = new FileReader()
-      reader.onload = (evt) => {
-        try {
-          const data = new Uint8Array(evt.target.result)
-          const workbook = XLSX.read(data, { type: 'array' })
-          const parsed = parseAeriesXLSX(workbook, file.name)
-          if (!parsed.period || parsed.students.length === 0) {
-            errors.push(`${file.name}: No student data found`)
-          } else {
-            results.push(parsed)
-          }
-        } catch (err) {
-          errors.push(`${file.name}: ${err.message}`)
-        }
-        pending--
-        if (pending === 0) finalize(results, errors)
-      }
-      reader.readAsArrayBuffer(file)
+  function getStorageUrl(photo_file) {
+    if (!photo_file) return null
+    // Uses lifetouch-raw bucket (not student-photos)
+    const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(photo_file)
+    return data?.publicUrl || null
+  }
+
+  async function addStudent() {
+    if (!firstName.trim() || !lastName.trim()) return
+    setAdding(true)
+    const full_name = `${firstName.trim()} ${lastName.trim()}`
+    const id = addId.trim() || `NEW${Date.now()}`
+    const { error } = await supabase.from('students').insert({
+      id, first_name: firstName.trim(), last_name: lastName.trim(),
+      full_name, period: addPeriod
     })
-  }
-
-  function finalize(results, errors) {
-    if (results.length === 0) {
-      setErrorMsg(errors.join('\n') || 'No valid roster files found.')
-      setStage('error')
-      return
+    if (!error) {
+      await supabase.from('student_periods').insert({
+        student_id: id, period: addPeriod, room
+      })
+      setFirstName(''); setLastName(''); setAddId('')
+      if (addPeriod === activePeriod) loadStudents()
     }
-    results.sort((a, b) => parseInt(a.period) - parseInt(b.period))
-    setParsedFiles(results)
-    if (errors.length > 0) setErrorMsg(errors.join('\n'))
-    setStage('preview')
+    setAdding(false)
   }
 
-  function handleFileInput(e) {
-    if (e.target.files?.length) processFiles(e.target.files)
-  }
-
-  function handleDrop(e) {
-    e.preventDefault()
-    setIsDragging(false)
-    if (e.dataTransfer.files?.length) processFiles(e.dataTransfer.files)
-  }
-
-  async function handleImportAll() {
-    setStage('importing')
-    let totalImported = 0
-    let totalErrors = 0
-    const batchSize = 50
-
-    for (const file of parsedFiles) {
-      const studentRows = file.students.map(s => ({
-        id: s.id,
-        first_name: s.first_name,
-        last_name: s.last_name,
-        full_name: s.full_name,
-        grade: s.grade,
-        period: s.period,
-      }))
-
-      for (let i = 0; i < studentRows.length; i += batchSize) {
-        const batch = studentRows.slice(i, i + batchSize)
-        const { error } = await supabase
-          .from('students')
-          .upsert(batch, { onConflict: 'id,period' })
-        if (error) {
-          console.error('Students upsert error:', JSON.stringify(error))
-          totalErrors += batch.length
-        } else {
-          totalImported += batch.length
-        }
-      }
-
-      // Also upsert student_periods for room-scoped lookups
-      const periodRows = file.students.map(s => ({
-        student_id: s.id,
-        period: s.period,
-        room: teacherRoom,
-      }))
-
-      for (let i = 0; i < periodRows.length; i += batchSize) {
-        const batch = periodRows.slice(i, i + batchSize)
-        const { error } = await supabase
-          .from('student_periods')
-          .upsert(batch, { onConflict: 'student_id,period,room' })
-        if (error) console.error('student_periods upsert error:', JSON.stringify(error))
-      }
+  async function removeStudent(studentId) {
+    await supabase.from('student_periods')
+      .delete()
+      .eq('student_id', studentId)
+      .eq('period', activePeriod)
+      .eq('room', room)
+    const { data: remaining } = await supabase
+      .from('student_periods')
+      .select('id')
+      .eq('student_id', studentId)
+    if (!remaining || remaining.length === 0) {
+      await supabase.from('students').delete().eq('id', studentId)
     }
+    setConfirmDelete(null)
+    loadStudents()
+  }
 
-    // Remove dropped students from this room if teacher confirmed
-    let removedCount = 0
-    if (removeDropped && droppedStudents.length > 0) {
-      const droppedIds = droppedStudents.map(s => s.id)
-      const { error } = await supabase
+  async function movePeriod(studentId, newPeriod) {
+    const { data: existing } = await supabase
+      .from('student_periods')
+      .select('id')
+      .eq('student_id', studentId)
+      .eq('period', activePeriod)
+      .eq('room', room)
+      .maybeSingle()
+    if (existing) {
+      await supabase.from('student_periods')
+        .update({ period: newPeriod })
+        .eq('id', existing.id)
+    } else {
+      await supabase.from('student_periods').insert({
+        student_id: studentId, period: newPeriod, room
+      })
+    }
+    await supabase.from('students').update({ period: newPeriod }).eq('id', studentId)
+    loadStudents()
+  }
+
+  function openEdit(s) {
+    setEditStudent(s)
+    setEditFirst(s.first_name || '')
+    setEditLast(s.last_name || '')
+    setEditDisplay(s.full_name || '')
+    setEditId('')
+    setPhotoUrl(getPhotoUrl(s))
+  }
+
+  async function saveEdit() {
+    if (!editStudent) return
+    setSaving(true)
+    const full_name = editDisplay.trim() || `${editFirst.trim()} ${editLast.trim()}`
+    const newId = editId.trim()
+    if (newId && newId !== editStudent.id) {
+      let photoFile = editStudent.photo_file || null
+      if (photoFile && photoFile.startsWith(editStudent.id)) {
+        photoFile = newId + '.jpg'
+      }
+      await supabase.from('students').insert({
+        id: newId,
+        first_name: editFirst.trim(),
+        last_name: editLast.trim(),
+        full_name,
+        period: editStudent.period,
+        nfc_uid: editStudent.nfc_uid || null,
+        photo_file: photoFile,
+        photo_url: editStudent.photo_url || null,
+      })
+      const { data: oldPeriods } = await supabase
         .from('student_periods')
-        .delete()
-        .eq('room', teacherRoom)
-        .in('student_id', droppedIds)
-      if (!error) removedCount = droppedIds.length
+        .select('period, room')
+        .eq('student_id', editStudent.id)
+      if (oldPeriods && oldPeriods.length > 0) {
+        await supabase.from('student_periods').insert(
+          oldPeriods.map(p => ({ student_id: newId, period: p.period, room: p.room }))
+        )
+      }
+      await supabase.from('student_periods').delete().eq('student_id', editStudent.id)
+      await supabase.from('students').delete().eq('id', editStudent.id)
+    } else {
+      await supabase.from('students').update({
+        first_name: editFirst.trim(),
+        last_name: editLast.trim(),
+        full_name,
+      }).eq('id', editStudent.id)
     }
-
-    const totalStudentsIncoming = parsedFiles.reduce((sum, f) => sum + f.students.length, 0)
-    setImportResult({
-      total: totalStudentsIncoming,
-      imported: totalImported,
-      errors: totalErrors,
-      removed: removedCount,
-      files: parsedFiles,
-    })
-    setStage('success')
+    setSaving(false)
+    setEditStudent(null)
+    loadStudents()
   }
 
-  function reset() {
-    setStage('upload')
-    setParsedFiles([])
-    setImportResult(null)
-    setErrorMsg('')
-    setExpandedIdx(null)
-    setDroppedStudents([])
-    setRemoveDropped(false)
-    setCheckingDiff(false)
-    if (fileRef.current) fileRef.current.value = ''
+  async function handlePhotoUpload(e) {
+    const file = e.target.files[0]
+    if (!file || !editStudent) return
+    setPhotoUploading(true)
+    const path = `${editStudent.id}.jpg`
+    // Upload to lifetouch-raw bucket (not student-photos)
+    const { error: uploadError } = await supabase.storage
+      .from('lifetouch-raw')
+      .upload(path, file, { upsert: true, contentType: 'image/jpeg' })
+    if (!uploadError) {
+      await supabase.from('students').update({ photo_file: path }).eq('id', editStudent.id)
+      // Get public URL from lifetouch-raw bucket (not student-photos)
+      const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(path)
+      setPhotoUrl(data?.publicUrl ? `${data.publicUrl}?t=${Date.now()}` : null)
+      setEditStudent(prev => ({ ...prev, photo_file: path }))
+    }
+    setPhotoUploading(false)
   }
 
-  const totalStudents = parsedFiles.reduce((sum, f) => sum + f.students.length, 0)
+  const teacherName = currentTeacher?.name || 'Loading...'
 
-  // ── UPLOAD ──
-  if (stage === 'upload') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-md">
-        <div className="flex items-center gap-3 mb-8">
-          <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-10 h-10 object-contain" />
-          <div className="flex-1">
-            <h1 className="text-xl font-bold" style={{ color: RHS_GREEN }}>Roster Import</h1>
-            <p className="text-xs text-gray-400">RHS PassAble · Room {teacherRoom}</p>
-          </div>
-          <button
-            onClick={() => { setShowHelp(v => !v); setHelpPos({ x: null, y: null }) }}
-            title="Help"
-            style={{
-              width: 32, height: 32, borderRadius: '50%', border: `2px solid ${RHS_GREEN}`,
-              background: showHelp ? RHS_GREEN : 'white', color: showHelp ? 'white' : RHS_GREEN,
-              fontWeight: 700, fontSize: 16, cursor: 'pointer', flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >?</button>
-        </div>
-
-        {/* Floating draggable help panel */}
-        {showHelp && (
-          <div
-            ref={helpRef}
-            onMouseDown={onHelpMouseDown}
-            style={{
-              position: 'fixed',
-              top: helpPos.y !== null ? helpPos.y : 80,
-              left: helpPos.x !== null ? helpPos.x : 'calc(50% + 240px)',
-              width: 340,
-              maxHeight: '80vh',
-              overflowY: 'auto',
-              background: 'white',
-              borderRadius: 16,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
-              border: '1px solid #e5e7eb',
-              zIndex: 1000,
-              cursor: 'grab',
-              userSelect: 'none',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '12px 16px', borderBottom: '1px solid #f3f4f6',
-                background: '#f9fafb', borderRadius: '16px 16px 0 0',
-              }}
-            >
-              <p style={{ fontWeight: 700, fontSize: 13, color: '#374151', margin: 0 }}>Roster Import — Help</p>
-              <button
-                onClick={() => setShowHelp(false)}
-                style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#9ca3af', lineHeight: 1 }}
-              >×</button>
-            </div>
-            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {[
-                {
-                  q: '➕ Adding a Student Mid-Year',
-                  a: 'The preferred method is importing an updated roster from Aeries — it ensures names are spelled consistently and match your Lifetouch photos. If needed, you can also add a student manually via Manage Students on your Relay Station dashboard, but double-check the spelling matches Aeries exactly or their photo won\'t match. If the student was already in PassAble from another teacher\'s class, their name and photo carry over automatically.',
-                  link: { label: 'Manage Students', href: '/teacher' }
-                },
-                {
-                  q: '➖ Removing a Student from Your Class',
-                  a: 'Two ways: (1) Import an updated roster from Aeries that doesn\'t include them — they\'ll show up in the amber "no longer on your roster" section and you can check the box to remove them. (2) Go to Manage Students on your Relay Station dashboard and remove them directly from your class list.',
-                  link: { label: 'Manage Students', href: '/teacher' }
-                },
-                {
-                  q: 'What does "no longer on your roster" mean?',
-                  a: 'These students are currently linked to your class in PassAble but aren\'t in your new import. Usually means they transferred, dropped, or had a schedule change. Check the box to remove them — or leave it unchecked and they stay on your roster as-is.'
-                },
-                {
-                  q: 'Will removing a student delete their pass history?',
-                  a: 'No. Removing a student from your class only unlinks them from your room. All their pass history stays intact and is always visible in the admin panel.'
-                },
-                {
-                  q: 'What if I import the wrong file by mistake?',
-                  a: 'The import only adds or updates — it never deletes unless you check the removal box. If something goes wrong, re-import the correct file and the data will be corrected.'
-                },
-                {
-                  q: 'Can I import just one period at a time?',
-                  a: 'Yes. Upload a single file or multiple at once. Only the periods in your uploaded files are affected — other periods are untouched.'
-                },
-              ].map((item, i) => (
-                <div key={i} style={{ background: '#f9fafb', borderRadius: 10, padding: '10px 12px' }}>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374151', margin: '0 0 4px' }}>{item.q}</p>
-                  <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>
-                    {item.a}
-                    {item.link && (
-                      <> <a href={item.link.href} style={{ color: RHS_GREEN, textDecoration: 'underline', fontWeight: 500 }}>{item.link.label} →</a></>
-                    )}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div
-          className="border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors"
-          style={{ borderColor: isDragging ? RHS_GREEN : RHS_GRAY, backgroundColor: isDragging ? '#f0f7f3' : 'white' }}
-          onClick={() => fileRef.current?.click()}
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-        >
-          <div className="text-5xl mb-4">📋</div>
-          <p className="text-gray-700 font-medium mb-1">Drop your Aeries rosters here</p>
-          <p className="text-gray-400 text-sm mb-3">or click to browse</p>
-          <p className="text-xs text-gray-400 mb-4">Select multiple files at once — one per class period</p>
-          <span className="text-xs px-3 py-1 rounded-full font-medium" style={{ backgroundColor: '#f0f7f3', color: RHS_GREEN }}>
-            XLSX files only · Period auto-detected
-          </span>
-          <input ref={fileRef} type="file" accept=".xlsx" multiple className="hidden" onChange={handleFileInput} />
-        </div>
-
-        <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
-          <p className="font-medium mb-1">How to export from Aeries:</p>
-          <ol className="list-decimal list-inside space-y-1 text-xs">
-            <li>Go to Attendance → Class Roster</li>
-            <li>Export each class as a separate XLSX</li>
-            <li>Select all files here at once — period is read automatically</li>
-          </ol>
-        </div>
-
-        <a href="/teacher" className="block text-center text-sm text-gray-400 hover:text-gray-600 mt-6">← Back to Dashboard</a>
-      </div>
+  if (!activePeriod) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="w-6 h-6 border-2 border-gray-300 rounded-full animate-spin" style={{ borderTopColor: RHS_GREEN }} />
     </div>
   )
 
-  // ── PREVIEW ──
-  if (stage === 'preview') return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-2xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" />
-          <div>
-            <h1 className="text-xl font-bold" style={{ color: RHS_GREEN }}>Review Before Importing</h1>
-            <p className="text-xs text-gray-400">{parsedFiles.length} roster{parsedFiles.length !== 1 ? 's' : ''} · Room {teacherRoom}</p>
-          </div>
-        </div>
+  return (
+    <div className="min-h-screen bg-gray-50">
 
-        {/* Incoming summary */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 flex items-center justify-between">
-          <div>
-            <p className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{totalStudents}</p>
-            <p className="text-xs text-gray-500">students in your new roster across {parsedFiles.length} period{parsedFiles.length !== 1 ? 's' : ''}</p>
-          </div>
-          <div className="flex gap-2 flex-wrap justify-end">
-            {parsedFiles.map(f => (
-              <span key={f.period + f.term} className="text-xs px-2 py-1 rounded-full font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
-                P{f.period} {f.term ? `· ${f.term}` : ''}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {errorMsg && (
-          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs whitespace-pre-line">
-            ⚠ Some files were skipped:<br />{errorMsg}
-          </div>
-        )}
-
-        {/* Period breakdown */}
-        <div className="space-y-3 mb-4">
-          {parsedFiles.map((f, idx) => (
-            <div key={idx} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <button
-                className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
-                onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
-                    {f.period}
-                  </span>
-                  <div className="text-left">
-                    <p className="text-sm font-medium text-gray-800">Period {f.period} · {f.term}</p>
-                    <p className="text-xs text-gray-400">{f.courseTitle}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold" style={{ color: RHS_GREEN }}>{f.students.length} students</span>
-                  <span className="text-gray-400 text-xs">{expandedIdx === idx ? '▲' : '▼'}</span>
-                </div>
-              </button>
-              {expandedIdx === idx && (
-                <div className="border-t border-gray-100 max-h-56 overflow-y-auto">
-                  {f.students.map((s, i) => (
-                    <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
-                      <span className="text-xs text-gray-400 w-6">{i + 1}</span>
-                      <span className="text-xs font-mono text-gray-500 w-16">{s.id}</span>
-                      <span className="text-sm text-gray-800 flex-1">{s.full_name}</span>
-                      <span className="text-xs text-gray-400">Gr {s.grade}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Dropped students section */}
-        {checkingDiff && (
-          <div className="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-xl flex items-center gap-3">
-            <div className="w-4 h-4 border-2 border-gray-300 rounded-full animate-spin flex-shrink-0" style={{ borderTopColor: RHS_GREEN }} />
-            <p className="text-sm text-gray-500">Checking for roster changes…</p>
-          </div>
-        )}
-
-        {!checkingDiff && droppedStudents.length > 0 && (
-          <div className="mb-4 bg-white rounded-xl border border-amber-300 overflow-hidden">
-            <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex items-center gap-3">
-              <span className="text-xl">⚠️</span>
+      {/* Edit Modal */}
+      {editStudent && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
               <div>
-                <p className="text-sm font-semibold text-amber-800">
-                  {droppedStudents.length} student{droppedStudents.length !== 1 ? 's' : ''} no longer on your roster
-                </p>
-                <p className="text-xs text-amber-600">
-                  These students are in your current class list but missing from the new import.
-                  They may have transferred, dropped, or had a schedule change.
-                </p>
+                <h2 className="text-lg font-semibold text-gray-800">Edit Student</h2>
+                <p className="text-xs text-gray-400">ID: {editStudent.id}</p>
+              </div>
+              <button onClick={() => setEditStudent(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+
+            {editStudent.id?.startsWith('NEW') && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <label className="text-xs text-amber-700 font-medium mb-1 block">⚠ Set Aeries Student ID</label>
+                <input type="text" placeholder="6-digit Aeries ID"
+                  value={editId} onChange={e => setEditId(e.target.value)}
+                  maxLength={6}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: '#f59e0b' }} />
+                <p className="text-xs text-amber-600 mt-1">This will replace the auto-generated ID. Enter the student's real Aeries ID.</p>
+              </div>
+            )}
+
+            {/* Photo */}
+            <div className="flex items-center gap-4 mb-4 p-3 bg-gray-50 rounded-xl">
+              <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-200 flex-shrink-0 flex items-center justify-center">
+                {photoUrl
+                  ? <img src={photoUrl} alt={editStudent.full_name} className="w-full h-full object-cover" />
+                  : <span className="text-2xl font-bold text-gray-400">
+                      {editStudent.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                    </span>
+                }
+              </div>
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => photoRef.current?.click()}
+                  disabled={photoUploading}
+                  className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-50"
+                  style={{ backgroundColor: RHS_GREEN }}>
+                  {photoUploading ? 'Uploading...' : photoUrl ? 'Replace Photo' : 'Add Photo'}
+                </button>
+                <p className="text-xs text-gray-400">JPG only</p>
+                <input ref={photoRef} type="file" accept=".jpg,.jpeg" className="hidden" onChange={handlePhotoUpload} />
               </div>
             </div>
 
-            <div className="max-h-48 overflow-y-auto">
-              {droppedStudents.map((s, i) => (
-                <div key={s.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                  <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center text-xs font-bold text-amber-700 flex-shrink-0">
-                    {s.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
-                  </div>
-                  <span className="text-sm text-gray-800 flex-1">{s.full_name}</span>
-                  {s.period && <span className="text-xs text-gray-400">P{s.period}</span>}
-                  <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">Not in new roster</span>
-                </div>
+            <div className="flex flex-col gap-3 mb-4">
+              <div>
+                <label className="text-xs text-gray-500 font-medium mb-1 block">First Name</label>
+                <input type="text" value={editFirst} onChange={e => setEditFirst(e.target.value)}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-medium mb-1 block">Last Name</label>
+                <input type="text" value={editLast} onChange={e => setEditLast(e.target.value)}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-medium mb-1 block">Display Name <span className="text-gray-400 font-normal">(what shows on passes)</span></label>
+                <input type="text" value={editDisplay} onChange={e => setEditDisplay(e.target.value)}
+                  placeholder={`${editFirst} ${editLast}`}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+                <p className="text-xs text-gray-400 mt-1">Leave as-is or type a preferred name</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={saveEdit} disabled={saving}
+                className="flex-1 py-3 text-white text-sm font-semibold rounded-xl disabled:opacity-30"
+                style={{ backgroundColor: RHS_GREEN }}>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button onClick={() => setEditStudent(null)}
+                className="flex-1 py-3 border border-gray-200 text-gray-600 text-sm rounded-xl hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
+        <div className="flex items-center gap-3">
+          <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
+          <div>
+            <h1 className="text-lg font-bold text-white">Student Management</h1>
+            <p className="text-green-200 text-xs">Room {room} · {teacherName}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <a href="/admin/photos" className="text-sm text-green-200 hover:text-white">📷 Photo Upload</a>
+          <a href="/teacher" className="text-sm text-green-200 hover:text-white">← Dashboard</a>
+        </div>
+      </div>
+
+      <div className="p-6 max-w-3xl mx-auto">
+
+        {/* Add Student */}
+        <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
+          <p className="text-sm font-medium mb-3" style={{ color: RHS_GREEN }}>Add Student</p>
+          <div className="flex gap-2 mb-2">
+            <input type="text" placeholder="First name" value={firstName}
+              onChange={e => setFirstName(e.target.value)}
+              className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+              style={{ borderColor: RHS_GREEN }} />
+            <input type="text" placeholder="Last name" value={lastName}
+              onChange={e => setLastName(e.target.value)}
+              className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+              style={{ borderColor: RHS_GREEN }} />
+            <input type="text" placeholder="Student ID (optional)" value={addId}
+              onChange={e => setAddId(e.target.value)}
+              className="w-36 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+              style={{ borderColor: RHS_GREEN }} />
+            <select value={addPeriod} onChange={e => setAddPeriod(e.target.value)}
+              className="p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+              style={{ borderColor: RHS_GREEN }}>
+              {periods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+            <button onClick={addStudent} disabled={adding || !firstName.trim() || !lastName.trim()}
+              className="px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-30"
+              style={{ backgroundColor: RHS_GREEN }}>
+              {adding ? 'Adding...' : 'Add'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400">Student ID from Aeries (6 digits). Leave blank to auto-generate.</p>
+        </div>
+
+        {/* Student List */}
+        <div className="bg-white rounded-xl border border-gray-200">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <div className="flex gap-2">
+              {periods.map(p => (
+                <button key={p.value} onClick={() => setActivePeriod(p.value)}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border"
+                  style={activePeriod === p.value
+                    ? { backgroundColor: RHS_GREEN, color: 'white', borderColor: RHS_GREEN }
+                    : { backgroundColor: 'white', color: '#374151', borderColor: '#e5e7eb' }}>
+                  {p.label}
+                </button>
               ))}
             </div>
-
-            {/* Confirm removal toggle */}
-            <div className="px-4 py-3 border-t border-amber-100 bg-amber-50">
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={removeDropped}
-                  onChange={e => setRemoveDropped(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 rounded accent-amber-600 flex-shrink-0"
-                />
-                <span className="text-xs text-amber-800 leading-relaxed">
-                  <strong>Remove these {droppedStudents.length} student{droppedStudents.length !== 1 ? 's' : ''} from my class</strong> — their pass history is kept, they'll just no longer appear on my roster.
-                  Leave unchecked to keep them on your roster as-is.
-                </span>
-              </label>
-            </div>
+            <span className="text-xs text-gray-400">{students.length} students</span>
           </div>
-        )}
 
-        {!checkingDiff && droppedStudents.length === 0 && parsedFiles.length > 0 && (
-          <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-xl text-xs text-green-700">
-            ✓ No roster changes detected — all current students are in your new import.
-          </div>
-        )}
-
-        <div className="flex gap-3">
-          <button onClick={reset}
-            className="flex-1 py-3 rounded-xl border-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-            style={{ borderColor: RHS_GRAY }}>
-            Cancel
-          </button>
-          <button
-            onClick={handleImportAll}
-            disabled={checkingDiff}
-            className="flex-1 py-3 rounded-xl text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: RHS_GREEN }}>
-            {removeDropped && droppedStudents.length > 0
-              ? `Import ${totalStudents} · Remove ${droppedStudents.length} →`
-              : `Import All ${totalStudents} Students →`}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-
-  // ── IMPORTING ──
-  if (stage === 'importing') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-      <div className="text-center">
-        <div className="w-16 h-16 border-4 border-gray-200 rounded-full mx-auto mb-6 animate-spin" style={{ borderTopColor: RHS_GREEN }} />
-        <p className="text-lg font-semibold text-gray-800">Importing rosters...</p>
-        <p className="text-sm text-gray-400 mt-1">{parsedFiles.length} periods · {totalStudents} students · Room {teacherRoom}</p>
-      </div>
-    </div>
-  )
-
-  // ── SUCCESS ──
-  if (stage === 'success') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-full flex items-center justify-center text-3xl mx-auto mb-4" style={{ backgroundColor: '#f0f7f3' }}>✅</div>
-          <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>Import Complete</h1>
-          <p className="text-gray-500 text-sm">Room {teacherRoom} · {importResult.files.length} periods loaded</p>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
-          <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100">
-            <span className="text-gray-600 text-sm">Students imported</span>
-            <span className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{importResult.imported}</span>
-          </div>
-          {importResult.removed > 0 && (
-            <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100">
-              <span className="text-gray-600 text-sm">Dropped students removed</span>
-              <span className="text-2xl font-bold text-amber-600">{importResult.removed}</span>
-            </div>
-          )}
-          <div className="space-y-2">
-            {importResult.files.map(f => (
-              <div key={f.period + f.term} className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded text-xs font-bold text-white flex items-center justify-center flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
-                  {f.period}
-                </span>
-                <span className="text-sm text-gray-600">Period {f.period} · {f.term} · {f.courseTitle}</span>
-                <span className="ml-auto text-sm font-medium text-gray-800">{f.students.length}</span>
-              </div>
-            ))}
-          </div>
-          {importResult.errors > 0 && (
-            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs">
-              ⚠ {importResult.errors} records had errors and may not have imported correctly.
-            </div>
+          {loading ? (
+            <div className="p-8 text-center text-gray-400 text-sm">Loading...</div>
+          ) : students.length === 0 ? (
+            <div className="p-8 text-center text-gray-400 text-sm">No students in this period</div>
+          ) : (
+            students.map(s => {
+              const url = getPhotoUrl(s)
+              return (
+                <div key={s.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+                  {/* Photo: prefer photo_url, fall back to lifetouch-raw storage, then initials */}
+                  <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center text-xs font-medium text-white"
+                    style={{ backgroundColor: RHS_GREEN }}>
+                    {url
+                      ? <img src={url} alt={s.full_name} className="w-full h-full object-cover" />
+                      : s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')
+                    }
+                  </div>
+                  <div className="flex-1">
+                    {/* no confirmed /student/[id] route — plain span instead of link */}
+                    <span className="text-sm font-medium" style={{ color: RHS_GREEN }}>
+                      {s.full_name}
+                    </span>
+                    <div className="flex gap-2 mt-0.5">
+                      {s.nfc_uid && <p className="text-xs text-gray-400">📲 NFC</p>}
+                      {(s.photo_file || s.photo_url) && <p className="text-xs text-gray-400">📷 Photo</p>}
+                    </div>
+                  </div>
+                  <select
+                    value={activePeriod}
+                    onChange={e => movePeriod(s.id, e.target.value)}
+                    className="text-xs border rounded-lg p-1 text-gray-600 bg-white"
+                    style={{ borderColor: '#e5e7eb' }}>
+                    {periods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                  </select>
+                  <button onClick={() => openEdit(s)}
+                    className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
+                    Edit
+                  </button>
+                  {confirmDelete === s.id ? (
+                    <div className="flex gap-1">
+                      <button onClick={() => removeStudent(s.id)}
+                        className="text-xs px-2 py-1 bg-red-500 text-white rounded-lg">
+                        Confirm
+                      </button>
+                      <button onClick={() => setConfirmDelete(null)}
+                        className="text-xs px-2 py-1 border border-gray-200 text-gray-600 rounded-lg">
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmDelete(s.id)}
+                      className="text-xs px-3 py-1.5 border border-red-200 text-red-500 rounded-lg hover:bg-red-50">
+                      Remove
+                    </button>
+                  )}
+                </div>
+              )
+            })
           )}
         </div>
-        <div className="flex gap-3">
-          <button onClick={reset}
-            className="flex-1 py-3 rounded-xl border-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-            style={{ borderColor: RHS_GRAY }}>
-            Import More
-          </button>
-          <a href="/teacher"
-            className="flex-1 py-3 rounded-xl text-sm font-bold text-white text-center hover:opacity-90"
-            style={{ backgroundColor: RHS_GREEN }}>
-            Back to Dashboard
-          </a>
-        </div>
       </div>
     </div>
-  )
-
-  // ── ERROR ──
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-md text-center">
-        <div className="text-5xl mb-4">⚠️</div>
-        <h1 className="text-xl font-bold text-gray-800 mb-2">Could not read file</h1>
-        <p className="text-gray-500 text-sm mb-6 whitespace-pre-line">{errorMsg}</p>
-        <button onClick={reset} className="px-6 py-3 rounded-xl text-sm font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
-          Try Again
-        </button>
-      </div>
-    </div>
-  )
-}
-
-export default function RosterImport() {
-  return (
-    <Suspense>
-      <RosterImportInner />
-    </Suspense>
   )
 }
