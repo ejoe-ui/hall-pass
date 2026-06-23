@@ -10,7 +10,9 @@
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (passes, students, teachers)
   AUTH:    Inherits session from Relay Station / Admin panel. Redirects to /teacher if not signed in.
-  UPDATED: 2026-06-22 — added draggable searchable help panel (context-aware: admin vs teacher)
+  UPDATED: 2026-06-23 — Career Counselor added to REASONS/REASON_COLORS; students fetch scoped to
+           pass IDs only (no full-table scan); dead /student/[id] links removed from Frequent Flyers;
+           is_admin fallback note added in loadCurrentTeacher
 */
 'use client'
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
@@ -19,9 +21,11 @@ import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
 
-const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'School Store', 'Other']
+// Matches all reasons used in kiosk and self-checkout (Career Counselor added)
+const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Career Counselor', 'Lockers', 'Errand', 'On Assignment', 'School Store', 'Other']
 const REASON_COLORS = {
   'Restroom': '#3B82F6', 'Library': '#8B5CF6', 'Office': '#F59E0B', 'Counselor': '#EC4899',
+  'Career Counselor': '#14B8A6',
   'Lockers': '#06B6D4', 'Errand': '#10B981', 'On Assignment': '#F97316', 'School Store': '#6366F1', 'Other': '#94A3B8',
 }
 
@@ -186,6 +190,9 @@ function AnalyticsInner() {
       .eq('is_active', true)
       .maybeSingle()
     if (data) setCurrentTeacher(data)
+    // NOTE: Admin view requires teachers.is_admin = true on the teacher's row.
+    // If that column doesn't exist yet, is_admin will be undefined (falsy) and all
+    // teachers will see only their own data — safe default, no data leaks.
   }
 
   function getDateFilter() {
@@ -217,9 +224,13 @@ function AnalyticsInner() {
     const { data: rawPasses } = await query.order('time_out', { ascending: false })
     if (!rawPasses) { setLoading(false); return }
 
-    const { data: studData } = await supabase.from('students').select('id, full_name')
+    // Only fetch students referenced by these passes — no full-table scan
+    const studentIds = [...new Set(rawPasses.map(p => p.student_id).filter(Boolean))]
     const studMap = {}
-    if (studData) studData.forEach(s => studMap[s.id] = s)
+    if (studentIds.length > 0) {
+      const { data: studData } = await supabase.from('students').select('id, full_name').in('id', studentIds)
+      if (studData) studData.forEach(s => { studMap[s.id] = s })
+    }
     const passes = rawPasses.map(p => ({ ...p, students: studMap[p.student_id] || null }))
 
     setTotalPasses(passes.length)
@@ -362,8 +373,6 @@ function AnalyticsInner() {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         .clickable-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: all 0.2s ease; }
-        .student-link { color: ${RHS_GREEN}; text-decoration: none; font-weight: 600; font-size: 13px; }
-        .student-link:hover { text-decoration: underline; }
       `}</style>
 
       {/* Total Passes Modal */}
@@ -597,7 +606,7 @@ function AnalyticsInner() {
 
         <div style={{ background: 'white', borderRadius: 16, padding: 20, border: '1px solid #e5e7eb', marginBottom: 16 }}>
           <h3 style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 600, color: '#1f2937' }}>🏆 Frequent Flyers</h3>
-          <p style={{ margin: '0 0 16px', fontSize: 12, color: '#9ca3af' }}>Click a name to view their full pass history</p>
+          <p style={{ margin: '0 0 16px', fontSize: 12, color: '#9ca3af' }}>Top 10 students by pass count</p>
           {topStudents.length === 0 ? (
             <div style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center', padding: 24 }}>No data yet</div>
           ) : topStudents.map((s, i) => (
@@ -606,7 +615,8 @@ function AnalyticsInner() {
                 {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
               </div>
               <div style={{ flex: 1 }}>
-                <a href={`/student/${s.id}`} className="student-link">{s.name}</a>
+                {/* Plain text — no confirmed /student/[id] route; add link once that page exists */}
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{s.name}</span>
                 <div style={{ fontSize: 11, color: '#9ca3af' }}>Top reason: {s.topReason}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -653,7 +663,7 @@ function AnalyticsInner() {
           { q: 'How do I see a specific teacher\'s data?', keys: 'teacher filter specific room', a: 'Go to that teacher\'s Relay Station and click the Analytics link from there. It will open this page scoped to their room only. The yellow banner at the top tells you when you\'re in admin (all-rooms) view.' },
           { q: 'What does Total Passes mean?', keys: 'total passes count', a: 'Every pass issued in the selected time range — across all teachers and rooms. Tap the card to see the 20 most recent passes with student name, reason, period, date, and duration.' },
           { q: 'What does Avg Duration mean?', keys: 'average duration minutes time', a: 'The average number of minutes students are out per pass (completed passes only — open passes with no return time are excluded). Tap the card for median, percent over 10 minutes, and which reason type runs longest.' },
-          { q: 'What are Frequent Flyers?', keys: 'frequent flyers top students', a: 'The 10 students school-wide with the most passes in the selected time range. Click any name to jump to their full pass history. Red average times mean they\'re consistently out over 10 minutes.' },
+          { q: 'What are Frequent Flyers?', keys: 'frequent flyers top students', a: 'The 10 students school-wide with the most passes in the selected time range. Red average times mean they\'re consistently out over 10 minutes.' },
           { q: 'What are Simultaneous Exit Patterns?', keys: 'correlations simultaneous patterns pairs together', a: 'Student pairs who were both out of class at the same time, 2+ times in the selected range. 🚨 = 5+ times, ⚠️ = 3–4 times, 👀 = 2 times. If a pair appears here regularly, consider adding them to a Conflict Group in the Admin panel to block them from going out at the same time.' },
           { q: 'What is the Heat Map?', keys: 'heat map activity time of day busy', a: 'Shows when passes happen most — by day of week and hour. Darker green = more passes. Use this to spot patterns: if Thursday 10:00 is always dark, that period or day might need attention.' },
           { q: 'What does "Currently Out" mean?', keys: 'currently out active open passes', a: 'Students with an open pass right now — they scanned out but haven\'t returned yet. Tap the card to see who\'s out and how long they\'ve been gone. Red times mean over 10 minutes.' },
@@ -662,7 +672,7 @@ function AnalyticsInner() {
           { q: 'What am I looking at?', keys: 'overview analytics what is this page', a: 'Pass Analytics shows data for your room — total passes you\'ve issued, how long your students are out, which students leave most often, and your busiest times. Use the date range buttons to filter by today, 7 days, 30 days, or all time.' },
           { q: 'What does Total Passes mean?', keys: 'total passes count', a: 'Every pass you\'ve issued in the selected time range. Tap the card to see the 20 most recent passes with student name, reason, period, date, and duration.' },
           { q: 'What does Avg Duration mean?', keys: 'average duration minutes time', a: 'The average number of minutes your students are out per pass. Only completed passes (with a return time) count. Tap the card for median, how many ran over 10 minutes, and which reason type takes longest.' },
-          { q: 'What are Frequent Flyers?', keys: 'frequent flyers top students', a: 'Your top 10 students by pass count in the selected range. Click any name to see their full pass history. Red average times mean they\'re consistently out over 10 minutes — worth a check-in.' },
+          { q: 'What are Frequent Flyers?', keys: 'frequent flyers top students', a: 'Your top 10 students by pass count in the selected range. Red average times mean they\'re consistently out over 10 minutes — worth a check-in.' },
           { q: 'What are Simultaneous Exit Patterns?', keys: 'correlations simultaneous patterns pairs together', a: 'Student pairs from your class who were both out at the same time, 2+ times. 🚨 = 5+ times, ⚠️ = 3–4 times, 👀 = 2 times. If the same two students keep leaving together, you can contact your admin about adding them to a Conflict Group.' },
           { q: 'What is the Heat Map?', keys: 'heat map activity time of day busy', a: 'Shows your busiest pass times by day and hour. Darker green = more passes. Useful for spotting if a specific period or day consistently has more hallway traffic from your room.' },
           { q: 'What does "Currently Out" mean?', keys: 'currently out active open passes', a: 'Students with an open pass right now — they scanned out but haven\'t returned. Tap the card to see names and how long they\'ve been gone. Red times = over 10 minutes.' },
