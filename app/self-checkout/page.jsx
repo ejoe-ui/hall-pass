@@ -8,7 +8,7 @@
   BACKEND: Supabase (teachers, students, passes, settings)
   UPDATED: 2026-06-22 — green header; code fallback chain; numeric keypad on ID screen;
            opt-in QR scanner; full reason inputs (On Assignment, Errand, Other);
-           fixed photo bucket (lifetouch-raw)
+           fixed photo bucket (lifetouch-raw); kiosk-return polling → green thank-you screen
 */
 
 'use client'
@@ -119,6 +119,8 @@ function SelfCheckoutInner() {
   const [otherText, setOtherText] = useState('')
   const [passId, setPassId] = useState(null)
   const [checkoutTime, setCheckoutTime] = useState(null)
+  const [checkoutReason, setCheckoutReason] = useState('')
+  const [returnedDuration, setReturnedDuration] = useState(null)
   const [kioskReturnRequired, setKioskReturnRequired] = useState(true)
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -133,6 +135,23 @@ function SelfCheckoutInner() {
     const sid = searchParams.get('student')
     if (sid) setStudentIdInput(sid)
   }, [])
+
+  // Poll for kiosk check-in while student is on the red "done" screen
+  useEffect(() => {
+    if (stage !== 'done' || !passId) return
+    const interval = setInterval(async () => {
+      const { data: pass } = await supabase.from('passes').select('time_in, time_out, duration_minutes').eq('id', passId).single()
+      if (pass?.time_in) {
+        clearInterval(interval)
+        const mins = pass.duration_minutes ?? Math.floor((new Date(pass.time_in) - new Date(pass.time_out)) / 60000)
+        setReturnedDuration(mins)
+        try { document.exitFullscreen?.() } catch(e) {}
+        if (window._passableUnload) { window.removeEventListener('beforeunload', window._passableUnload); delete window._passableUnload }
+        setStage('kiosk-returned')
+      }
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [stage, passId])
 
   async function loadSettings() {
     const { data: settingsData } = await supabase
@@ -245,7 +264,7 @@ function SelfCheckoutInner() {
     }).select().single()
 
     if (insertError) { setError('Could not create pass. Try again.'); setLoading(false); return }
-    setPassId(data.id); setCheckoutTime(now)
+    setPassId(data.id); setCheckoutTime(now); setCheckoutReason(finalReason)
 
     const weekStart = new Date()
     weekStart.setDate(weekStart.getDate() - 7); weekStart.setHours(0,0,0,0)
@@ -298,7 +317,8 @@ function SelfCheckoutInner() {
     setStage('code'); setEnteredCode(''); setStudentId(''); setStudentIdInput('')
     setStudentName(''); setStudentPhoto(''); setPeriod(''); setReason('')
     setAssignedTeacher(''); setErrandTeacher(''); setPurposeText(''); setOtherText('')
-    setPassId(null); setCheckoutTime(null); setStats(null); setError(''); setOpenPass(null)
+    setPassId(null); setCheckoutTime(null); setCheckoutReason(''); setReturnedDuration(null)
+    setStats(null); setError(''); setOpenPass(null)
     setShowQR(false)
   }
 
@@ -517,6 +537,27 @@ function SelfCheckoutInner() {
             {loading ? 'Checking in...' : "✅ I'm Back"}
           </button>
         )}
+      </div>
+    </div>
+  )
+
+  // ── Kiosk checked them back in ────────────────────────────────────────────
+  if (stage === 'kiosk-returned') return (
+    <div className="min-h-screen flex flex-col"
+      style={{ background: 'linear-gradient(135deg, #006938 0%, #004a26 100%)' }}>
+      <Header />
+      <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
+        <div className="text-7xl mb-6">✅</div>
+        <h2 className="text-3xl font-bold text-white mb-2">Thanks for checking back in!</h2>
+        <p className="text-green-200 text-lg mb-1">
+          You were out for <span className="font-bold text-white">{returnedDuration} minute{returnedDuration !== 1 ? 's' : ''}</span>
+        </p>
+        {checkoutReason && (
+          <p className="text-green-300 text-sm mb-8">Activity: {checkoutReason}</p>
+        )}
+        <div className="bg-white/20 rounded-2xl px-8 py-5 max-w-xs">
+          <p className="text-white font-medium text-base">You may close this tab or window.</p>
+        </div>
       </div>
     </div>
   )
