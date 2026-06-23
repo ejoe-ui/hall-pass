@@ -211,6 +211,12 @@ export default function AdminPanel() {
     { id: '1', label: 'Period 1', start: '', end: '', break: false }
   ])
 
+  // ── Year-end tools ────────────────────────────────────────────────────────
+  const [yearEndConfirm, setYearEndConfirm] = useState(null) // null | 'rosters' | 'dnlo'
+  const [yearEndWorking, setYearEndWorking] = useState(false)
+  const [yearEndMsg, setYearEndMsg] = useState('')
+  const [exportingPassLog, setExportingPassLog] = useState(false)
+
   // ── Help panel ────────────────────────────────────────────────────────────
   const [showHelp, setShowHelp] = useState(false)
   const [helpSearch, setHelpSearch] = useState('')
@@ -303,6 +309,73 @@ export default function AdminPanel() {
     setGlobalOverrideActive(true)
     setGlobalOverrideActiveType(globalOverrideType)
     setGlobalOverrideSaving(false)
+  }
+
+  async function exportFullYearPassLog() {
+    setExportingPassLog(true)
+    // Fetch all passes (no date filter — full history)
+    const { data: passData } = await supabase
+      .from('passes')
+      .select('*')
+      .order('time_out', { ascending: false })
+      .limit(50000)
+
+    if (!passData || passData.length === 0) {
+      setExportingPassLog(false)
+      alert('No pass records found.')
+      return
+    }
+
+    // Fetch student + teacher names for join
+    const studentIds = [...new Set(passData.map(p => p.student_id))]
+    const teacherIds = [...new Set(passData.map(p => p.teacher_id).filter(Boolean))]
+    const { data: studs } = await supabase.from('students').select('id, full_name').in('id', studentIds)
+    const { data: tchrs } = teacherIds.length
+      ? await supabase.from('teachers').select('id, name, room').in('id', teacherIds)
+      : { data: [] }
+    const studMap = {}
+    if (studs) studs.forEach(s => { studMap[s.id] = s.full_name })
+    const tchrMap = {}
+    if (tchrs) tchrs.forEach(t => { tchrMap[t.id] = t })
+
+    const year = new Date().getFullYear()
+    const headers = ['Student', 'Date', 'Reason', 'Time Out', 'Time In', 'Duration (min)', 'Room', 'Teacher', 'Period', 'Pass Type']
+    const rows = passData.map(p => [
+      studMap[p.student_id] || p.student_id,
+      new Date(p.time_out).toLocaleDateString(),
+      (p.reason || '').replace(/,/g, ';'),
+      new Date(p.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      p.time_in ? new Date(p.time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+      p.duration_minutes || '',
+      p.room || (p.teacher_id && tchrMap[p.teacher_id]?.room) || '',
+      p.teacher_id && tchrMap[p.teacher_id] ? tchrMap[p.teacher_id].name : 'Kiosk',
+      p.period || '',
+      p.pass_type === 'late_pass' ? 'Late Pass' : 'Hall Pass',
+    ])
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Pass Log')
+    XLSX.writeFile(wb, `passable-full-year-${year}-${new Date().toISOString().slice(0,10)}.xlsx`)
+    setExportingPassLog(false)
+  }
+
+  async function yearEndClearRosters() {
+    setYearEndWorking(true)
+    const { error } = await supabase.from('student_periods').delete().neq('id', '00000000-0000-0000-0000-000000000000') // delete all
+    setYearEndWorking(false)
+    setYearEndConfirm(null)
+    setYearEndMsg(error ? `Error: ${error.message}` : '✅ All class rosters cleared. Teachers can now re-import from Aeries.')
+    setTimeout(() => setYearEndMsg(''), 6000)
+  }
+
+  async function yearEndClearDnlo() {
+    setYearEndWorking(true)
+    const { error } = await supabase.from('do_not_let_out').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    setYearEndWorking(false)
+    setYearEndConfirm(null)
+    setYearEndMsg(error ? `Error: ${error.message}` : '✅ Do Not Let Out list cleared.')
+    setTimeout(() => setYearEndMsg(''), 6000)
   }
 
   async function clearGlobalOverride() {
@@ -1697,6 +1770,98 @@ export default function AdminPanel() {
                 Schedule is otherwise auto-detected from Google Calendar event titles (Minimum Day, Block Day, etc.).
               </p>
             </div>
+
+            {/* ── Year-End Tools ── */}
+            <div className="mt-6 rounded-xl border border-red-200 overflow-hidden">
+              <div className="px-5 py-4 bg-red-50 border-b border-red-100">
+                <p className="text-sm font-semibold text-red-700">🎓 End of Year Tools</p>
+                <p className="text-xs text-red-500 mt-0.5">Run these once at the end of the school year. Export your pass log first, then clear what teachers didn't clean up.</p>
+              </div>
+              <div className="p-5 bg-white space-y-5">
+
+                {yearEndMsg && (
+                  <div className={`px-4 py-3 rounded-xl text-sm ${yearEndMsg.startsWith('✅') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {yearEndMsg}
+                  </div>
+                )}
+
+                {/* Step 1 — Export */}
+                <div className="flex items-start gap-4">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5" style={{ backgroundColor: RHS_GREEN }}>1</div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-800">Export Full Year Pass Log</p>
+                    <p className="text-xs text-gray-500 mt-0.5 mb-3">Downloads every pass record from this school year as an Excel file — names, dates, rooms, durations, all joined and readable. Save this before clearing anything.</p>
+                    <button
+                      onClick={exportFullYearPassLog}
+                      disabled={exportingPassLog}
+                      className="px-4 py-2 text-sm font-semibold rounded-xl text-white disabled:opacity-40"
+                      style={{ backgroundColor: RHS_GREEN }}>
+                      {exportingPassLog ? 'Exporting…' : '📥 Download Pass Log (.xlsx)'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100" />
+
+                {/* Step 2 — Clear rosters */}
+                <div className="flex items-start gap-4">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold bg-red-100 text-red-600 flex-shrink-0 mt-0.5">2</div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-800">Clear All Class Rosters</p>
+                    <p className="text-xs text-gray-500 mt-0.5 mb-3">Removes every student from every teacher's class list school-wide. Pass history is kept. Teachers re-import from Aeries at the start of next year.</p>
+                    {yearEndConfirm === 'rosters' ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-red-600 font-semibold">This clears rosters for every teacher in the school. Are you sure?</span>
+                        <button onClick={yearEndClearRosters} disabled={yearEndWorking}
+                          className="text-xs px-3 py-1.5 bg-red-600 text-white rounded-xl font-semibold disabled:opacity-50">
+                          {yearEndWorking ? 'Clearing…' : 'Yes, clear all rosters'}
+                        </button>
+                        <button onClick={() => setYearEndConfirm(null)}
+                          className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded-xl">
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setYearEndConfirm('rosters')}
+                        className="text-xs px-3 py-1.5 border-2 border-red-400 text-red-600 font-semibold rounded-xl hover:bg-red-50">
+                        Clear All Rosters
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100" />
+
+                {/* Step 3 — Clear DNLO */}
+                <div className="flex items-start gap-4">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold bg-red-100 text-red-600 flex-shrink-0 mt-0.5">3</div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-800">Clear Do Not Let Out List</p>
+                    <p className="text-xs text-gray-500 mt-0.5 mb-3">Removes all active DNLO restrictions. These don't carry over year to year — a fresh start for all students.</p>
+                    {yearEndConfirm === 'dnlo' ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-red-600 font-semibold">Remove all active DNLO entries?</span>
+                        <button onClick={yearEndClearDnlo} disabled={yearEndWorking}
+                          className="text-xs px-3 py-1.5 bg-red-600 text-white rounded-xl font-semibold disabled:opacity-50">
+                          {yearEndWorking ? 'Clearing…' : 'Yes, clear DNLO list'}
+                        </button>
+                        <button onClick={() => setYearEndConfirm(null)}
+                          className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded-xl">
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setYearEndConfirm('dnlo')}
+                        className="text-xs px-3 py-1.5 border-2 border-red-400 text-red-600 font-semibold rounded-xl hover:bg-red-50">
+                        Clear DNLO List
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
           </>
         )}
 
