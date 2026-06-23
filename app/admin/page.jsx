@@ -10,7 +10,8 @@
            Teachers must change password on first login (must_change_password flag).
   UPDATED: 2026-06-23 — reverted photo fallback to student-photos (numeric ID files
            live there, not lifetouch-raw); scoped loadDnlo students fetch to DNLO IDs;
-           removed dead /student/[id] link
+           removed dead /student/[id] link;
+           added 🔍 Locate Student tab for front office student tracking
 */
 
 'use client'
@@ -217,6 +218,12 @@ export default function AdminPanel() {
   const [yearEndWorking, setYearEndWorking] = useState(false)
   const [yearEndMsg, setYearEndMsg] = useState('')
   const [exportingPassLog, setExportingPassLog] = useState(false)
+
+  // ── Student Locator ──────────────────────────────────────────────────────
+  const [locatorQuery, setLocatorQuery] = useState('')
+  const [locatorResults, setLocatorResults] = useState([])
+  const [locatorLoading, setLocatorLoading] = useState(false)
+  const locatorTimerRef = useRef(null)
 
   // ── Help panel ────────────────────────────────────────────────────────────
   const [showHelp, setShowHelp] = useState(false)
@@ -1020,11 +1027,87 @@ export default function AdminPanel() {
     </div>
   )
 
+  // ── Student Locator search ─────────────────────────────────────────────────
+  async function runLocatorSearch(query) {
+    if (!query.trim()) { setLocatorResults([]); return }
+    setLocatorLoading(true)
+
+    // 1. Find matching students
+    const { data: studs } = await supabase
+      .from('students')
+      .select('id, full_name, photo_url, photo_file')
+      .ilike('full_name', `%${query.trim()}%`)
+      .limit(20)
+
+    if (!studs || studs.length === 0) { setLocatorResults([]); setLocatorLoading(false); return }
+
+    const ids = studs.map(s => s.id)
+
+    // 2. Get all scheduled periods for these students
+    const { data: spRows } = await supabase
+      .from('student_periods')
+      .select('student_id, period, room')
+      .in('student_id', ids)
+
+    // 3. Get any active passes (time_in is null)
+    const { data: activePasses } = await supabase
+      .from('passes')
+      .select('id, student_id, time_out, reason, room, period, teacher_id')
+      .in('student_id', ids)
+      .is('time_in', null)
+
+    // 4. Look up teacher names for all rooms that appear
+    const allRooms = [...new Set([
+      ...(spRows || []).map(r => r.room),
+      ...(activePasses || []).map(p => p.room),
+    ])]
+    const teachersByRoom = {}
+    if (allRooms.length > 0) {
+      const { data: tchrs } = await supabase
+        .from('teachers')
+        .select('name, room')
+        .in('room', allRooms)
+        .eq('is_active', true)
+      if (tchrs) tchrs.forEach(t => { teachersByRoom[t.room] = t.name })
+    }
+
+    // 5. Assemble results
+    const results = studs.map(s => {
+      const periods = (spRows || [])
+        .filter(r => r.student_id === s.id)
+        .sort((a, b) => Number(a.period) - Number(b.period))
+        .map(r => ({ period: r.period, room: r.room, teacher: teachersByRoom[r.room] || null }))
+
+      const active = (activePasses || [])
+        .filter(p => p.student_id === s.id)
+        .map(p => ({
+          id: p.id,
+          time_out: p.time_out,
+          reason: p.reason,
+          room: p.room,
+          period: p.period,
+          teacher: teachersByRoom[p.room] || null,
+        }))
+
+      return { student: s, periods, activePasses: active }
+    })
+
+    setLocatorResults(results)
+    setLocatorLoading(false)
+  }
+
+  function handleLocatorInput(val) {
+    setLocatorQuery(val)
+    if (locatorTimerRef.current) clearTimeout(locatorTimerRef.current)
+    locatorTimerRef.current = setTimeout(() => runLocatorSearch(val), 300)
+  }
+
   const TABS = [
     { id: 'teachers', label: 'Teachers' },
     { id: 'conflicts', label: 'Conflict Groups' },
     { id: 'dnlo', label: 'Do Not Let Out' },
     { id: 'students', label: scheduleConflicts.length > 0 ? `Students ⚠️ ${scheduleConflicts.length}` : 'Students' },
+    { id: 'locator', label: '🔍 Locate Student' },
     { id: 'log', label: 'Pass Log' },
     { id: 'settings', label: '⚙️ School Settings' },
   ]
@@ -1052,6 +1135,11 @@ export default function AdminPanel() {
       { q: 'Can I add or delete students from here?', a: 'No. Students are added by teachers via Import Roster or manually through Manage Students. To remove a student from a class, the teacher handles it in Manage Students.' },
       { q: 'A student has no period or teacher listed.', a: 'That student is in the system but not linked to any active classroom — usually leftover from a demo or a removed teacher account. They can be safely ignored or cleaned up via Supabase.' },
       { q: 'How do I print QR ID badges?', a: <>Go to <a href="/qr" style={{color:RHS_GREEN,textDecoration:'underline'}}>QR Badges</a>. It generates a printable sheet of QR codes — students scan these at the kiosk instead of tapping their name.</> },
+    ]},
+    { title: 'Student Locator', items: [
+      { q: 'What is the Student Locator?', a: 'A real-time lookup for front office staff. Type any student\'s name to see their full schedule (every period and room) and whether they currently have an active pass. If they\'re out, it shows the reason, which room they left from, the issuing teacher, and how long ago the pass was issued.' },
+      { q: 'A parent is calling — how do I find a student?', a: 'Go to 🔍 Locate Student, type their name, and check the result. If they\'re in class, you\'ll see their current period and room. If they\'re on a pass, the amber card tells you where they went and when.' },
+      { q: 'The locator shows "No schedule on file."', a: 'That student is in the system but hasn\'t been assigned to any active classroom roster. Their teacher should add them through Manage Students or the roster import.' },
     ]},
     { title: 'Pass Log', items: [
       { q: 'The pass log only shows recent passes.', a: <>Use the filter buttons (Today / This Week / This Month / This Quarter / This Semester / All Time) to change the date range. The school-wide log shows passes from all classrooms.</> },
@@ -1775,6 +1863,112 @@ export default function AdminPanel() {
               )}
             </div>
           </>
+        )}
+
+        {/* ── STUDENT LOCATOR ── */}
+        {activeTab === 'locator' && (
+          <div>
+            <p className="text-sm text-gray-500 mb-4">
+              Search any student to see their scheduled period and room — and whether they're currently on a pass.
+            </p>
+
+            <div className="relative mb-6">
+              <input
+                autoFocus
+                type="search"
+                placeholder="Search student by name…"
+                value={locatorQuery}
+                onChange={e => handleLocatorInput(e.target.value)}
+                className="w-full p-3 text-sm border-2 rounded-xl bg-white text-gray-800 pr-10"
+                style={{ borderColor: RHS_GREEN }}
+              />
+              {locatorLoading && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-gray-300 rounded-full animate-spin" style={{ borderTopColor: RHS_GREEN }} />
+              )}
+            </div>
+
+            {/* Empty state */}
+            {!locatorQuery && (
+              <div className="text-center py-16 text-gray-400">
+                <div className="text-5xl mb-3">🔍</div>
+                <p className="text-sm font-medium">Type a student's name above</p>
+                <p className="text-xs mt-1 text-gray-300">Shows scheduled room and any active pass</p>
+              </div>
+            )}
+
+            {/* No results */}
+            {locatorQuery && !locatorLoading && locatorResults.length === 0 && (
+              <div className="text-center py-12 text-gray-400 text-sm">No students match "{locatorQuery}"</div>
+            )}
+
+            {/* Results */}
+            <div className="flex flex-col gap-3">
+              {locatorResults.map(({ student: s, periods, activePasses: ap }) => {
+                const photoSrc = s.photo_url
+                  || (s.photo_file ? supabase.storage.from('student-photos').getPublicUrl(s.photo_file).data.publicUrl : null)
+                const hasActivePass = ap.length > 0
+
+                return (
+                  <div key={s.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    {/* Student header */}
+                    <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100">
+                      {photoSrc
+                        ? <img src={photoSrc} alt={s.full_name} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
+                        : <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
+                            {s.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                          </div>
+                      }
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-gray-800">{s.full_name}</div>
+                        {hasActivePass ? (
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                            <span className="text-xs font-medium text-amber-700">Currently on a pass</span>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-gray-400 mt-0.5">In class</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="px-4 py-3 flex flex-col gap-3">
+                      {/* Active pass */}
+                      {ap.map(pass => {
+                        const mins = Math.floor((Date.now() - new Date(pass.time_out).getTime()) / 60000)
+                        return (
+                          <div key={pass.id} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                            <div className="text-xs font-semibold text-amber-800 mb-1">🟡 On a Pass</div>
+                            <div className="text-sm text-gray-800 font-medium">{pass.reason}</div>
+                            <div className="text-xs text-gray-500 mt-0.5">
+                              Left Rm {pass.room}{pass.teacher ? ` · ${pass.teacher.split(' ').pop()}` : ''} · {mins} min ago
+                              {' · '}issued {new Date(pass.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+                        )
+                      })}
+
+                      {/* Schedule */}
+                      {periods.length > 0 ? (
+                        <div>
+                          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Schedule</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {periods.map(p => (
+                              <span key={p.period + p.room}
+                                className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 font-medium">
+                                P{p.period} · Rm {p.room}{p.teacher ? ` · ${p.teacher.split(' ').pop()}` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-400 italic">No schedule on file</div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         )}
 
         {/* ── PASS LOG ── */}
