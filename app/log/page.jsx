@@ -5,7 +5,7 @@
   PURPOSE: Teacher's full pass log with time-period filters, export CSV, and print.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (passes, students, teachers, student_periods)
-  UPDATED: 2026-06-21
+  UPDATED: 2026-06-23 — scoped students/teachers fetches to pass IDs; removed dead /student/[id] link
 */
 
 'use client'
@@ -108,13 +108,20 @@ export default function Log() {
       passData = data || []
     }
 
-    const { data: studData } = await supabase.from('students').select('id, full_name')
-    const { data: teacherData } = await supabase.from('teachers').select('id, name, room')
+    // Scope both fetches to IDs that appear in the passes — no full-table scans
+    const passStudentIds = [...new Set(passData.map(p => p.student_id).filter(Boolean))]
+    const passTeacherIds = [...new Set(passData.map(p => p.teacher_id).filter(Boolean))]
 
     const studMap = {}
-    if (studData) studData.forEach(s => studMap[s.id] = s)
+    if (passStudentIds.length > 0) {
+      const { data: studData } = await supabase.from('students').select('id, full_name').in('id', passStudentIds)
+      if (studData) studData.forEach(s => { studMap[s.id] = s })
+    }
     const teacherMap = {}
-    if (teacherData) teacherData.forEach(t => teacherMap[t.id] = t)
+    if (passTeacherIds.length > 0) {
+      const { data: teacherData } = await supabase.from('teachers').select('id, name, room').in('id', passTeacherIds)
+      if (teacherData) teacherData.forEach(t => { teacherMap[t.id] = t })
+    }
 
     const enriched = passData.map(p => ({
       ...p,
@@ -316,9 +323,10 @@ export default function Log() {
                         className={`border-b border-gray-50 last:border-0 hover:bg-gray-50 group ${isLatePass ? 'late-row bg-blue-50 hover:bg-blue-100' : ''}`}>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <a href={`/student/${p.student_id}`} className="font-medium text-gray-800 hover:text-green-700 hover:underline underline-offset-2 whitespace-nowrap">
+                            {/* Plain text — no confirmed /student/[id] route; wire up once that page exists */}
+                            <span className="font-medium text-gray-800 whitespace-nowrap">
                               {p.students?.full_name || '—'}
-                            </a>
+                            </span>
                             {isLatePass && (
                               <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium no-print">Late</span>
                             )}
