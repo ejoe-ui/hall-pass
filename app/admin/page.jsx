@@ -8,7 +8,8 @@
   BACKEND: Supabase (teachers, students, passes, conflict_groups, do_not_let_out, settings)
   AUTH:    Password-based. Default passcode = room number doubled (room 27 → "2727").
            Teachers must change password on first login (must_change_password flag).
-  UPDATED: 2026-06-21 — expanded pass log filters + school-wide export/print
+  UPDATED: 2026-06-23 — fixed photo bucket (student-photos → lifetouch-raw); scoped
+           loadDnlo students fetch to DNLO IDs; removed dead /student/[id] link
 */
 
 'use client'
@@ -121,7 +122,8 @@ function getStudentPhotoUrl(student) {
   if (!student) return null
   if (student.photo_url) return student.photo_url
   if (!student.photo_file) return null
-  const { data } = supabase.storage.from('student-photos').getPublicUrl(student.photo_file)
+  // Uses lifetouch-raw bucket (not student-photos)
+  const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(student.photo_file)
   return data?.publicUrl || null
 }
 
@@ -726,9 +728,13 @@ export default function AdminPanel() {
   async function loadDnlo() {
     const { data } = await supabase.from('do_not_let_out').select('*').eq('active', true).eq('scope', 'admin').order('created_at', { ascending: false })
     if (data) {
-      const { data: studs } = await supabase.from('students').select('id, full_name')
+      // Scope students fetch to only the IDs in this DNLO list
+      const dnloStudentIds = data.map(d => d.student_id).filter(Boolean)
       const studMap = {}
-      if (studs) studs.forEach(s => studMap[s.id] = s.full_name)
+      if (dnloStudentIds.length > 0) {
+        const { data: studs } = await supabase.from('students').select('id, full_name').in('id', dnloStudentIds)
+        if (studs) studs.forEach(s => { studMap[s.id] = s.full_name })
+      }
       setDnloList(data.map(d => ({ ...d, full_name: studMap[d.student_id] || d.student_id })))
     }
   }
@@ -1520,7 +1526,8 @@ export default function AdminPanel() {
                       </div>
                   }
                   <div className="flex-1">
-                    <a href={`/student/${s.id}`} className="text-sm hover:underline" style={{ color: RHS_GREEN }}>{s.full_name}</a>
+                    {/* no confirmed /student/[id] route — plain span instead of link */}
+                    <span className="text-sm" style={{ color: RHS_GREEN }}>{s.full_name}</span>
                     {(() => {
                       const teacher = teacherByRoom[String(s._room)]
                       const teacherLast = teacher?.name?.split(' ').pop()
