@@ -2,12 +2,13 @@
   PassAble — RHS Hall Pass System
   FILE:    app/self-checkout/page.jsx
   ROUTE:   /self-checkout
-  PURPOSE: Student-facing self-checkout — enter session code, look up by ID,
-           select reason, check out / check in. No teacher interaction required.
+  PURPOSE: Student-facing self-checkout — enter session code, look up by ID or QR scan,
+           select reason (with same conditional inputs as kiosk), check out / check in.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (teachers, students, passes, settings)
-  UPDATED: 2026-06-22 — added green header; code fallback chain (session code →
-           teacher unlock_code → room doubled); fixed photo bucket (lifetouch-raw)
+  UPDATED: 2026-06-22 — green header; code fallback chain; numeric keypad on ID screen;
+           opt-in QR scanner; full reason inputs (On Assignment, Errand, Other);
+           fixed photo bucket (lifetouch-raw)
 */
 
 'use client'
@@ -16,23 +17,72 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
-const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'School Store', 'Other']
 
-function TimerDisplay({ checkoutTime }) {
-  const [elapsed, setElapsed] = useState(0)
+const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'Career Counselor', 'School Store', 'Other']
+
+const TEACHERS = [
+  'Castro', 'Simpson', 'Tiller',
+  'Aguiniga', 'Anders', 'Banuelos', 'Bettencourt', 'Bianchi', 'Bishop',
+  'Carrion', 'Ceballos', 'Chavez', 'Chavira', 'Cuiriz', 'De La Pena',
+  'Edlund', 'Farris', 'Garibaldi', 'Gerling', 'Gjoshe', 'Gonzalez',
+  'Hughes', 'Jessup', 'Joe', 'Kang', 'Kellogg', 'Mendoza Sanchez', 'Mullane',
+  'Nemeth', 'Reyes', 'Sunamoto', 'Warden', 'Weibert', 'Welch', 'Yehl',
+]
+
+// ── QR / barcode scanner (opt-in) ────────────────────────────────────────────
+function QRScanner({ onScan }) {
+  const videoRef = useRef(null)
+  const canvasRef = useRef(null)
 
   useEffect(() => {
+    let stream, interval
+    async function start() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        if (videoRef.current) videoRef.current.srcObject = stream
+        if (!('BarcodeDetector' in window)) return
+        const detector = new window.BarcodeDetector({ formats: ['qr_code'] })
+        interval = setInterval(async () => {
+          if (!videoRef.current || videoRef.current.readyState < 2) return
+          try {
+            const codes = await detector.detect(videoRef.current)
+            if (codes.length > 0) {
+              const val = codes[0].rawValue
+              onScan(val)
+            }
+          } catch (e) {}
+        }, 500)
+      } catch (e) {}
+    }
+    start()
+    return () => {
+      if (stream) stream.getTracks().forEach(t => t.stop())
+      if (interval) clearInterval(interval)
+    }
+  }, [])
+
+  return (
+    <div className="relative w-full max-w-xs mx-auto rounded-2xl overflow-hidden border-2" style={{ borderColor: RHS_GREEN }}>
+      <video ref={videoRef} autoPlay playsInline muted className="w-full" />
+      <canvas ref={canvasRef} className="hidden" />
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="w-48 h-48 border-2 border-white rounded-xl opacity-60" />
+      </div>
+    </div>
+  )
+}
+
+// ── Elapsed timer on checkout screen ─────────────────────────────────────────
+function TimerDisplay({ checkoutTime }) {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
     const start = new Date(checkoutTime).getTime()
-    const interval = setInterval(() => {
-      setElapsed(Math.floor((Date.now() - start) / 1000))
-    }, 1000)
+    const interval = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000)
     return () => clearInterval(interval)
   }, [checkoutTime])
-
   const mins = Math.floor(elapsed / 60)
   const secs = elapsed % 60
   const isOver10 = mins >= 10
-
   return (
     <div style={{ textAlign: 'center', marginBottom: 24 }}>
       <div style={{
@@ -57,11 +107,16 @@ function SelfCheckoutInner() {
   const [enteredCode, setEnteredCode] = useState('')
   const [codeError, setCodeError] = useState(false)
   const [studentIdInput, setStudentIdInput] = useState('')
+  const [showQR, setShowQR] = useState(false)
   const [studentId, setStudentId] = useState('')
   const [studentName, setStudentName] = useState('')
   const [studentPhoto, setStudentPhoto] = useState('')
   const [period, setPeriod] = useState('')
   const [reason, setReason] = useState('')
+  const [assignedTeacher, setAssignedTeacher] = useState('')
+  const [errandTeacher, setErrandTeacher] = useState('')
+  const [purposeText, setPurposeText] = useState('')
+  const [otherText, setOtherText] = useState('')
   const [passId, setPassId] = useState(null)
   const [checkoutTime, setCheckoutTime] = useState(null)
   const [kioskReturnRequired, setKioskReturnRequired] = useState(true)
@@ -81,41 +136,27 @@ function SelfCheckoutInner() {
 
   async function loadSettings() {
     const { data: settingsData } = await supabase
-      .from('settings')
-      .select('key, value')
+      .from('settings').select('key, value')
       .in('key', ['active_checkout_code', 'kiosk_return_required'])
 
     const codeRow = settingsData?.find(r => r.key === 'active_checkout_code')
     const kioskRow = settingsData?.find(r => r.key === 'kiosk_return_required')
     if (kioskRow) setKioskReturnRequired(kioskRow.value !== 'false')
 
-    // Determine room first so we can use it for fallback
     let room = searchParams.get('room') || '27'
     let teacher = null
 
-    // Try auth session first
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
-      const { data: t } = await supabase
-        .from('teachers')
-        .select('id, name, room, unlock_code')
-        .eq('auth_id', session.user.id)
-        .eq('is_active', true)
-        .maybeSingle()
+      const { data: t } = await supabase.from('teachers')
+        .select('id, name, room, unlock_code').eq('auth_id', session.user.id).eq('is_active', true).maybeSingle()
       if (t) teacher = t
     }
-
-    // Fallback: load by room param
     if (!teacher) {
-      const { data: t } = await supabase
-        .from('teachers')
-        .select('id, name, room, unlock_code')
-        .eq('room', room)
-        .eq('is_active', true)
-        .maybeSingle()
+      const { data: t } = await supabase.from('teachers')
+        .select('id, name, room, unlock_code').eq('room', room).eq('is_active', true).maybeSingle()
       if (t) teacher = t
     }
-
     if (teacher) {
       setTeacherName(teacher.name || 'Teacher')
       setTeacherRoom(teacher.room || room)
@@ -123,15 +164,8 @@ function SelfCheckoutInner() {
       room = teacher.room || room
     }
 
-    // ── Code fallback chain ──────────────────────────────────────────────────
-    // 1. Today's session code (set by teacher)
-    // 2. Teacher's personal unlock code
-    // 3. Room number doubled (e.g. room 27 → "2727")
-    const codes = [
-      codeRow?.value,
-      teacher?.unlock_code,
-      `${room}${room}`,
-    ].filter(Boolean)
+    // Fallback chain: session code → teacher unlock_code → room doubled
+    const codes = [codeRow?.value, teacher?.unlock_code, `${room}${room}`].filter(Boolean)
     setValidCodes(codes)
   }
 
@@ -141,11 +175,7 @@ function SelfCheckoutInner() {
     if (next.length === 4) {
       if (validCodes.includes(next)) {
         setCodeError(false)
-        if (studentIdInput) {
-          lookupStudent(studentIdInput)
-        } else {
-          setStage('id')
-        }
+        studentIdInput ? lookupStudent(studentIdInput) : setStage('id')
       } else {
         setCodeError(true)
         setTimeout(() => { setEnteredCode(''); setCodeError(false) }, 1000)
@@ -153,12 +183,19 @@ function SelfCheckoutInner() {
     }
   }
 
+  function handleIdDigit(digit) {
+    if (digit === '⌫') { setStudentIdInput(v => v.slice(0, -1)); return }
+    setStudentIdInput(v => v + digit)
+  }
+
+  function handleReasonSelect(r) {
+    setReason(r); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText(''); setOtherText('')
+  }
+
   async function lookupStudent(id) {
     setLoading(true); setError('')
-    const { data: studs } = await supabase
-      .from('students')
-      .select('id, full_name, photo_file, photo_url, period')
-      .eq('id', id)
+    const { data: studs } = await supabase.from('students')
+      .select('id, full_name, photo_file, photo_url, period').eq('id', id)
 
     if (!studs || studs.length === 0) {
       setError('Student not found. Check your ID and try again.')
@@ -170,60 +207,50 @@ function SelfCheckoutInner() {
     setStudentName(stud.full_name)
     setPeriod(stud.period)
 
-    // ── Photo: prefer photo_url (direct), then lifetouch-raw bucket ──────────
     if (stud.photo_url) {
       setStudentPhoto(stud.photo_url)
     } else if (stud.photo_file) {
       const { data: photoData } = await supabase.storage
-        .from('lifetouch-raw')
-        .createSignedUrl(stud.photo_file, 3600)
+        .from('lifetouch-raw').createSignedUrl(stud.photo_file, 3600)
       if (photoData?.signedUrl) setStudentPhoto(photoData.signedUrl)
     }
 
-    const { data: openPasses } = await supabase
-      .from('passes')
-      .select('*')
-      .eq('student_id', stud.id)
-      .is('time_in', null)
-
-    if (openPasses && openPasses.length > 0) {
-      setOpenPass(openPasses[0])
-      setCheckoutTime(openPasses[0].time_out)
-      setStage('checkin')
-      setLoading(false)
-      return
+    const { data: openPasses } = await supabase.from('passes')
+      .select('*').eq('student_id', stud.id).is('time_in', null)
+    if (openPasses?.length > 0) {
+      setOpenPass(openPasses[0]); setCheckoutTime(openPasses[0].time_out)
+      setStage('checkin'); setLoading(false); return
     }
 
-    setStage('reason')
-    setLoading(false)
+    setStage('reason'); setLoading(false)
   }
 
   async function handleCheckout() {
     if (!reason) return
     setLoading(true)
+    let finalReason = reason
+    if (reason === 'On Assignment' && assignedTeacher)
+      finalReason = purposeText.trim() ? `On Assignment — ${assignedTeacher} — ${purposeText.trim()}` : `On Assignment — ${assignedTeacher}`
+    else if (reason === 'Errand' && errandTeacher)
+      finalReason = purposeText.trim() ? `Errand — ${errandTeacher} — ${purposeText.trim()}` : `Errand — ${errandTeacher}`
+    else if (reason === 'Errand' && purposeText.trim())
+      finalReason = `Errand — ${purposeText.trim()}`
+    else if (reason === 'Other' && otherText)
+      finalReason = `Other — ${otherText}`
+
     const now = new Date().toISOString()
-    const { data, error } = await supabase.from('passes').insert({
-      student_id: studentId,
-      reason,
-      room: teacherRoom,
-      period,
-      teacher_id: teacherId,
-      time_out: now,
+    const { data, error: insertError } = await supabase.from('passes').insert({
+      student_id: studentId, reason: finalReason, room: teacherRoom,
+      period, teacher_id: teacherId, time_out: now,
     }).select().single()
 
-    if (error) { setError('Could not create pass. Try again.'); setLoading(false); return }
-    setPassId(data.id)
-    setCheckoutTime(now)
+    if (insertError) { setError('Could not create pass. Try again.'); setLoading(false); return }
+    setPassId(data.id); setCheckoutTime(now)
 
     const weekStart = new Date()
-    weekStart.setDate(weekStart.getDate() - 7)
-    weekStart.setHours(0, 0, 0, 0)
-    const { data: weekPasses } = await supabase
-      .from('passes')
-      .select('*')
-      .eq('student_id', studentId)
-      .gte('time_out', weekStart.toISOString())
-
+    weekStart.setDate(weekStart.getDate() - 7); weekStart.setHours(0,0,0,0)
+    const { data: weekPasses } = await supabase.from('passes')
+      .select('*').eq('student_id', studentId).gte('time_out', weekStart.toISOString())
     if (weekPasses) {
       const completed = weekPasses.filter(p => p.duration_minutes != null)
       const totalMins = completed.reduce((s, p) => s + p.duration_minutes, 0)
@@ -234,27 +261,20 @@ function SelfCheckoutInner() {
       })
       const topReason = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0]
       setStats({
-        weekCount: weekPasses.length,
-        totalMins,
+        weekCount: weekPasses.length, totalMins,
         avgMins: completed.length > 0 ? Math.round(totalMins / completed.length) : 0,
         topReason: topReason ? `${topReason[0]} (${topReason[1]}x)` : '—',
       })
     }
-
-    setStage('done')
-    setLoading(false)
+    setStage('done'); setLoading(false)
   }
 
   async function handleCheckin() {
     if (!openPass) return
     setLoading(true)
     const mins = Math.floor((new Date() - new Date(openPass.time_out)) / 60000)
-    await supabase.from('passes').update({
-      time_in: new Date().toISOString(),
-      duration_minutes: mins,
-    }).eq('id', openPass.id)
-    setStage('checkin-done')
-    setLoading(false)
+    await supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', openPass.id)
+    setStage('checkin-done'); setLoading(false)
   }
 
   async function handleSelfReturn() {
@@ -263,22 +283,24 @@ function SelfCheckoutInner() {
     const { data: pass } = await supabase.from('passes').select('*').eq('id', passId).single()
     if (pass) {
       const mins = Math.floor((new Date() - new Date(pass.time_out)) / 60000)
-      await supabase.from('passes').update({
-        time_in: new Date().toISOString(),
-        duration_minutes: mins,
-      }).eq('id', passId)
+      await supabase.from('passes').update({ time_in: new Date().toISOString(), duration_minutes: mins }).eq('id', passId)
     }
-    setStage('returned')
-    setLoading(false)
+    setStage('returned'); setLoading(false)
   }
 
   function reset() {
     setStage('code'); setEnteredCode(''); setStudentId(''); setStudentIdInput('')
     setStudentName(''); setStudentPhoto(''); setPeriod(''); setReason('')
+    setAssignedTeacher(''); setErrandTeacher(''); setPurposeText(''); setOtherText('')
     setPassId(null); setCheckoutTime(null); setStats(null); setError(''); setOpenPass(null)
+    setShowQR(false)
   }
 
-  // ── Green header — shown on all screens ────────────────────────────────────
+  const checkoutDisabled = !reason ||
+    (reason === 'On Assignment' && !assignedTeacher) ||
+    (reason === 'Errand' && !errandTeacher && !purposeText.trim()) ||
+    (reason === 'Other' && !otherText.trim())
+
   const Header = () => (
     <div className="w-full px-4 py-3 flex items-center gap-3" style={{ backgroundColor: RHS_GREEN }}>
       <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain"
@@ -290,6 +312,7 @@ function SelfCheckoutInner() {
     </div>
   )
 
+  // ── Code entry ────────────────────────────────────────────────────────────
   if (stage === 'code') return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
@@ -315,32 +338,65 @@ function SelfCheckoutInner() {
     </div>
   )
 
+  // ── Student ID entry ──────────────────────────────────────────────────────
   if (stage === 'id') return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
       <div className="flex-1 flex flex-col items-center justify-center px-6">
-        <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-14 h-14 object-contain mb-3" />
         <h1 className="text-xl font-bold mb-1" style={{ color: RHS_GREEN }}>Enter Your Student ID</h1>
-        <p className="text-gray-400 text-sm mb-6">Type your ID number</p>
-        <input type="number" placeholder="Student ID"
-          value={studentIdInput} onChange={e => setStudentIdInput(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && lookupStudent(studentIdInput)}
-          className="w-full max-w-xs p-4 text-xl text-center border-2 rounded-xl bg-white text-gray-800 mb-4"
-          style={{ borderColor: RHS_GREEN }} autoFocus />
-        {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-        <button onClick={() => lookupStudent(studentIdInput)} disabled={!studentIdInput || loading}
-          className="px-8 py-3 text-white font-bold rounded-xl disabled:opacity-40"
-          style={{ backgroundColor: RHS_GREEN }}>
-          {loading ? 'Looking up...' : 'Continue →'}
-        </button>
+        <p className="text-gray-400 text-sm mb-4">Type or tap your ID number</p>
+
+        {showQR ? (
+          <div className="w-full max-w-xs mb-4">
+            <QRScanner onScan={id => { setShowQR(false); lookupStudent(id) }} />
+            <button onClick={() => setShowQR(false)} className="mt-3 w-full text-sm text-gray-400 hover:text-gray-600">
+              ← Use keypad instead
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Text input for keyboard users */}
+            <input type="number" placeholder="Student ID"
+              value={studentIdInput} onChange={e => setStudentIdInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && studentIdInput && lookupStudent(studentIdInput)}
+              className="w-full max-w-xs p-4 text-xl text-center border-2 rounded-xl bg-white text-gray-800 mb-4"
+              style={{ borderColor: RHS_GREEN }} />
+
+            {/* Numeric keypad for touchscreen */}
+            <div className="grid grid-cols-3 gap-3 w-56 mb-4">
+              {[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map((d, i) => (
+                <button key={i}
+                  onClick={() => d !== '' && handleIdDigit(d === '⌫' ? '⌫' : String(d))}
+                  className="h-14 text-xl font-bold bg-white border-2 rounded-xl shadow-sm hover:bg-green-50 disabled:opacity-0"
+                  style={{ borderColor: '#e5e7eb', color: RHS_GREEN }} disabled={d === ''}>
+                  {d}
+                </button>
+              ))}
+            </div>
+
+            {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
+
+            <button onClick={() => lookupStudent(studentIdInput)} disabled={!studentIdInput || loading}
+              className="px-8 py-3 text-white font-bold rounded-xl disabled:opacity-40 mb-4"
+              style={{ backgroundColor: RHS_GREEN }}>
+              {loading ? 'Looking up...' : 'Continue →'}
+            </button>
+
+            <button onClick={() => setShowQR(true)}
+              className="text-sm hover:opacity-70" style={{ color: RHS_GREEN }}>
+              📷 Scan QR badge instead
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
 
+  // ── Reason selection ──────────────────────────────────────────────────────
   if (stage === 'reason') return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
-      <div className="flex-1 flex flex-col items-center justify-center px-6">
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-6">
         <div className="flex items-center gap-4 mb-6">
           {studentPhoto
             ? <img src={studentPhoto} alt="" className="w-16 h-16 rounded-full object-cover border-2" style={{ borderColor: RHS_GREEN }} />
@@ -353,9 +409,10 @@ function SelfCheckoutInner() {
             <p className="text-gray-400 text-sm">Where are you going?</p>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3 w-full max-w-xs mb-6">
+
+        <div className="grid grid-cols-3 gap-3 w-full max-w-xs mb-4">
           {REASONS.map(r => (
-            <button key={r} onClick={() => setReason(r)}
+            <button key={r} onClick={() => handleReasonSelect(r)}
               className="py-3 text-sm font-medium rounded-xl border-2 transition-colors"
               style={reason === r
                 ? { backgroundColor: RHS_GREEN, color: 'white', borderColor: RHS_GREEN }
@@ -364,8 +421,41 @@ function SelfCheckoutInner() {
             </button>
           ))}
         </div>
+
+        {reason === 'On Assignment' && (
+          <div className="w-full max-w-xs flex flex-col gap-2 mb-4">
+            <select value={assignedTeacher} onChange={e => setAssignedTeacher(e.target.value)}
+              className="w-full p-3 text-base border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
+              <option value="">— Select a teacher —</option>
+              {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input type="text" placeholder="Purpose (e.g. picking up worksheets)"
+              value={purposeText} onChange={e => setPurposeText(e.target.value)}
+              className="w-full p-3 text-base border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
+          </div>
+        )}
+        {reason === 'Errand' && (
+          <div className="w-full max-w-xs flex flex-col gap-2 mb-4">
+            <select value={errandTeacher} onChange={e => setErrandTeacher(e.target.value)}
+              className="w-full p-3 text-base border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
+              <option value="">— Select a teacher (optional) —</option>
+              {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <input type="text" placeholder="Purpose (e.g. returning equipment)"
+              value={purposeText} onChange={e => setPurposeText(e.target.value)}
+              className="w-full p-3 text-base border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
+          </div>
+        )}
+        {reason === 'Other' && (
+          <div className="w-full max-w-xs mb-4">
+            <input type="text" placeholder="Where are you going?"
+              value={otherText} onChange={e => setOtherText(e.target.value)}
+              className="w-full p-3 text-base border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} autoFocus />
+          </div>
+        )}
+
         {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
-        <button onClick={handleCheckout} disabled={!reason || loading}
+        <button onClick={handleCheckout} disabled={checkoutDisabled || loading}
           className="px-8 py-4 text-white text-lg font-bold rounded-xl disabled:opacity-30"
           style={{ backgroundColor: RHS_GREEN }}>
           {loading ? 'Checking out...' : 'Check Out'}
@@ -375,6 +465,7 @@ function SelfCheckoutInner() {
     </div>
   )
 
+  // ── Checked out ───────────────────────────────────────────────────────────
   if (stage === 'done') return (
     <div className="min-h-screen flex flex-col"
       style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
@@ -421,6 +512,7 @@ function SelfCheckoutInner() {
     </div>
   )
 
+  // ── Self-returned ─────────────────────────────────────────────────────────
   if (stage === 'returned') return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
@@ -433,6 +525,7 @@ function SelfCheckoutInner() {
     </div>
   )
 
+  // ── Already checked out → check in ───────────────────────────────────────
   if (stage === 'checkin') return (
     <div className="min-h-screen flex flex-col"
       style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
@@ -445,8 +538,7 @@ function SelfCheckoutInner() {
         <p className="text-green-300 text-sm mb-8">Reason: {openPass?.reason}</p>
         <div className="flex gap-3">
           <button onClick={handleCheckin} disabled={loading}
-            className="px-6 py-3 bg-white font-bold rounded-xl disabled:opacity-40"
-            style={{ color: RHS_GREEN }}>
+            className="px-6 py-3 bg-white font-bold rounded-xl disabled:opacity-40" style={{ color: RHS_GREEN }}>
             {loading ? 'Checking in...' : 'Check Back In'}
           </button>
           <button onClick={reset} className="px-6 py-3 border border-white/40 text-white rounded-xl">Cancel</button>
@@ -455,6 +547,7 @@ function SelfCheckoutInner() {
     </div>
   )
 
+  // ── Check-in confirmed ────────────────────────────────────────────────────
   if (stage === 'checkin-done') return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
