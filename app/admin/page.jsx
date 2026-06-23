@@ -1904,8 +1904,7 @@ export default function AdminPanel() {
             {/* Results */}
             <div className="flex flex-col gap-3">
               {locatorResults.map(({ student: s, periods, activePasses: ap }) => {
-                const photoSrc = s.photo_url
-                  || (s.photo_file ? supabase.storage.from('student-photos').getPublicUrl(s.photo_file).data.publicUrl : null)
+                const photoSrc = photoUrls[s.id] || s.photo_url || null
                 const hasActivePass = ap.length > 0
 
                 return (
