@@ -528,7 +528,7 @@ function SelfCheckoutInner() {
         </div>
         {kioskReturnRequired ? (
           <div className="bg-white/20 rounded-xl p-4 w-full max-w-xs text-center">
-            <p className="text-white text-sm font-medium">Return to the kiosk to check back in when you're done.</p>
+            <p className="text-white text-sm font-medium">If the kiosk is not available, ask your teacher or sub to check you back in.</p>
           </div>
         ) : (
           <button onClick={handleSelfReturn} disabled={loading}
