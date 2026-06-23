@@ -369,8 +369,19 @@ export default function StudentsAdmin() {
       if (detectedRoom && String(detectedRoom).trim() !== String(room).trim()) {
         setRoomMismatch({ detectedRoom, detectedTeacher })
       }
-      const targetPeriod = importPeriod || (periods.length > 0 ? periods[0].value : null)
-      if (!importPeriod && periods.length > 0) setImportPeriod(periods[0].value)
+      // Auto-select the period that matches the detected period from the file
+      // e.g. detectedPeriod=5 should match teacher period "4&5" or "5"
+      let matchedPeriod = null
+      if (detectedPeriod && periods.length > 0) {
+        const dp = String(detectedPeriod).trim()
+        const exact = periods.find(p => String(p.value).trim() === dp)
+        const contained = !exact && periods.find(p =>
+          String(p.value).split(/[&,]/).map(s => s.trim()).includes(dp)
+        )
+        matchedPeriod = exact?.value || contained?.value || null
+      }
+      const targetPeriod = matchedPeriod || importPeriod || (periods.length > 0 ? periods[0].value : null)
+      if (targetPeriod) setImportPeriod(targetPeriod)
       if (targetPeriod) await fetchCurrentRoster(targetPeriod)
     } catch {
       setImportParseError('Could not read this file. Make sure it is an Aeries Class Roster .xlsx export.')
