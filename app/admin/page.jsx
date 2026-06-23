@@ -121,11 +121,8 @@ function getLogStartDate(period) {
 
 function getStudentPhotoUrl(student) {
   if (!student) return null
-  if (student.photo_url) return student.photo_url
-  if (!student.photo_file) return null
-  // Numeric ID photos (e.g. 801888.jpg) live in student-photos bucket
-  const { data } = supabase.storage.from('student-photos').getPublicUrl(student.photo_file)
-  return data?.publicUrl || null
+  return student.photo_url || null
+  // Storage photos (photo_file) are loaded as signed URLs via photoUrls state map
 }
 
 export default function AdminPanel() {
@@ -176,6 +173,7 @@ export default function AdminPanel() {
 
   // ── Students ──────────────────────────────────────────────────────────────
   const [students, setStudents] = useState([])
+  const [photoUrls, setPhotoUrls] = useState({})
   const [studentSearch, setStudentSearch] = useState('')
   const [scheduleConflicts, setScheduleConflicts] = useState([]) // [{ student_id, full_name, period, rooms: [{room, teacherName}] }]
 
@@ -670,6 +668,19 @@ export default function AdminPanel() {
     setTimeout(() => setTeacherMsg(''), 7000)
   }
 
+  // ── Signed photo URLs ─────────────────────────────────────────────────────
+  async function loadSignedPhotoUrls(studs) {
+    const withPhotos = (studs || []).filter(s => s?.photo_file && !s.photo_url)
+    if (withPhotos.length === 0) return
+    const { data } = await supabase.storage
+      .from('student-photos')
+      .createSignedUrls(withPhotos.map(s => s.photo_file), 3600)
+    if (!data) return
+    const map = {}
+    data.forEach((item, i) => { if (item.signedUrl) map[withPhotos[i].id] = item.signedUrl })
+    setPhotoUrls(prev => ({ ...prev, ...map }))
+  }
+
   // ── Student functions ─────────────────────────────────────────────────────
   async function loadStudents() {
     const { data } = await supabase.from('students').select('*').order('last_name')
@@ -680,6 +691,7 @@ export default function AdminPanel() {
     if (periods) periods.forEach(p => { roomMap[p.student_id] = p.room })
     const enriched = data.map(s => ({ ...s, _room: roomMap[s.id] || null }))
     setStudents(enriched)
+    loadSignedPhotoUrls(enriched)
     return enriched
   }
 
@@ -1737,8 +1749,8 @@ export default function AdminPanel() {
               </div>
               {filteredStudents.slice(0, 200).map(s => (
                 <div key={s.id + (s.period || '')} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0">
-                  {getStudentPhotoUrl(s)
-                    ? <img src={getStudentPhotoUrl(s)} alt={s.full_name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                  {(s.photo_url || photoUrls[s.id])
+                    ? <img src={s.photo_url || photoUrls[s.id]} alt={s.full_name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
                     : <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
                         {s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
                       </div>
