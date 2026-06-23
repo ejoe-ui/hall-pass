@@ -156,9 +156,8 @@ function SelfCheckoutInner() {
   async function loadSettings() {
     const { data: settingsData } = await supabase
       .from('settings').select('key, value')
-      .in('key', ['active_checkout_code', 'kiosk_return_required'])
+      .in('key', ['kiosk_return_required'])
 
-    const codeRow = settingsData?.find(r => r.key === 'active_checkout_code')
     const kioskRow = settingsData?.find(r => r.key === 'kiosk_return_required')
     if (kioskRow) setKioskReturnRequired(kioskRow.value !== 'false')
 
@@ -168,12 +167,12 @@ function SelfCheckoutInner() {
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
       const { data: t } = await supabase.from('teachers')
-        .select('id, name, room, unlock_code').eq('auth_id', session.user.id).eq('is_active', true).maybeSingle()
+        .select('id, name, room, unlock_code, session_code').eq('auth_id', session.user.id).eq('is_active', true).maybeSingle()
       if (t) teacher = t
     }
     if (!teacher) {
       const { data: t } = await supabase.from('teachers')
-        .select('id, name, room, unlock_code').eq('room', room).eq('is_active', true).maybeSingle()
+        .select('id, name, room, unlock_code, session_code').eq('room', room).eq('is_active', true).maybeSingle()
       if (t) teacher = t
     }
     if (teacher) {
@@ -183,8 +182,8 @@ function SelfCheckoutInner() {
       room = teacher.room || room
     }
 
-    // Fallback chain: session code → teacher unlock_code → room doubled
-    const codes = [codeRow?.value, teacher?.unlock_code, `${room}${room}`].filter(Boolean)
+    // Fallback chain: teacher session_code (per-class) → unlock_code → room doubled
+    const codes = [teacher?.session_code, teacher?.unlock_code, `${room}${room}`].filter(Boolean)
     setValidCodes(codes)
   }
 
