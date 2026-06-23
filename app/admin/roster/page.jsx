@@ -7,9 +7,9 @@
            table (not students.period). Supports manual photo upload.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (teachers, students, student_periods)
-  STORAGE: lifetouch-raw bucket for all student photos
-  UPDATED: 2026-06-23 — added file header; fixed photo bucket (student-photos →
-           lifetouch-raw) in getPhotoUrl, getStorageUrl, and handlePhotoUpload;
+  STORAGE: student-photos bucket (numeric Lifetouch ID filenames e.g. 801888.jpg)
+  UPDATED: 2026-06-23 — added file header; reverted photo bucket to student-photos
+           in getPhotoUrl, getStorageUrl, and handlePhotoUpload;
            removed dead /student/[id] link (no confirmed route)
 */
 'use client'
@@ -110,15 +110,15 @@ export default function StudentsAdmin() {
     // Prefer photo_url (Aeries/direct URL), fall back to storage file
     if (student.photo_url) return student.photo_url
     if (!student.photo_file) return null
-    // Uses lifetouch-raw bucket (not student-photos)
-    const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(student.photo_file)
+    // Numeric ID photos live in student-photos bucket
+    const { data } = supabase.storage.from('student-photos').getPublicUrl(student.photo_file)
     return data?.publicUrl || null
   }
 
   function getStorageUrl(photo_file) {
     if (!photo_file) return null
-    // Uses lifetouch-raw bucket (not student-photos)
-    const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(photo_file)
+    // Numeric ID photos live in student-photos bucket
+    const { data } = supabase.storage.from('student-photos').getPublicUrl(photo_file)
     return data?.publicUrl || null
   }
 
@@ -236,14 +236,14 @@ export default function StudentsAdmin() {
     if (!file || !editStudent) return
     setPhotoUploading(true)
     const path = `${editStudent.id}.jpg`
-    // Upload to lifetouch-raw bucket (not student-photos)
+    // Upload to student-photos bucket
     const { error: uploadError } = await supabase.storage
-      .from('lifetouch-raw')
+      .from('student-photos')
       .upload(path, file, { upsert: true, contentType: 'image/jpeg' })
     if (!uploadError) {
       await supabase.from('students').update({ photo_file: path }).eq('id', editStudent.id)
-      // Get public URL from lifetouch-raw bucket (not student-photos)
-      const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(path)
+      // Get public URL from student-photos bucket
+      const { data } = supabase.storage.from('student-photos').getPublicUrl(path)
       setPhotoUrl(data?.publicUrl ? `${data.publicUrl}?t=${Date.now()}` : null)
       setEditStudent(prev => ({ ...prev, photo_file: path }))
     }
@@ -418,7 +418,7 @@ export default function StudentsAdmin() {
               const url = getPhotoUrl(s)
               return (
                 <div key={s.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                  {/* Photo: prefer photo_url, fall back to lifetouch-raw storage, then initials */}
+                  {/* Photo: prefer photo_url, fall back to student-photos storage, then initials */}
                   <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center text-xs font-medium text-white"
                     style={{ backgroundColor: RHS_GREEN }}>
                     {url
