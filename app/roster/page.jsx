@@ -725,7 +725,6 @@ export default function StudentsAdmin() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <a href="/admin/photos" className="text-sm text-green-200 hover:text-white">📷 Photo Upload</a>
           <button onClick={() => { setShowHelp(v => !v); setHelpSearch(''); setHelpPos({ x: null, y: null }) }} className="text-sm text-green-200 hover:text-white">❓ Help</button>
           <a href="/teacher" className="text-sm text-green-200 hover:text-white">← Dashboard</a>
         </div>
@@ -734,7 +733,7 @@ export default function StudentsAdmin() {
       <div className="p-6 max-w-3xl mx-auto">
 
         {/* View Switcher */}
-        <div className="flex gap-2 mb-6">
+        <div className="flex items-center gap-2 mb-6">
           {[{ id: 'manage', label: 'Manage Students' }, { id: 'import', label: '📥 Import from Aeries' }].map(v => (
             <button key={v.id} onClick={() => { setActiveView(v.id); setImportResults(null); setImportPreview([]); setImportParseError(''); if (importFileRef.current) importFileRef.current.value = '' }}
               className="px-4 py-2 text-sm font-medium rounded-lg border transition-colors"
@@ -744,6 +743,10 @@ export default function StudentsAdmin() {
               {v.label}
             </button>
           ))}
+          <a href="/teacher/match-photos"
+            className="ml-auto px-3 py-2 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors">
+            📷 Match Photos
+          </a>
         </div>
 
         {/* ── IMPORT VIEW ── */}
