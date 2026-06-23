@@ -7,14 +7,15 @@
            table (not students.period). Supports manual photo upload.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (teachers, students, student_periods)
-  STORAGE: lifetouch-raw bucket for all student photos
-  UPDATED: 2026-06-23 — added file header; fixed photo bucket (student-photos →
-           lifetouch-raw) in getPhotoUrl, getStorageUrl, and handlePhotoUpload;
+  STORAGE: student-photos bucket (numeric Lifetouch ID filenames e.g. 801888.jpg)
+  UPDATED: 2026-06-23 — added file header; reverted photo bucket to student-photos
+           in getPhotoUrl, getStorageUrl, and handlePhotoUpload;
            removed dead /student/[id] link (no confirmed route)
 */
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
+import * as XLSX from 'xlsx'
 
 const RHS_GREEN = '#006938'
 
@@ -47,6 +48,16 @@ export default function StudentsAdmin() {
   const [photoUploading, setPhotoUploading] = useState(false)
   const [photoUrl, setPhotoUrl] = useState(null)
   const photoRef = useRef()
+
+  // ── Import ────────────────────────────────────────────────────────────────
+  const [activeView, setActiveView] = useState('manage') // 'manage' | 'import'
+  const [importPreview, setImportPreview] = useState([])
+  const [importPeriod, setImportPeriod] = useState(null)
+  const [importLoading, setImportLoading] = useState(false)
+  const [importResults, setImportResults] = useState(null)
+  const [importParseError, setImportParseError] = useState('')
+  const [detectedMeta, setDetectedMeta] = useState(null)
+  const importFileRef = useRef()
 
   useEffect(() => {
     async function loadTeacher() {
@@ -107,17 +118,18 @@ export default function StudentsAdmin() {
   }
 
   function getPhotoUrl(student) {
+    // Prefer photo_url (Aeries/direct URL), fall back to storage file
     if (student.photo_url) return student.photo_url
     if (!student.photo_file) return null
-    // Uses lifetouch-raw bucket (not student-photos)
-    const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(student.photo_file)
+    // Numeric ID photos live in student-photos bucket
+    const { data } = supabase.storage.from('student-photos').getPublicUrl(student.photo_file)
     return data?.publicUrl || null
   }
 
   function getStorageUrl(photo_file) {
     if (!photo_file) return null
-    // Uses lifetouch-raw bucket (not student-photos)
-    const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(photo_file)
+    // Numeric ID photos live in student-photos bucket
+    const { data } = supabase.storage.from('student-photos').getPublicUrl(photo_file)
     return data?.publicUrl || null
   }
 
@@ -235,17 +247,111 @@ export default function StudentsAdmin() {
     if (!file || !editStudent) return
     setPhotoUploading(true)
     const path = `${editStudent.id}.jpg`
-    // Upload to lifetouch-raw bucket (not student-photos)
+    // Upload to student-photos bucket
     const { error: uploadError } = await supabase.storage
-      .from('lifetouch-raw')
+      .from('student-photos')
       .upload(path, file, { upsert: true, contentType: 'image/jpeg' })
     if (!uploadError) {
       await supabase.from('students').update({ photo_file: path }).eq('id', editStudent.id)
-      const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(path)
+      // Get public URL from student-photos bucket
+      const { data } = supabase.storage.from('student-photos').getPublicUrl(path)
       setPhotoUrl(data?.publicUrl ? `${data.publicUrl}?t=${Date.now()}` : null)
       setEditStudent(prev => ({ ...prev, photo_file: path }))
     }
     setPhotoUploading(false)
+  }
+
+  // ── Aeries xlsx parser ────────────────────────────────────────────────────
+  function parseAeriesXlsx(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        try {
+          const wb = XLSX.read(e.target.result, { type: 'array' })
+          const ws = wb.Sheets[wb.SheetNames[0]]
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+          // Row index 2: Period (col 0), Teacher (col 15), Room (col 27)
+          const classRow = rows[2] || []
+          const detectedPeriod = String(classRow[0] || '').trim()
+          const detectedTeacher = String(classRow[15] || '').trim()
+          const detectedRoom = String(classRow[27] || '').trim()
+          // Student rows start at index 5; col B = Student ID, col E = Name, col L = Grade
+          const students = []
+          for (let i = 5; i < rows.length; i++) {
+            const row = rows[i]
+            if (!row) continue
+            const studentId = String(row[1] || '').trim()
+            const aeriesName = String(row[4] || '').trim()
+            const grade = String(row[11] || '').trim()
+            if (!studentId || !aeriesName || !/^\d+$/.test(studentId)) continue
+            // Parse "Last, First MI" → first, last, full_name ("First MI Last")
+            const commaIdx = aeriesName.indexOf(',')
+            let first, last, full_name
+            if (commaIdx === -1) {
+              first = aeriesName; last = ''; full_name = aeriesName
+            } else {
+              last = aeriesName.slice(0, commaIdx).trim()
+              first = aeriesName.slice(commaIdx + 1).trim()
+              full_name = `${first} ${last}`
+            }
+            students.push({ id: studentId, first, last, full_name, grade, aeriesName })
+          }
+          resolve({ students, detectedPeriod, detectedTeacher, detectedRoom })
+        } catch (err) { reject(err) }
+      }
+      reader.onerror = reject
+      reader.readAsArrayBuffer(file)
+    })
+  }
+
+  async function handleImportFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setImportParseError(''); setImportResults(null); setImportPreview([])
+    try {
+      const { students, detectedPeriod, detectedTeacher, detectedRoom } = await parseAeriesXlsx(file)
+      setImportPreview(students)
+      setDetectedMeta({ period: detectedPeriod, teacher: detectedTeacher, room: detectedRoom })
+      if (!importPeriod && periods.length > 0) setImportPeriod(periods[0].value)
+    } catch {
+      setImportParseError('Could not read this file. Make sure it is an Aeries Class Roster .xlsx export.')
+    }
+  }
+
+  async function handleImport() {
+    if (!importPreview.length || !importPeriod) return
+    setImportLoading(true)
+    let added = 0, existing = 0
+    const errors = []
+    for (const student of importPreview) {
+      // Upsert student record
+      const { error: sErr } = await supabase.from('students').upsert({
+        id: student.id,
+        first_name: student.first,
+        last_name: student.last,
+        full_name: student.full_name,
+        grade: student.grade || null,
+        period: importPeriod,
+      }, { onConflict: 'id' })
+      if (sErr) { errors.push(`${student.full_name}: ${sErr.message}`); continue }
+      // Add to student_periods if not already linked to this room
+      const { data: spExists } = await supabase.from('student_periods')
+        .select('id').eq('student_id', student.id).eq('room', room).maybeSingle()
+      if (!spExists) {
+        await supabase.from('student_periods').insert({ student_id: student.id, period: importPeriod, room })
+        added++
+      } else {
+        existing++
+      }
+    }
+    setImportResults({ added, existing, errors, total: importPreview.length })
+    setImportLoading(false)
+    if (errors.length === 0) {
+      setImportPreview([]); setDetectedMeta(null)
+      if (importFileRef.current) importFileRef.current.value = ''
+      setActivePeriod(importPeriod)
+      setTimeout(() => { setActiveView('manage'); loadStudents() }, 1800)
+    }
   }
 
   const teacherName = currentTeacher?.name || 'Loading...'
@@ -360,6 +466,111 @@ export default function StudentsAdmin() {
 
       <div className="p-6 max-w-3xl mx-auto">
 
+        {/* View Switcher */}
+        <div className="flex gap-2 mb-6">
+          {[{ id: 'manage', label: 'Manage Students' }, { id: 'import', label: '📥 Import from Aeries' }].map(v => (
+            <button key={v.id} onClick={() => { setActiveView(v.id); setImportResults(null); setImportPreview([]); setImportParseError(''); if (importFileRef.current) importFileRef.current.value = '' }}
+              className="px-4 py-2 text-sm font-medium rounded-lg border transition-colors"
+              style={activeView === v.id
+                ? { backgroundColor: RHS_GREEN, color: 'white', borderColor: RHS_GREEN }
+                : { backgroundColor: 'white', color: '#374151', borderColor: '#e5e7eb' }}>
+              {v.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── IMPORT VIEW ── */}
+        {activeView === 'import' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="text-sm font-semibold text-gray-800 mb-1">Import from Aeries Class Roster</h2>
+              <p className="text-xs text-gray-500 mb-4">Export your roster from Aeries → Reports → Print Class Rosters. Upload the .xlsx file here.</p>
+              <div className="bg-green-50 rounded-lg px-3 py-2 text-xs text-green-700 mb-4">
+                💡 Expected format: Aeries "Print Class Rosters" .xlsx. Students will be added to the period you select below.
+              </div>
+              <input ref={importFileRef} type="file" accept=".xlsx,.xls"
+                onChange={handleImportFile}
+                className="text-sm text-gray-600 mb-3" />
+              {importParseError && (
+                <p className="text-xs text-red-600 mt-2">⚠ {importParseError}</p>
+              )}
+            </div>
+
+            {detectedMeta && (
+              <div className="bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 text-xs text-gray-600 flex gap-6">
+                <span>📋 <strong>Detected Period:</strong> {detectedMeta.period || '—'}</span>
+                <span>👤 <strong>Teacher:</strong> {detectedMeta.teacher || '—'}</span>
+                <span>🚪 <strong>Room:</strong> {detectedMeta.room || '—'}</span>
+              </div>
+            )}
+
+            {importPreview.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                  <p className="text-sm font-semibold text-gray-800">{importPreview.length} students found</p>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-500">Assign to:</label>
+                    <select value={importPeriod || ''} onChange={e => setImportPeriod(e.target.value)}
+                      className="text-xs border rounded-lg px-2 py-1.5 text-gray-700 bg-white"
+                      style={{ borderColor: RHS_GREEN }}>
+                      {periods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        {['#', 'Student ID', 'Name', 'Grade'].map(h => (
+                          <th key={h} className="px-3 py-2 text-left text-gray-500 font-medium border-b border-gray-200">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.map((s, i) => (
+                        <tr key={s.id} className="border-b border-gray-50 last:border-0">
+                          <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                          <td className="px-3 py-2 text-gray-500 font-mono">{s.id}</td>
+                          <td className="px-3 py-2 text-gray-800 font-medium">{s.full_name}</td>
+                          <td className="px-3 py-2 text-gray-500">{s.grade || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
+                  <p className="text-xs text-gray-400">Students already in the system will be updated, not duplicated.</p>
+                  <button onClick={handleImport} disabled={importLoading || !importPeriod}
+                    className="px-5 py-2.5 text-sm font-semibold text-white rounded-xl disabled:opacity-40"
+                    style={{ backgroundColor: RHS_GREEN }}>
+                    {importLoading ? 'Importing...' : `Import ${importPreview.length} Students`}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {importResults && (
+              <div className={`rounded-xl border px-4 py-3 text-sm ${importResults.errors.length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                {importResults.errors.length === 0 ? (
+                  <p className="text-green-700 font-medium">
+                    ✅ Done — {importResults.added} student{importResults.added !== 1 ? 's' : ''} added
+                    {importResults.existing > 0 ? `, ${importResults.existing} already in your roster` : ''}.
+                    Switching to Manage view…
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-amber-800 font-medium mb-2">⚠ {importResults.added} imported, {importResults.errors.length} error{importResults.errors.length !== 1 ? 's' : ''}:</p>
+                    {importResults.errors.map((e, i) => <p key={i} className="text-xs text-amber-700">{e}</p>)}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── MANAGE VIEW ── */}
+        {activeView === 'manage' && <>
+
         {/* Add Student */}
         <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
           <p className="text-sm font-medium mb-3" style={{ color: RHS_GREEN }}>Add Student</p>
@@ -416,7 +627,7 @@ export default function StudentsAdmin() {
               const url = getPhotoUrl(s)
               return (
                 <div key={s.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                  {/* Photo: prefer photo_url, fall back to lifetouch-raw storage, then initials */}
+                  {/* Photo: prefer photo_url, fall back to student-photos storage, then initials */}
                   <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center text-xs font-medium text-white"
                     style={{ backgroundColor: RHS_GREEN }}>
                     {url
@@ -467,6 +678,9 @@ export default function StudentsAdmin() {
             })
           )}
         </div>
+
+        </> /* end manage view */}
+
       </div>
     </div>
   )
