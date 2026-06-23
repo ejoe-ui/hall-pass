@@ -1604,7 +1604,7 @@ export default function AdminPanel() {
                           ) : memberSearchResults.map(s => (
                             <button key={s.id} onClick={() => addMember(group.id, s.id)}
                               className="w-full text-left text-sm px-3 py-2 rounded-lg hover:bg-green-50 text-gray-700">
-                              {s.full_name} <span className="text-xs text-gray-400">· Period {s.period}</span>
+                              {s.full_name}{s.grade ? <span className="text-xs text-gray-400"> (Gr {s.grade})</span> : null}
                             </button>
                           ))}
                         </div>
@@ -1646,7 +1646,7 @@ export default function AdminPanel() {
                     {dnloSearchResults.map(s => (
                       <button key={s.id} onClick={() => { setDnloSearch(s.full_name); setDnloSearchResults([{ ...s, selected: true }]) }}
                         className="w-full text-left text-sm px-3 py-2 hover:bg-green-50 text-gray-700 border-b border-gray-50 last:border-0">
-                        {s.full_name} <span className="text-xs text-gray-400">· Period {s.period}</span>
+                        {s.full_name}{s.grade ? <span className="text-xs text-gray-400"> (Gr {s.grade})</span> : null}
                       </button>
                     ))}
                   </div>
