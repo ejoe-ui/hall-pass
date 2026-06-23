@@ -8,8 +8,9 @@
   BACKEND: Supabase (teachers, students, passes, conflict_groups, do_not_let_out, settings)
   AUTH:    Password-based. Default passcode = room number doubled (room 27 → "2727").
            Teachers must change password on first login (must_change_password flag).
-  UPDATED: 2026-06-23 — fixed photo bucket (student-photos → lifetouch-raw); scoped
-           loadDnlo students fetch to DNLO IDs; removed dead /student/[id] link
+  UPDATED: 2026-06-23 — reverted photo fallback to student-photos (numeric ID files
+           live there, not lifetouch-raw); scoped loadDnlo students fetch to DNLO IDs;
+           removed dead /student/[id] link
 */
 
 'use client'
@@ -122,8 +123,8 @@ function getStudentPhotoUrl(student) {
   if (!student) return null
   if (student.photo_url) return student.photo_url
   if (!student.photo_file) return null
-  // Uses lifetouch-raw bucket (not student-photos)
-  const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(student.photo_file)
+  // Numeric ID photos (e.g. 801888.jpg) live in student-photos bucket
+  const { data } = supabase.storage.from('student-photos').getPublicUrl(student.photo_file)
   return data?.publicUrl || null
 }
 
