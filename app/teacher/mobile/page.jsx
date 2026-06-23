@@ -8,7 +8,9 @@
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (teachers, students, passes, pass_holds, do_not_let_out)
   AUTH:    Same Supabase password auth as the main teacher dashboard.
-  UPDATED: 2026-06-22 — initial build
+  UPDATED: 2026-06-23 — fixed photo bucket student-photos → lifetouch-raw;
+           added Career Counselor to REASONS for analytics consistency;
+           added pass transfer notifications (incoming + outgoing) with Realtime
 */
 'use client'
 import { useState, useEffect, useRef, Suspense } from 'react'
@@ -17,14 +19,15 @@ import { supabase } from '../../../lib/supabase'
 const RHS_GREEN = '#006938'
 
 const REASONS = [
-  { label: 'Restroom', emoji: '🚻' },
-  { label: 'Office',   emoji: '🏫' },
-  { label: 'Counselor',emoji: '💬' },
-  { label: 'Nurse',    emoji: '🩺' },
-  { label: 'Library',  emoji: '📚' },
-  { label: 'Lockers',  emoji: '🔐' },
-  { label: 'Errand',   emoji: '📋' },
-  { label: 'Other',    emoji: '📝' },
+  { label: 'Restroom',         emoji: '🚻' },
+  { label: 'Office',           emoji: '🏫' },
+  { label: 'Counselor',        emoji: '💬' },
+  { label: 'Career Counselor', emoji: '🎓' },
+  { label: 'Nurse',            emoji: '🩺' },
+  { label: 'Library',          emoji: '📚' },
+  { label: 'Lockers',          emoji: '🔐' },
+  { label: 'Errand',           emoji: '📋' },
+  { label: 'Other',            emoji: '📝' },
 ]
 
 // ── Lightweight schedule for auto-detection (regular schedule only) ────────────
@@ -44,12 +47,10 @@ function nowMins() { const n = new Date(); return n.getHours() * 60 + n.getMinut
 function autoDetectPeriod(teacherPeriods) {
   const m = nowMins()
   const detected = REGULAR_PERIODS.find(p => m >= t2m(p.start) && m < t2m(p.end))?.id || null
-  // Only return detected period if the teacher actually teaches it
   if (detected && teacherPeriods?.includes(detected)) return detected
   return null
 }
 
-// "Periods 1 & 2" → "P1 & 2", no label → "P1"
 function periodPillLabel(id, labels) {
   const label = labels?.[id]
   if (!label) return `P${id}`
@@ -62,21 +63,22 @@ function elapsed(timeOut) {
 
 function getPhotoUrl(student) {
   if (student?.photo_url) return student.photo_url
-  if (student?.photo_file) return supabase.storage.from('student-photos').getPublicUrl(student.photo_file).data.publicUrl
+  // Uses lifetouch-raw bucket (not student-photos)
+  if (student?.photo_file) return supabase.storage.from('lifetouch-raw').getPublicUrl(student.photo_file).data.publicUrl
   return null
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 function MobilePageInner() {
   // ── Auth state ───────────────────────────────────────────────────────────
-  const [session, setSession]           = useState(null)
-  const [authLoading, setAuthLoading]   = useState(true)
+  const [session, setSession]               = useState(null)
+  const [authLoading, setAuthLoading]       = useState(true)
   const [currentTeacher, setCurrentTeacher] = useState(null)
   const [teacherLoading, setTeacherLoading] = useState(false)
-  const [email, setEmail]               = useState('')
-  const [password, setPassword]         = useState('')
-  const [authError, setAuthError]       = useState('')
-  const [signingIn, setSigningIn]       = useState(false)
+  const [email, setEmail]                   = useState('')
+  const [password, setPassword]             = useState('')
+  const [authError, setAuthError]           = useState('')
+  const [signingIn, setSigningIn]           = useState(false)
 
   // ── Period / room ────────────────────────────────────────────────────────
   const [activePeriod, setActivePeriod] = useState(null)
@@ -88,16 +90,20 @@ function MobilePageInner() {
   const [allStudents, setAllStudents]   = useState([])
   const [heldPasses, setHeldPasses]     = useState([])
   const [dnloList, setDnloList]         = useState([])
-  const [, setTick]                     = useState(0)   // forces elapsed re-render
+  const [, setTick]                     = useState(0)
+
+  // ── Notifications ────────────────────────────────────────────────────────
+  const [incomingNotifs, setIncomingNotifs] = useState([])
+  const [outgoingNotifs, setOutgoingNotifs] = useState([])
 
   // ── Checkout sheet ───────────────────────────────────────────────────────
-  const [showHelp, setShowHelp]             = useState(false)
-  const [showSheet, setShowSheet]           = useState(false)
-  const [sheetView, setSheetView]           = useState('students') // 'students' | 'destination'
+  const [showHelp, setShowHelp]               = useState(false)
+  const [showSheet, setShowSheet]             = useState(false)
+  const [sheetView, setSheetView]             = useState('students')
   const [selectedStudent, setSelectedStudent] = useState(null)
-  const [studentSearch, setStudentSearch]   = useState('')
-  const [checkingOut, setCheckingOut]       = useState(false)
-  const [checkingIn, setCheckingIn]         = useState(null) // passId
+  const [studentSearch, setStudentSearch]     = useState('')
+  const [checkingOut, setCheckingOut]         = useState(false)
+  const [checkingIn, setCheckingIn]           = useState(null)
 
   const searchRef = useRef(null)
 
@@ -134,11 +140,24 @@ function MobilePageInner() {
     return () => clearInterval(timer)
   }, [activePeriod, currentTeacher, selectedRoom])
 
-  // Elapsed time display refreshes every 30s
   useEffect(() => {
     const t = setInterval(() => setTick(n => n + 1), 30000)
     return () => clearInterval(t)
   }, [])
+
+  // ── Notification realtime ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!currentTeacher?.id) return
+    loadNotifications()
+    const channel = supabase
+      .channel(`mobile-notifs:${currentTeacher.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pass_notifications',
+        filter: `to_teacher_id=eq.${currentTeacher.id}` }, () => loadNotifications())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pass_notifications',
+        filter: `from_teacher_id=eq.${currentTeacher.id}` }, () => loadNotifications())
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [currentTeacher?.id])
 
   async function loadCurrentTeacher() {
     setTeacherLoading(true)
@@ -236,6 +255,33 @@ function MobilePageInner() {
   async function handleDenyHold(holdId) {
     await supabase.from('pass_holds').delete().eq('id', holdId)
     loadData()
+  }
+
+  // ── Notification functions ────────────────────────────────────────────────
+  async function loadNotifications() {
+    if (!currentTeacher?.id) return
+    const { data } = await supabase
+      .from('pass_notifications')
+      .select('*')
+      .or(`to_teacher_id.eq.${currentTeacher.id},from_teacher_id.eq.${currentTeacher.id}`)
+      .neq('status', 'cleared')
+      .order('sent_at', { ascending: false })
+    if (!data) return
+    setIncomingNotifs(data.filter(n => n.to_teacher_id === currentTeacher.id && !n.cleared_by_receiver))
+    setOutgoingNotifs(data.filter(n => n.from_teacher_id === currentTeacher.id && !n.cleared_by_sender && n.status !== 'pending'))
+  }
+
+  async function updateNotifStatus(notifId, status) {
+    const now = new Date().toISOString()
+    const updates = { status }
+    if (status === 'received') updates.received_at = now
+    if (status === 'returned') updates.returned_at = now
+    await supabase.from('pass_notifications').update(updates).eq('id', notifId)
+  }
+
+  async function clearNotif(notifId, role) {
+    const field = role === 'sender' ? 'cleared_by_sender' : 'cleared_by_receiver'
+    await supabase.from('pass_notifications').update({ [field]: true }).eq('id', notifId)
   }
 
   function openSheet() {
@@ -337,7 +383,7 @@ function MobilePageInner() {
           </div>
         )}
 
-        {/* Period pills — from teacher's actual periods + labels */}
+        {/* Period pills */}
         <div style={{ display: 'flex', gap: 5, overflowX: 'auto', paddingBottom: 2, scrollbarWidth: 'none' }}>
           {(currentTeacher?.periods || []).map(p => (
             <button key={p}
@@ -352,12 +398,93 @@ function MobilePageInner() {
       {/* ── Scrollable content ── */}
       <div style={{ flex: 1, padding: 16, paddingBottom: 100 }}>
 
-        {/* No period selected */}
         {!activePeriod && (
           <div style={{ textAlign: 'center', padding: '60px 0', color: '#9ca3af' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>👆</div>
             <div style={{ fontSize: 15, fontWeight: 600 }}>Tap a period above to start</div>
           </div>
+        )}
+
+        {/* ── Incoming transfer notifications ── */}
+        {incomingNotifs.length > 0 && (
+          <section style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+              🔔 Students Heading Your Way ({incomingNotifs.length})
+            </div>
+            {incomingNotifs.map(n => (
+              <div key={n.id} style={{ background: '#eff6ff', border: '2px solid #93c5fd', borderRadius: 14, padding: 14, marginBottom: 10 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: '#111827', marginBottom: 2 }}>{n.student_name}</div>
+                <div style={{ fontSize: 13, color: '#1e40af', marginBottom: 2 }}>
+                  From Rm {n.from_room} · {n.from_teacher_name} · {n.reason}
+                </div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 10 }}>
+                  Sent {new Date(n.sent_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — Automated reminder
+                </div>
+                {(n.status === 'pending' || n.status === 'not_here') && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <button onClick={() => updateNotifStatus(n.id, 'received')}
+                      style={{ padding: '11px 8px', fontWeight: 700, fontSize: 13, background: '#dcfce7', color: '#16a34a', border: 'none', borderRadius: 10, cursor: 'pointer' }}>
+                      ✓ Received
+                    </button>
+                    <button onClick={() => updateNotifStatus(n.id, 'not_here')}
+                      style={{ padding: '11px 8px', fontWeight: 700, fontSize: 13, background: '#fef3c7', color: '#92400e', border: 'none', borderRadius: 10, cursor: 'pointer' }}>
+                      ? Not Here Yet
+                    </button>
+                  </div>
+                )}
+                {n.status === 'received' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <button onClick={() => updateNotifStatus(n.id, 'returned')}
+                      style={{ padding: '11px 8px', fontWeight: 700, fontSize: 13, background: RHS_GREEN, color: 'white', border: 'none', borderRadius: 10, cursor: 'pointer' }}>
+                      ↩ Returning
+                    </button>
+                    <button onClick={() => clearNotif(n.id, 'receiver')}
+                      style={{ padding: '11px 8px', fontWeight: 700, fontSize: 13, background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: 10, cursor: 'pointer' }}>
+                      Clear
+                    </button>
+                  </div>
+                )}
+                {(n.status === 'returned' || n.status === 'cleared') && (
+                  <button onClick={() => clearNotif(n.id, 'receiver')}
+                    style={{ width: '100%', padding: '11px 8px', fontWeight: 700, fontSize: 13, background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: 10, cursor: 'pointer' }}>
+                    Clear
+                  </button>
+                )}
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* ── Outgoing transfer updates ── */}
+        {outgoingNotifs.length > 0 && (
+          <section style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+              📤 Transfer Updates ({outgoingNotifs.length})
+            </div>
+            {outgoingNotifs.map(n => (
+              <div key={n.id} style={{ background: '#faf5ff', border: '1px solid #c4b5fd', borderRadius: 14, padding: 14, marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: '#111827' }}>{n.student_name}</div>
+                    <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
+                      → {n.to_teacher_name}
+                      {n.status === 'received' && <span style={{ color: '#2563eb', fontWeight: 600 }}> · Received ✓</span>}
+                      {n.status === 'not_here' && <span style={{ color: '#d97706', fontWeight: 600 }}> · Not there yet</span>}
+                      {n.status === 'returned' && (
+                        <span style={{ color: '#16a34a', fontWeight: 600 }}>
+                          {' · Returning'}{n.returned_at ? ` @ ${new Date(n.returned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button onClick={() => clearNotif(n.id, 'sender')}
+                    style={{ padding: '6px 12px', fontWeight: 600, fontSize: 12, background: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: 8, cursor: 'pointer', flexShrink: 0 }}>
+                    Clear
+                  </button>
+                </div>
+              </div>
+            ))}
+          </section>
         )}
 
         {/* ── Pending holds ── */}
@@ -403,7 +530,6 @@ function MobilePageInner() {
             <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
               Currently Out {outPasses.length > 0 ? `(${outPasses.length})` : ''}
             </div>
-
             {outPasses.length === 0 ? (
               <div style={{ background: 'white', borderRadius: 14, padding: '28px 16px', textAlign: 'center', color: '#9ca3af', fontSize: 14 }}>
                 No students currently out
@@ -468,6 +594,7 @@ function MobilePageInner() {
                 { q: 'A student shows ⛔ Do Not Let Out.', a: 'An admin or you has restricted this student. You can still check them out by tapping their name and selecting a destination — the action gets logged so it\'s on record.' },
                 { q: 'Students aren\'t showing up in the list.', a: 'Make sure you\'ve selected the right period and that a roster has been imported for your room. Students are linked to the period number in the roster — for block periods (e.g. Periods 1 & 2), the pill shows your block label but filters by the first period number.' },
                 { q: 'Can I use this on my phone?', a: 'Yes — that\'s exactly what it\'s for. Open hall-pass-lime.vercel.app/teacher/mobile in Safari, tap the Share button, then Add to Home Screen for quick one-tap access.' },
+                { q: 'What are the blue/purple notification cards?', a: 'When another teacher checks out a student to your room, a blue card appears automatically. Tap Received when the student arrives, Not Here Yet if they haven\'t shown up, and Returning when they head back. The sending teacher sees your updates live. Purple cards are updates on students you sent somewhere. Tap Clear to dismiss any card. These are automated reminders — no action is required.' },
               ].map((item, i) => (
                 <details key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
                   <summary style={{ padding: '12px 4px', fontSize: 14, fontWeight: 600, color: '#111827', cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -484,12 +611,8 @@ function MobilePageInner() {
       {/* ── Bottom sheet (checkout flow) ── */}
       {showSheet && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 50 }}>
-          {/* Backdrop */}
           <div onClick={closeSheet} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)' }} />
-
-          {/* Sheet */}
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'white', borderRadius: '22px 22px 0 0', maxHeight: '88dvh', display: 'flex', flexDirection: 'column', paddingBottom: 'env(safe-area-inset-bottom)' }}>
-            {/* Drag handle */}
             <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 6px' }}>
               <div style={{ width: 40, height: 4, background: '#e5e7eb', borderRadius: 2 }} />
             </div>
