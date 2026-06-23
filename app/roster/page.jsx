@@ -66,6 +66,7 @@ export default function StudentsAdmin() {
   const [mismatchConfirmed, setMismatchConfirmed] = useState(false)
   const [clearConfirm, setClearConfirm] = useState(null) // null | 'period-X' | 'all'
   const [clearing, setClearing] = useState(false)
+  const [crossTeacherConflicts, setCrossTeacherConflicts] = useState([]) // [{ student_id, full_name, otherRoom, otherTeacherName }]
   const importFileRef = useRef()
 
   // ── Help panel ────────────────────────────────────────────────────────────
@@ -373,7 +374,7 @@ export default function StudentsAdmin() {
   async function processImportFile(file) {
     if (!file) return
     setImportParseError(''); setImportResults(null); setImportPreview([])
-    setRemoveSelected(new Set()); setRoomMismatch(null); setMismatchConfirmed(false)
+    setRemoveSelected(new Set()); setRoomMismatch(null); setMismatchConfirmed(false); setCrossTeacherConflicts([])
     try {
       const { students, detectedPeriod, detectedTeacher, detectedRoom } = await parseAeriesXlsx(file)
       setImportPreview(students)
@@ -396,6 +397,35 @@ export default function StudentsAdmin() {
       const targetPeriod = matchedPeriod || importPeriod || (periods.length > 0 ? periods[0].value : null)
       if (targetPeriod) setImportPeriod(targetPeriod)
       if (targetPeriod) await fetchCurrentRoster(targetPeriod)
+
+      // Check for cross-teacher conflicts: students in this file already claimed
+      // by a different teacher/room in the same period
+      if (targetPeriod && students.length > 0) {
+        const studentIds = students.map(s => s.id)
+        const { data: conflictRows } = await supabase
+          .from('student_periods')
+          .select('student_id, room')
+          .in('student_id', studentIds)
+          .eq('period', targetPeriod)
+          .neq('room', room)
+        if (conflictRows && conflictRows.length > 0) {
+          const conflictRooms = [...new Set(conflictRows.map(r => r.room))]
+          const { data: tchrs } = await supabase.from('teachers').select('name, room').in('room', conflictRooms)
+          const teacherByRoom = {}
+          if (tchrs) tchrs.forEach(t => { teacherByRoom[String(t.room)] = t.name })
+          setCrossTeacherConflicts(conflictRows.map(r => {
+            const student = students.find(s => s.id === r.student_id)
+            return {
+              student_id: r.student_id,
+              full_name: student?.full_name || 'Unknown',
+              otherRoom: r.room,
+              otherTeacherName: teacherByRoom[String(r.room)] || `Room ${r.room}`,
+            }
+          }))
+        } else {
+          setCrossTeacherConflicts([])
+        }
+      }
     } catch {
       setImportParseError('Could not read this file. Make sure it is an Aeries Class Roster .xlsx export.')
     }
@@ -801,6 +831,27 @@ export default function StudentsAdmin() {
                       </div>
                     )}
                   </div>
+
+                  {/* Cross-teacher conflict warning */}
+                  {crossTeacherConflicts.length > 0 && (
+                    <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-orange-500">⚠️</span>
+                        <p className="text-sm font-semibold text-orange-800">
+                          {crossTeacherConflicts.length} student{crossTeacherConflicts.length !== 1 ? 's' : ''} already enrolled in this period by another teacher
+                        </p>
+                      </div>
+                      <p className="text-xs text-orange-700 mb-3">These students will be added to your roster, but they'll also remain on the other teacher's roster until resolved. The admin dashboard will flag this as a scheduling conflict.</p>
+                      <div className="flex flex-col gap-1.5">
+                        {crossTeacherConflicts.map(c => (
+                          <div key={c.student_id} className="flex items-center justify-between bg-white border border-orange-100 rounded-lg px-3 py-2">
+                            <span className="text-sm text-gray-800">{c.full_name}</span>
+                            <span className="text-xs text-orange-600">Also in Room {c.otherRoom} · {c.otherTeacherName}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* New students to add */}
                   {newStudents.length > 0 && (
