@@ -57,6 +57,8 @@ export default function StudentsAdmin() {
   const [importResults, setImportResults] = useState(null)
   const [importParseError, setImportParseError] = useState('')
   const [detectedMeta, setDetectedMeta] = useState(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [showImportHelp, setShowImportHelp] = useState(false)
   const importFileRef = useRef()
 
   useEffect(() => {
@@ -304,8 +306,7 @@ export default function StudentsAdmin() {
     })
   }
 
-  async function handleImportFile(e) {
-    const file = e.target.files[0]
+  async function processImportFile(file) {
     if (!file) return
     setImportParseError(''); setImportResults(null); setImportPreview([])
     try {
@@ -316,6 +317,14 @@ export default function StudentsAdmin() {
     } catch {
       setImportParseError('Could not read this file. Make sure it is an Aeries Class Roster .xlsx export.')
     }
+  }
+
+  function handleImportFile(e) { processImportFile(e.target.files[0]) }
+
+  function handleDrop(e) {
+    e.preventDefault(); setIsDragging(false)
+    const file = e.dataTransfer.files[0]
+    if (file) processImportFile(file)
   }
 
   async function handleImport() {
@@ -482,17 +491,67 @@ export default function StudentsAdmin() {
         {/* ── IMPORT VIEW ── */}
         {activeView === 'import' && (
           <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h2 className="text-sm font-semibold text-gray-800 mb-1">Import from Aeries Class Roster</h2>
-              <p className="text-xs text-gray-500 mb-4">Export your roster from Aeries → Reports → Print Class Rosters. Upload the .xlsx file here.</p>
-              <div className="bg-green-50 rounded-lg px-3 py-2 text-xs text-green-700 mb-4">
-                💡 Expected format: Aeries "Print Class Rosters" .xlsx. Students will be added to the period you select below.
+
+            {/* ⚠ One class per file warning */}
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex gap-3 items-start">
+              <span className="text-red-500 text-lg mt-0.5 flex-shrink-0">⚠️</span>
+              <div>
+                <p className="text-sm font-semibold text-red-700">One class per file — do not combine classes</p>
+                <p className="text-xs text-red-600 mt-0.5">
+                  In Aeries, export each period separately. If you teach 6 periods, that means 6 exports and 6 imports — one at a time. Importing a file with multiple classes will cause students to be assigned to the wrong period.
+                </p>
               </div>
-              <input ref={importFileRef} type="file" accept=".xlsx,.xls"
-                onChange={handleImportFile}
-                className="text-sm text-gray-600 mb-3" />
+            </div>
+
+            {/* Help section */}
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <button onClick={() => setShowImportHelp(v => !v)}
+                className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                <span>❓ How to export a class roster from Aeries</span>
+                <span className="text-gray-400 text-xs">{showImportHelp ? '▲ Hide' : '▼ Show'}</span>
+              </button>
+              {showImportHelp && (
+                <div className="px-4 pb-4 border-t border-gray-100 text-xs text-gray-600 space-y-2 pt-3">
+                  <p className="font-semibold text-gray-700">Steps in Aeries:</p>
+                  <ol className="list-decimal list-inside space-y-1.5 ml-1">
+                    <li>Go to <strong>Reports → Print Class Rosters</strong></li>
+                    <li>Select <strong>one class/period</strong> from your course list</li>
+                    <li>Click <strong>Export to Excel</strong> (saves as .xlsx)</li>
+                    <li>Come back here and drop or upload that file</li>
+                    <li>Select which period to assign students to, then click Import</li>
+                    <li>Repeat for each of your other periods</li>
+                  </ol>
+                  <p className="text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mt-2">
+                    If you have 6 periods, repeat this 6 times — one file per period. Never select "All Classes" in Aeries before exporting.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Drop zone */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="text-sm font-semibold text-gray-800 mb-3">Upload Aeries Class Roster (.xlsx)</h2>
+              <div
+                onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
+                onDragEnter={e => { e.preventDefault(); setIsDragging(true) }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+                onClick={() => importFileRef.current?.click()}
+                className="border-2 border-dashed rounded-xl flex flex-col items-center justify-center py-10 cursor-pointer transition-colors"
+                style={{
+                  borderColor: isDragging ? RHS_GREEN : '#d1d5db',
+                  backgroundColor: isDragging ? '#f0fdf4' : '#fafafa',
+                }}>
+                <span className="text-3xl mb-2">📂</span>
+                <p className="text-sm font-medium text-gray-700">
+                  {isDragging ? 'Drop to upload' : 'Drag & drop your .xlsx file here'}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">or click to browse</p>
+                <input ref={importFileRef} type="file" accept=".xlsx,.xls"
+                  onChange={handleImportFile} className="hidden" />
+              </div>
               {importParseError && (
-                <p className="text-xs text-red-600 mt-2">⚠ {importParseError}</p>
+                <p className="text-xs text-red-600 mt-3">⚠ {importParseError}</p>
               )}
             </div>
 
