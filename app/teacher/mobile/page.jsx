@@ -61,10 +61,10 @@ function elapsed(timeOut) {
   return Math.floor((Date.now() - new Date(timeOut).getTime()) / 60000)
 }
 
-function getPhotoUrl(student) {
+function getPhotoUrl(student, signedUrls) {
+  // Prefer signed URL from the pre-fetched map (lifetouch-raw is a private bucket)
+  if (signedUrls?.[student?.id]) return signedUrls[student.id]
   if (student?.photo_url) return student.photo_url
-  // Uses lifetouch-raw bucket (not student-photos)
-  if (student?.photo_file) return supabase.storage.from('lifetouch-raw').getPublicUrl(student.photo_file).data.publicUrl
   return null
 }
 
@@ -91,6 +91,9 @@ function MobilePageInner() {
   const [heldPasses, setHeldPasses]     = useState([])
   const [dnloList, setDnloList]         = useState([])
   const [, setTick]                     = useState(0)
+
+  // ── Photo signed URLs ────────────────────────────────────────────────────
+  const [photoUrls, setPhotoUrls] = useState({})
 
   // ── Notifications ────────────────────────────────────────────────────────
   const [incomingNotifs, setIncomingNotifs] = useState([])
@@ -205,10 +208,26 @@ function MobilePageInner() {
         studs.forEach(s => { map[s.id] = s })
         setStudents(map)
         setAllStudents(studs)
+        loadSignedPhotoUrls(studs)
       }
     } else {
       setStudents({}); setAllStudents([])
     }
+  }
+
+  async function loadSignedPhotoUrls(studs) {
+    const withPhotos = (studs || []).filter(s => s?.photo_file)
+    if (withPhotos.length === 0) return
+    const BATCH = 50
+    const map = {}
+    for (let i = 0; i < withPhotos.length; i += BATCH) {
+      const batch = withPhotos.slice(i, i + BATCH)
+      const { data } = await supabase.storage
+        .from('lifetouch-raw')
+        .createSignedUrls(batch.map(s => s.photo_file), 3600)
+      if (data) data.forEach((item, j) => { if (item.signedUrl) map[batch[j].id] = item.signedUrl })
+    }
+    setPhotoUrls(prev => ({ ...prev, ...map }))
   }
 
   // ── Pass actions ─────────────────────────────────────────────────────────
@@ -495,7 +514,7 @@ function MobilePageInner() {
             </div>
             {heldPasses.map(hold => {
               const s = students[hold.student_id]
-              const photo = getPhotoUrl(s)
+              const photo = getPhotoUrl(s, photoUrls)
               return (
                 <div key={hold.id} style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 14, padding: 14, marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
@@ -538,7 +557,7 @@ function MobilePageInner() {
               outPasses.map(p => {
                 const mins = elapsed(p.time_out)
                 const isLong = mins >= 10
-                const photo = getPhotoUrl(p.student)
+                const photo = getPhotoUrl(p.student, photoUrls)
                 return (
                   <div key={p.id}
                     style={{ background: 'white', borderRadius: 14, padding: 14, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 12, border: isLong ? '2px solid #fca5a5' : '1px solid #e5e7eb' }}>
@@ -639,7 +658,7 @@ function MobilePageInner() {
                   )}
                   {availableStudents.map(s => {
                     const isDnlo = dnloList.includes(s.id)
-                    const photo = getPhotoUrl(s)
+                    const photo = getPhotoUrl(s, photoUrls)
                     return (
                       <button key={s.id}
                         onClick={() => { setSelectedStudent(s); setSheetView('destination') }}
