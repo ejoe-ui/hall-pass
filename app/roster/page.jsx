@@ -236,7 +236,7 @@ export default function StudentsAdmin() {
     loadStudents()
   }
 
-  function openEdit(s) {
+  async function openEdit(s) {
     setEditStudent(s)
     setEditFirst(s.first_name || '')
     setEditLast(s.last_name || '')
