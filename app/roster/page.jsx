@@ -60,6 +60,7 @@ export default function StudentsAdmin() {
   const [isDragging, setIsDragging] = useState(false)
   const [showImportHelp, setShowImportHelp] = useState(false)
   const [currentRoster, setCurrentRoster] = useState([])
+  const [allRoomPeriods, setAllRoomPeriods] = useState({}) // { student_id: period } for entire room
   const [removeSelected, setRemoveSelected] = useState(new Set())
   const [roomMismatch, setRoomMismatch] = useState(null) // { detectedRoom, detectedTeacher }
   const [mismatchConfirmed, setMismatchConfirmed] = useState(false)
@@ -348,13 +349,22 @@ export default function StudentsAdmin() {
 
   async function fetchCurrentRoster(period) {
     if (!period || !room) return
+    // Fetch the target period's roster
     const { data: spRows } = await supabase
       .from('student_periods').select('student_id').eq('period', period).eq('room', room)
     const ids = spRows?.map(r => r.student_id) || []
-    if (ids.length === 0) { setCurrentRoster([]); return }
-    const { data: studs } = await supabase
-      .from('students').select('id, full_name').in('id', ids)
-    setCurrentRoster(studs || [])
+    if (ids.length === 0) { setCurrentRoster([]); }
+    else {
+      const { data: studs } = await supabase
+        .from('students').select('id, full_name').in('id', ids)
+      setCurrentRoster(studs || [])
+    }
+    // Also fetch ALL period assignments for this room so we can detect moved students
+    const { data: allRows } = await supabase
+      .from('student_periods').select('student_id, period').eq('room', room)
+    const periodMap = {}
+    if (allRows) allRows.forEach(r => { periodMap[r.student_id] = r.period })
+    setAllRoomPeriods(periodMap)
   }
 
   async function processImportFile(file) {
@@ -850,15 +860,28 @@ export default function StudentsAdmin() {
                       </div>
                       <p className="px-4 pt-2 text-xs text-gray-500">These students may have transferred or dropped. Check the box to remove them from this period.</p>
                       <div className="max-h-48 overflow-y-auto mt-1">
-                        {missingStudents.map(s => (
-                          <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
-                            <input type="checkbox" checked={removeSelected.has(s.id)} onChange={() => toggleRemove(s.id)}
-                              className="rounded" />
-                            <span className="text-xs font-mono text-gray-400 w-16">{s.id}</span>
-                            <span className={`text-sm flex-1 ${removeSelected.has(s.id) ? 'line-through text-gray-400' : 'text-gray-800'}`}>{s.full_name}</span>
-                            <span className="text-xs text-red-400">Not on list</span>
-                          </div>
-                        ))}
+                        {missingStudents.map(s => {
+                          const movedToPeriod = allRoomPeriods[s.id]
+                          const movedToLabel = movedToPeriod
+                            ? (periods.find(p => p.value === movedToPeriod)?.label || `Period ${movedToPeriod}`)
+                            : null
+                          const wasMoved = movedToPeriod && movedToPeriod !== importPeriod
+                          return (
+                            <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
+                              <input type="checkbox" checked={removeSelected.has(s.id)} onChange={() => toggleRemove(s.id)}
+                                className="rounded" />
+                              <span className="text-xs font-mono text-gray-400 w-16">{s.id}</span>
+                              <span className={`text-sm flex-1 ${removeSelected.has(s.id) ? 'line-through text-gray-400' : 'text-gray-800'}`}>{s.full_name}</span>
+                              {wasMoved ? (
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">
+                                  Now in {movedToLabel}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-red-400">Not on list</span>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   )}
