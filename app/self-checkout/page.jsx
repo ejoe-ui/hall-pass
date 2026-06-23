@@ -1,3 +1,15 @@
+/*
+  PassAble — RHS Hall Pass System
+  FILE:    app/self-checkout/page.jsx
+  ROUTE:   /self-checkout
+  PURPOSE: Student-facing self-checkout — enter session code, look up by ID,
+           select reason, check out / check in. No teacher interaction required.
+  REPO:    hall-pass (hall-pass-lime.vercel.app)
+  BACKEND: Supabase (teachers, students, passes, settings)
+  UPDATED: 2026-06-22 — added green header; code fallback chain (session code →
+           teacher unlock_code → room doubled); fixed photo bucket (lifetouch-raw)
+*/
+
 'use client'
 import { useState, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -73,45 +85,54 @@ function SelfCheckoutInner() {
       .select('key, value')
       .in('key', ['active_checkout_code', 'kiosk_return_required'])
 
-    if (settingsData) {
-      const codeRow = settingsData.find(r => r.key === 'active_checkout_code')
-      const kioskRow = settingsData.find(r => r.key === 'kiosk_return_required')
-      if (codeRow) setValidCodes([codeRow.value])
-      if (kioskRow) setKioskReturnRequired(kioskRow.value !== 'false')
-    }
+    const codeRow = settingsData?.find(r => r.key === 'active_checkout_code')
+    const kioskRow = settingsData?.find(r => r.key === 'kiosk_return_required')
+    if (kioskRow) setKioskReturnRequired(kioskRow.value !== 'false')
 
-    // Load teacher from active session
+    // Determine room first so we can use it for fallback
+    let room = searchParams.get('room') || '27'
+    let teacher = null
+
+    // Try auth session first
     const { data: { session } } = await supabase.auth.getSession()
     if (session) {
-      const { data: teacher } = await supabase
+      const { data: t } = await supabase
         .from('teachers')
-        .select('id, name, room')
+        .select('id, name, room, unlock_code')
         .eq('auth_id', session.user.id)
         .eq('is_active', true)
         .maybeSingle()
-      if (teacher) {
-        setTeacherName(teacher.name || 'Teacher')
-        setTeacherRoom(teacher.room || '27')
-        setTeacherId(teacher.id || null)
-        return
-      }
+      if (t) teacher = t
     }
 
-    // Fallback: read room from URL param if no session
-    const roomParam = searchParams.get('room')
-    if (roomParam) {
-      setTeacherRoom(roomParam)
-      const { data: teacher } = await supabase
+    // Fallback: load by room param
+    if (!teacher) {
+      const { data: t } = await supabase
         .from('teachers')
-        .select('id, name, room')
-        .eq('room', roomParam)
+        .select('id, name, room, unlock_code')
+        .eq('room', room)
         .eq('is_active', true)
         .maybeSingle()
-      if (teacher) {
-        setTeacherName(teacher.name || 'Teacher')
-        setTeacherId(teacher.id || null)
-      }
+      if (t) teacher = t
     }
+
+    if (teacher) {
+      setTeacherName(teacher.name || 'Teacher')
+      setTeacherRoom(teacher.room || room)
+      setTeacherId(teacher.id || null)
+      room = teacher.room || room
+    }
+
+    // ── Code fallback chain ──────────────────────────────────────────────────
+    // 1. Today's session code (set by teacher)
+    // 2. Teacher's personal unlock code
+    // 3. Room number doubled (e.g. room 27 → "2727")
+    const codes = [
+      codeRow?.value,
+      teacher?.unlock_code,
+      `${room}${room}`,
+    ].filter(Boolean)
+    setValidCodes(codes)
   }
 
   function handleCodeDigit(digit) {
@@ -136,7 +157,7 @@ function SelfCheckoutInner() {
     setLoading(true); setError('')
     const { data: studs } = await supabase
       .from('students')
-      .select('id, full_name, photo_file, period')
+      .select('id, full_name, photo_file, photo_url, period')
       .eq('id', id)
 
     if (!studs || studs.length === 0) {
@@ -149,9 +170,12 @@ function SelfCheckoutInner() {
     setStudentName(stud.full_name)
     setPeriod(stud.period)
 
-    if (stud.photo_file) {
+    // ── Photo: prefer photo_url (direct), then lifetouch-raw bucket ──────────
+    if (stud.photo_url) {
+      setStudentPhoto(stud.photo_url)
+    } else if (stud.photo_file) {
       const { data: photoData } = await supabase.storage
-        .from('student-photos')
+        .from('lifetouch-raw')
         .createSignedUrl(stud.photo_file, 3600)
       if (photoData?.signedUrl) setStudentPhoto(photoData.signedUrl)
     }
@@ -254,159 +278,192 @@ function SelfCheckoutInner() {
     setPassId(null); setCheckoutTime(null); setStats(null); setError(''); setOpenPass(null)
   }
 
+  // ── Green header — shown on all screens ────────────────────────────────────
+  const Header = () => (
+    <div className="w-full px-4 py-3 flex items-center gap-3" style={{ backgroundColor: RHS_GREEN }}>
+      <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain"
+        style={{ filter: 'brightness(0) invert(1)' }} />
+      <div>
+        <p className="text-white font-bold text-sm leading-tight">RHS PassAble</p>
+        <p className="text-green-200 text-xs leading-tight">Self-Checkout · Room {teacherRoom}</p>
+      </div>
+    </div>
+  )
+
   if (stage === 'code') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
-      <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
-      <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>Self-Checkout</h1>
-      <p className="text-gray-400 text-sm mb-6">Room {teacherRoom} · Enter today's session code</p>
-      <div className={`text-4xl tracking-widest mb-6 font-mono ${codeError ? 'text-red-500' : 'text-gray-800'}`}>
-        {enteredCode.length > 0 ? '●'.repeat(enteredCode.length) : '○○○○'}
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <Header />
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-16 h-16 object-contain mb-3" />
+        <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>Self-Checkout</h1>
+        <p className="text-gray-400 text-sm mb-6">Enter today's session code</p>
+        <div className={`text-4xl tracking-widest mb-6 font-mono ${codeError ? 'text-red-500' : 'text-gray-800'}`}>
+          {enteredCode.length > 0 ? '●'.repeat(enteredCode.length) : '○○○○'}
+        </div>
+        <div className="grid grid-cols-3 gap-3 w-56 mb-4">
+          {[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map((d, i) => (
+            <button key={i}
+              onClick={() => d === '⌫' ? setEnteredCode(c => c.slice(0,-1)) : d !== '' && handleCodeDigit(String(d))}
+              className="h-14 text-xl font-bold bg-white border-2 rounded-xl shadow-sm hover:bg-green-50 disabled:opacity-0"
+              style={{ borderColor: '#e5e7eb', color: RHS_GREEN }} disabled={d === ''}>
+              {d}
+            </button>
+          ))}
+        </div>
+        {codeError && <p className="text-red-500 text-sm">Incorrect code — try again</p>}
       </div>
-      <div className="grid grid-cols-3 gap-3 w-56 mb-4">
-        {[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map((d, i) => (
-          <button key={i}
-            onClick={() => d === '⌫' ? setEnteredCode(c => c.slice(0,-1)) : d !== '' && handleCodeDigit(String(d))}
-            className="h-14 text-xl font-bold bg-white border-2 rounded-xl shadow-sm hover:bg-green-50 disabled:opacity-0"
-            style={{ borderColor: '#e5e7eb', color: RHS_GREEN }} disabled={d === ''}>
-            {d}
-          </button>
-        ))}
-      </div>
-      {codeError && <p className="text-red-500 text-sm">Incorrect code — try again</p>}
     </div>
   )
 
   if (stage === 'id') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
-      <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-14 h-14 object-contain mb-3" />
-      <h1 className="text-xl font-bold mb-1" style={{ color: RHS_GREEN }}>Enter Your Student ID</h1>
-      <p className="text-gray-400 text-sm mb-6">Type your ID number</p>
-      <input type="number" placeholder="Student ID"
-        value={studentIdInput} onChange={e => setStudentIdInput(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && lookupStudent(studentIdInput)}
-        className="w-full max-w-xs p-4 text-xl text-center border-2 rounded-xl bg-white text-gray-800 mb-4"
-        style={{ borderColor: RHS_GREEN }} autoFocus />
-      {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
-      <button onClick={() => lookupStudent(studentIdInput)} disabled={!studentIdInput || loading}
-        className="px-8 py-3 text-white font-bold rounded-xl disabled:opacity-40"
-        style={{ backgroundColor: RHS_GREEN }}>
-        {loading ? 'Looking up...' : 'Continue →'}
-      </button>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <Header />
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-14 h-14 object-contain mb-3" />
+        <h1 className="text-xl font-bold mb-1" style={{ color: RHS_GREEN }}>Enter Your Student ID</h1>
+        <p className="text-gray-400 text-sm mb-6">Type your ID number</p>
+        <input type="number" placeholder="Student ID"
+          value={studentIdInput} onChange={e => setStudentIdInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && lookupStudent(studentIdInput)}
+          className="w-full max-w-xs p-4 text-xl text-center border-2 rounded-xl bg-white text-gray-800 mb-4"
+          style={{ borderColor: RHS_GREEN }} autoFocus />
+        {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+        <button onClick={() => lookupStudent(studentIdInput)} disabled={!studentIdInput || loading}
+          className="px-8 py-3 text-white font-bold rounded-xl disabled:opacity-40"
+          style={{ backgroundColor: RHS_GREEN }}>
+          {loading ? 'Looking up...' : 'Continue →'}
+        </button>
+      </div>
     </div>
   )
 
   if (stage === 'reason') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
-      <div className="flex items-center gap-4 mb-6">
-        {studentPhoto
-          ? <img src={studentPhoto} alt="" className="w-16 h-16 rounded-full object-cover border-2" style={{ borderColor: RHS_GREEN }} />
-          : <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
-              {studentName.split(' ').map(n => n[0]).slice(0,2).join('')}
-            </div>
-        }
-        <div>
-          <h1 className="text-xl font-bold text-gray-800">{studentName}</h1>
-          <p className="text-gray-400 text-sm">Where are you going?</p>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <Header />
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        <div className="flex items-center gap-4 mb-6">
+          {studentPhoto
+            ? <img src={studentPhoto} alt="" className="w-16 h-16 rounded-full object-cover border-2" style={{ borderColor: RHS_GREEN }} />
+            : <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
+                {studentName.split(' ').map(n => n[0]).slice(0,2).join('')}
+              </div>
+          }
+          <div>
+            <h1 className="text-xl font-bold text-gray-800">{studentName}</h1>
+            <p className="text-gray-400 text-sm">Where are you going?</p>
+          </div>
         </div>
+        <div className="grid grid-cols-3 gap-3 w-full max-w-xs mb-6">
+          {REASONS.map(r => (
+            <button key={r} onClick={() => setReason(r)}
+              className="py-3 text-sm font-medium rounded-xl border-2 transition-colors"
+              style={reason === r
+                ? { backgroundColor: RHS_GREEN, color: 'white', borderColor: RHS_GREEN }
+                : { backgroundColor: 'white', color: '#374151', borderColor: '#e5e7eb' }}>
+              {r}
+            </button>
+          ))}
+        </div>
+        {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
+        <button onClick={handleCheckout} disabled={!reason || loading}
+          className="px-8 py-4 text-white text-lg font-bold rounded-xl disabled:opacity-30"
+          style={{ backgroundColor: RHS_GREEN }}>
+          {loading ? 'Checking out...' : 'Check Out'}
+        </button>
+        <button onClick={reset} className="mt-4 text-sm text-gray-400">← Back</button>
       </div>
-      <div className="grid grid-cols-3 gap-3 w-full max-w-xs mb-6">
-        {REASONS.map(r => (
-          <button key={r} onClick={() => setReason(r)}
-            className="py-3 text-sm font-medium rounded-xl border-2 transition-colors"
-            style={reason === r
-              ? { backgroundColor: RHS_GREEN, color: 'white', borderColor: RHS_GREEN }
-              : { backgroundColor: 'white', color: '#374151', borderColor: '#e5e7eb' }}>
-            {r}
-          </button>
-        ))}
-      </div>
-      {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
-      <button onClick={handleCheckout} disabled={!reason || loading}
-        className="px-8 py-4 text-white text-lg font-bold rounded-xl disabled:opacity-30"
-        style={{ backgroundColor: RHS_GREEN }}>
-        {loading ? 'Checking out...' : 'Check Out'}
-      </button>
-      <button onClick={reset} className="mt-4 text-sm text-gray-400">← Back</button>
     </div>
   )
 
   if (stage === 'done') return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6"
+    <div className="min-h-screen flex flex-col"
       style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
-      {checkoutTime && <TimerDisplay checkoutTime={checkoutTime} />}
-      <h2 className="text-xl font-bold text-white mb-1">{studentName}</h2>
-      <p className="text-green-200 text-sm mb-6">Checked out → {reason}</p>
-      {stats && (
-        <div className="bg-white rounded-2xl p-5 w-full max-w-xs mb-6 shadow-xl">
-          <h3 className="text-sm font-bold text-gray-700 mb-3">📊 Your Stats This Week</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <div className="text-2xl font-black" style={{ color: RHS_GREEN }}>{stats.weekCount}</div>
-              <div className="text-xs text-gray-500 mt-0.5">passes this week</div>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <div className="text-2xl font-black" style={{ color: RHS_GREEN }}>{stats.totalMins}m</div>
-              <div className="text-xs text-gray-500 mt-0.5">total minutes out</div>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <div className="text-2xl font-black" style={{ color: RHS_GREEN }}>{stats.avgMins}m</div>
-              <div className="text-xs text-gray-500 mt-0.5">avg per pass</div>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <div className="text-xs font-bold text-gray-700 mt-1 leading-tight">{stats.topReason}</div>
-              <div className="text-xs text-gray-500 mt-0.5">top reason</div>
+      <Header />
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        {checkoutTime && <TimerDisplay checkoutTime={checkoutTime} />}
+        <h2 className="text-xl font-bold text-white mb-1">{studentName}</h2>
+        <p className="text-green-200 text-sm mb-6">Checked out → {reason}</p>
+        {stats && (
+          <div className="bg-white rounded-2xl p-5 w-full max-w-xs mb-6 shadow-xl">
+            <h3 className="text-sm font-bold text-gray-700 mb-3">📊 Your Stats This Week</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <div className="text-2xl font-black" style={{ color: RHS_GREEN }}>{stats.weekCount}</div>
+                <div className="text-xs text-gray-500 mt-0.5">passes this week</div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <div className="text-2xl font-black" style={{ color: RHS_GREEN }}>{stats.totalMins}m</div>
+                <div className="text-xs text-gray-500 mt-0.5">total minutes out</div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <div className="text-2xl font-black" style={{ color: RHS_GREEN }}>{stats.avgMins}m</div>
+                <div className="text-xs text-gray-500 mt-0.5">avg per pass</div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <div className="text-xs font-bold text-gray-700 mt-1 leading-tight">{stats.topReason}</div>
+                <div className="text-xs text-gray-500 mt-0.5">top reason</div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-      {kioskReturnRequired ? (
-        <div className="bg-white/20 rounded-xl p-4 w-full max-w-xs text-center">
-          <p className="text-white text-sm font-medium">Return to the kiosk to check back in when you're done.</p>
-        </div>
-      ) : (
-        <button onClick={handleSelfReturn} disabled={loading}
-          className="w-full max-w-xs py-4 bg-white font-bold text-lg rounded-xl disabled:opacity-40"
-          style={{ color: RHS_GREEN }}>
-          {loading ? 'Checking in...' : "✅ I'm Back"}
-        </button>
-      )}
+        )}
+        {kioskReturnRequired ? (
+          <div className="bg-white/20 rounded-xl p-4 w-full max-w-xs text-center">
+            <p className="text-white text-sm font-medium">Return to the kiosk to check back in when you're done.</p>
+          </div>
+        ) : (
+          <button onClick={handleSelfReturn} disabled={loading}
+            className="w-full max-w-xs py-4 bg-white font-bold text-lg rounded-xl disabled:opacity-40"
+            style={{ color: RHS_GREEN }}>
+            {loading ? 'Checking in...' : "✅ I'm Back"}
+          </button>
+        )}
+      </div>
     </div>
   )
 
   if (stage === 'returned') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
-      <div className="text-5xl mb-4">✅</div>
-      <h2 className="text-2xl font-semibold text-gray-800 mb-2">Welcome back, {studentName}!</h2>
-      <p className="text-gray-500 mb-8">You've been checked back in.</p>
-      <button onClick={reset} className="px-6 py-3 text-white rounded-xl font-medium" style={{ backgroundColor: RHS_GREEN }}>Done</button>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <Header />
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        <div className="text-5xl mb-4">✅</div>
+        <h2 className="text-2xl font-semibold text-gray-800 mb-2">Welcome back, {studentName}!</h2>
+        <p className="text-gray-500 mb-8">You've been checked back in.</p>
+        <button onClick={reset} className="px-6 py-3 text-white rounded-xl font-medium" style={{ backgroundColor: RHS_GREEN }}>Done</button>
+      </div>
     </div>
   )
 
   if (stage === 'checkin') return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6"
+    <div className="min-h-screen flex flex-col"
       style={{ background: `linear-gradient(135deg, ${RHS_GREEN} 0%, #005a30 100%)` }}>
-      {checkoutTime && <TimerDisplay checkoutTime={checkoutTime} />}
-      <div className="text-4xl mb-3">👋</div>
-      <h2 className="text-2xl font-semibold text-white mb-2">Welcome back, {studentName}!</h2>
-      <p className="text-green-200 mb-1">You're currently checked out</p>
-      <p className="text-green-300 text-sm mb-8">Reason: {openPass?.reason}</p>
-      <div className="flex gap-3">
-        <button onClick={handleCheckin} disabled={loading}
-          className="px-6 py-3 bg-white font-bold rounded-xl disabled:opacity-40"
-          style={{ color: RHS_GREEN }}>
-          {loading ? 'Checking in...' : 'Check Back In'}
-        </button>
-        <button onClick={reset} className="px-6 py-3 border border-white/40 text-white rounded-xl">Cancel</button>
+      <Header />
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        {checkoutTime && <TimerDisplay checkoutTime={checkoutTime} />}
+        <div className="text-4xl mb-3">👋</div>
+        <h2 className="text-2xl font-semibold text-white mb-2">Welcome back, {studentName}!</h2>
+        <p className="text-green-200 mb-1">You're currently checked out</p>
+        <p className="text-green-300 text-sm mb-8">Reason: {openPass?.reason}</p>
+        <div className="flex gap-3">
+          <button onClick={handleCheckin} disabled={loading}
+            className="px-6 py-3 bg-white font-bold rounded-xl disabled:opacity-40"
+            style={{ color: RHS_GREEN }}>
+            {loading ? 'Checking in...' : 'Check Back In'}
+          </button>
+          <button onClick={reset} className="px-6 py-3 border border-white/40 text-white rounded-xl">Cancel</button>
+        </div>
       </div>
     </div>
   )
 
   if (stage === 'checkin-done') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
-      <div className="text-5xl mb-4">✅</div>
-      <h2 className="text-2xl font-semibold text-gray-800 mb-2">Checked back in!</h2>
-      <p className="text-gray-500 mb-8">{studentName} is back in class.</p>
-      <button onClick={reset} className="px-6 py-3 text-white rounded-xl font-medium" style={{ backgroundColor: RHS_GREEN }}>Done</button>
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <Header />
+      <div className="flex-1 flex flex-col items-center justify-center px-6">
+        <div className="text-5xl mb-4">✅</div>
+        <h2 className="text-2xl font-semibold text-gray-800 mb-2">Checked back in!</h2>
+        <p className="text-gray-500 mb-8">{studentName} is back in class.</p>
+        <button onClick={reset} className="px-6 py-3 text-white rounded-xl font-medium" style={{ backgroundColor: RHS_GREEN }}>Done</button>
+      </div>
     </div>
   )
 
