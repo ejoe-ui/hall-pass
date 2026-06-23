@@ -1,471 +1,475 @@
 /*
   PassAble — RHS Hall Pass System
   FILE:    app/roster/page.jsx
-  ROUTE:   /roster?room=27
-  PURPOSE: Roster import tool — teachers upload Aeries XLSX class rosters,
-           which are parsed and upserted into the students and student_periods
-           tables. Supports multi-period import (one file per period, selected
-           simultaneously). Period and term are auto-detected from Aeries headers.
+  ROUTE:   /roster
+  PURPOSE: Teacher-scoped student roster management. Add, edit, remove, and move
+           students between periods. Period membership sourced from student_periods
+           table (not students.period). Supports manual photo upload.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
-  BACKEND: Supabase (students, student_periods)
-  AUTH:    No auth check — accessed via direct link from Relay Station with ?room= param.
-  UPDATED: 2026-06-22 — added draggable searchable help panel
+  BACKEND: Supabase (teachers, students, student_periods)
+  STORAGE: lifetouch-raw bucket for all student photos
+  UPDATED: 2026-06-23 — added file header; fixed photo bucket (student-photos →
+           lifetouch-raw) in getPhotoUrl, getStorageUrl, and handlePhotoUpload;
+           removed dead /student/[id] link (no confirmed route)
 */
 'use client'
-import { useState, useRef, useCallback, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
-import { supabase } from '../../lib/supabase'
-import * as XLSX from 'xlsx'
+import { useState, useEffect, useRef } from 'react'
+import { supabase } from '../../../lib/supabase'
 
 const RHS_GREEN = '#006938'
-const RHS_GRAY = '#C4BEB5'
 
-// ── Parser — auto-detects period and term from Aeries header ──────────────
-function parseAeriesXLSX(workbook, fileName) {
-  const sheet = workbook.Sheets[workbook.SheetNames[0]]
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false, blankrows: true })
+const DEFAULT_PERIODS = [
+  { label: 'Periods 1 & 2', value: '1' },
+  { label: 'Periods 4 & 5', value: '4' },
+  { label: 'Periods 6 & 7', value: '6' },
+]
 
-  let period = null
-  let term = null
-  let courseTitle = ''
-  const students = []
-  let inStudents = false
+export default function StudentsAdmin() {
+  const [currentTeacher, setCurrentTeacher] = useState(null)
+  const [periods, setPeriods] = useState(DEFAULT_PERIODS)
+  const [room, setRoom] = useState('27')
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
-    const cells = row.map(c => String(c || '').trim())
-    const nonEmpty = cells.filter(c => c !== '')
-    if (nonEmpty.length === 0) continue
+  const [activePeriod, setActivePeriod] = useState(null)
+  const [students, setStudents] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [addPeriod, setAddPeriod] = useState(null)
+  const [addId, setAddId] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(null)
+  const [editStudent, setEditStudent] = useState(null)
+  const [editFirst, setEditFirst] = useState('')
+  const [editLast, setEditLast] = useState('')
+  const [editDisplay, setEditDisplay] = useState('')
+  const [editId, setEditId] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const [photoUrl, setPhotoUrl] = useState(null)
+  const photoRef = useRef()
 
-    // Period header row — first non-empty cell is 1-7, second is course title
-    if (!period && /^[1-7]$/.test(nonEmpty[0])) {
-      period = nonEmpty[0]
-      courseTitle = nonEmpty[1] || ''
-      const termVal = nonEmpty.find(v => v === 'F' || v === 'S')
-      term = termVal === 'F' ? 'Fall' : termVal === 'S' ? 'Spring' : ''
-      continue
+  useEffect(() => {
+    async function loadTeacher() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const { data } = await supabase
+        .from('teachers')
+        .select('*')
+        .eq('auth_id', session.user.id)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (data) {
+        setCurrentTeacher(data)
+        const teacherRoom = data.room || '27'
+        setRoom(teacherRoom)
+        if (data.periods?.length) {
+          const sorted = [...data.periods].sort()
+          const builtPeriods = sorted.map(p => ({
+            value: p,
+            label: data.period_labels?.[p] || `Period ${p}`,
+          }))
+          setPeriods(builtPeriods)
+          setActivePeriod(sorted[0])
+          setAddPeriod(sorted[0])
+        } else {
+          setActivePeriod('1')
+          setAddPeriod('1')
+        }
+      }
     }
-
-    if (nonEmpty.some(v => v === 'Student ID')) { inStudents = true; continue }
-    if (!inStudents) continue
-
-    const idVal = nonEmpty.find(v => /^\d{6}$/.test(v))
-    const nameVal = nonEmpty.find(v => v.includes(',') && v.length > 3 && !/^\d/.test(v))
-
-    if (idVal && nameVal) {
-      const parts = nameVal.split(',')
-      const lastName = parts[0]?.trim() || ''
-      const firstFull = parts[1]?.trim() || ''
-      const firstName = firstFull.split(' ')[0] || firstFull
-      const full_name = `${firstFull} ${lastName}`.trim()
-      const nameIdx = nonEmpty.indexOf(nameVal)
-      const grade = nonEmpty.slice(nameIdx + 1).find(v => ['09','10','11','12'].includes(v)) || ''
-      students.push({ id: idVal, full_name, first_name: firstName, last_name: lastName, grade, period })
-    }
-  }
-
-  return { period, term, courseTitle, students, fileName }
-}
-
-function RosterImportInner() {
-  const searchParams = useSearchParams()
-  const teacherRoom = searchParams.get('room') || '27'
-
-  const [stage, setStage] = useState('upload')
-  const [parsedFiles, setParsedFiles] = useState([])
-  const [importResult, setImportResult] = useState(null)
-  const [errorMsg, setErrorMsg] = useState('')
-  const [expandedIdx, setExpandedIdx] = useState(null)
-  const [isDragging, setIsDragging] = useState(false)
-  const fileRef = useRef()
-
-  // Help panel
-  const [showHelp, setShowHelp] = useState(false)
-  const [helpSearch, setHelpSearch] = useState('')
-  const [helpPos, setHelpPos] = useState({ x: null, y: null })
-  const helpPanelRef = useRef(null)
-  const helpDragOffset = useRef({ x: 0, y: 0 })
-
-  const startHelpDrag = useCallback((e) => {
-    const panel = helpPanelRef.current
-    if (!panel) return
-    const rect = panel.getBoundingClientRect()
-    helpDragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-    const onMove = (ev) => setHelpPos({ x: ev.clientX - helpDragOffset.current.x, y: ev.clientY - helpDragOffset.current.y })
-    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    loadTeacher()
   }, [])
 
-  const helpItems = [
-    { q: 'What is this page for?', keys: 'overview what roster import', a: 'This is where you import your class rosters from Aeries into PassAble. Once imported, your students appear on your Relay Station so you can issue passes to them. You only need to do this at the start of the year or when your roster changes.' },
-    { q: 'What file format do I need?', keys: 'file format xlsx aeries export', a: 'XLSX files exported from Aeries. Go to Attendance → Class Roster in Aeries, then export each class period as a separate XLSX file. PassAble reads the period number and student list automatically from the Aeries format.' },
-    { q: 'Can I import multiple periods at once?', keys: 'multiple periods at once files', a: 'Yes — select all your roster files at once when browsing (or drop them all together). PassAble will parse each file, detect the period number automatically, and import them all in one go.' },
-    { q: 'Will this overwrite my existing students?', keys: 'overwrite existing delete replace upsert', a: 'It\'s an upsert — existing students are updated, new ones are added. Students already in the system won\'t be deleted. If a student was removed from your Aeries roster, they won\'t be removed from PassAble automatically; contact your admin to remove them via Manage Students.' },
-    { q: 'What does the Room number do?', keys: 'room number what does it do', a: 'It ties each imported student to your room so PassAble knows which teacher they belong to. This comes from the link your admin gave you — it should already be set correctly. If you share a room with another teacher, each of you imports your own roster with your own room number.' },
-    { q: 'My file says "No student data found" — why?', keys: 'error no student data not working', a: 'Usually means the export format is off. Make sure you\'re exporting from Attendance → Class Roster (not Gradebook or another section), and that the file is a proper XLSX (not CSV or XLS). Re-export from Aeries and try again.' },
-    { q: 'What if I imported the wrong period?', keys: 'wrong period mistake undo fix', a: 'Contact your admin — they can remove or edit students from the Manage Students page and you can re-import the correct file. Importing again with the right file will update existing records but won\'t remove any extras that shouldn\'t be there.' },
-  ]
+  useEffect(() => {
+    if (activePeriod && room) loadStudents()
+  }, [activePeriod, room])
 
-  function renderHelpPanel() {
-    if (!showHelp) return null
-    const q = helpSearch.toLowerCase().trim()
-    const filtered = q ? helpItems.filter(i => i.q.toLowerCase().includes(q) || i.keys.includes(q)) : helpItems
-    return (
-      <div ref={helpPanelRef} style={{ position: 'fixed', top: helpPos.y !== null ? helpPos.y : 80, left: helpPos.x !== null ? helpPos.x : 'auto', right: helpPos.x !== null ? 'auto' : 24, width: 360, maxHeight: '80vh', background: 'white', borderRadius: 16, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', zIndex: 100, display: 'flex', flexDirection: 'column', overflow: 'hidden', border: `2px solid ${RHS_GREEN}` }}>
-        <div onMouseDown={startHelpDrag} style={{ background: RHS_GREEN, padding: '12px 16px', cursor: 'grab', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}>
-          <span style={{ color: 'white', fontWeight: 700, fontSize: 14 }}>Roster Import Help</span>
-          <button onClick={() => setShowHelp(false)} style={{ background: 'none', border: 'none', color: 'white', fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
-        </div>
-        <div style={{ padding: '10px 12px', borderBottom: '1px solid #e5e7eb' }}>
-          <input value={helpSearch} onChange={e => setHelpSearch(e.target.value)} placeholder="Search help…" style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
-        </div>
-        <div style={{ overflowY: 'auto', padding: '8px 0', flex: 1 }}>
-          {filtered.length === 0 && <div style={{ padding: '16px', fontSize: 13, color: '#9ca3af', textAlign: 'center' }}>No results for "{helpSearch}"</div>}
-          {filtered.map((item, i) => (
-            <details key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-              <summary style={{ padding: '10px 16px', fontSize: 13, fontWeight: 600, color: '#1f2937', cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                {item.q}<span style={{ color: '#9ca3af', fontSize: 16, marginLeft: 8 }}>›</span>
-              </summary>
-              <div style={{ padding: '0 16px 12px', fontSize: 13, color: '#4b5563', lineHeight: 1.5 }}>{item.a}</div>
-            </details>
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  function processFiles(files) {
-    const results = []
-    const errors = []
-    let pending = files.length
-
-    Array.from(files).forEach(file => {
-      if (!file.name.endsWith('.xlsx')) {
-        errors.push(`${file.name} is not an XLSX file`)
-        pending--
-        if (pending === 0) finalize(results, errors)
-        return
-      }
-      const reader = new FileReader()
-      reader.onload = (evt) => {
-        try {
-          const data = new Uint8Array(evt.target.result)
-          const workbook = XLSX.read(data, { type: 'array' })
-          const parsed = parseAeriesXLSX(workbook, file.name)
-          if (!parsed.period || parsed.students.length === 0) {
-            errors.push(`${file.name}: No student data found`)
-          } else {
-            results.push(parsed)
-          }
-        } catch (err) {
-          errors.push(`${file.name}: ${err.message}`)
-        }
-        pending--
-        if (pending === 0) finalize(results, errors)
-      }
-      reader.readAsArrayBuffer(file)
-    })
-  }
-
-  function finalize(results, errors) {
-    if (results.length === 0) {
-      setErrorMsg(errors.join('\n') || 'No valid roster files found.')
-      setStage('error')
+  async function loadStudents() {
+    setLoading(true)
+    const { data: spRows } = await supabase
+      .from('student_periods')
+      .select('student_id')
+      .eq('period', activePeriod)
+      .eq('room', room)
+    const studentIds = spRows?.map(r => r.student_id) || []
+    if (studentIds.length === 0) {
+      setStudents([])
+      setLoading(false)
       return
     }
-    results.sort((a, b) => parseInt(a.period) - parseInt(b.period))
-    setParsedFiles(results)
-    if (errors.length > 0) setErrorMsg(errors.join('\n'))
-    setStage('preview')
+    const { data } = await supabase
+      .from('students')
+      .select('id, first_name, last_name, full_name, period, nfc_uid, photo_file, photo_url')
+      .in('id', studentIds)
+      .order('first_name')
+    if (data) setStudents(data)
+    setLoading(false)
   }
 
-  function handleFileInput(e) {
-    if (e.target.files?.length) processFiles(e.target.files)
+  function getPhotoUrl(student) {
+    // Prefer photo_url (Aeries/direct URL), fall back to storage file
+    if (student.photo_url) return student.photo_url
+    if (!student.photo_file) return null
+    // Uses lifetouch-raw bucket (not student-photos)
+    const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(student.photo_file)
+    return data?.publicUrl || null
   }
 
-  function handleDrop(e) {
-    e.preventDefault()
-    setIsDragging(false)
-    if (e.dataTransfer.files?.length) processFiles(e.dataTransfer.files)
+  function getStorageUrl(photo_file) {
+    if (!photo_file) return null
+    // Uses lifetouch-raw bucket (not student-photos)
+    const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(photo_file)
+    return data?.publicUrl || null
   }
 
-  async function handleImportAll() {
-    setStage('importing')
-    let totalImported = 0
-    let totalErrors = 0
-    const batchSize = 50
-
-    for (const file of parsedFiles) {
-      const studentRows = file.students.map(s => ({
-        id: s.id,
-        first_name: s.first_name,
-        last_name: s.last_name,
-        full_name: s.full_name,
-        grade: s.grade,
-        period: s.period,
-      }))
-
-      for (let i = 0; i < studentRows.length; i += batchSize) {
-        const batch = studentRows.slice(i, i + batchSize)
-        const { error } = await supabase
-          .from('students')
-          .upsert(batch, { onConflict: 'id,period' })
-        if (error) {
-          console.error('Students upsert error:', JSON.stringify(error))
-          totalErrors += batch.length
-        } else {
-          totalImported += batch.length
-        }
-      }
-
-      // Also upsert student_periods for room-scoped lookups
-      const periodRows = file.students.map(s => ({
-        student_id: s.id,
-        period: s.period,
-        room: teacherRoom,
-      }))
-
-      for (let i = 0; i < periodRows.length; i += batchSize) {
-        const batch = periodRows.slice(i, i + batchSize)
-        const { error } = await supabase
-          .from('student_periods')
-          .upsert(batch, { onConflict: 'student_id,period,room' })
-        if (error) console.error('student_periods upsert error:', JSON.stringify(error))
-      }
+  async function addStudent() {
+    if (!firstName.trim() || !lastName.trim()) return
+    setAdding(true)
+    const full_name = `${firstName.trim()} ${lastName.trim()}`
+    const id = addId.trim() || `NEW${Date.now()}`
+    const { error } = await supabase.from('students').insert({
+      id, first_name: firstName.trim(), last_name: lastName.trim(),
+      full_name, period: addPeriod
+    })
+    if (!error) {
+      await supabase.from('student_periods').insert({
+        student_id: id, period: addPeriod, room
+      })
+      setFirstName(''); setLastName(''); setAddId('')
+      if (addPeriod === activePeriod) loadStudents()
     }
-
-    const totalStudents = parsedFiles.reduce((sum, f) => sum + f.students.length, 0)
-    setImportResult({ total: totalStudents, imported: totalImported, errors: totalErrors, files: parsedFiles })
-    setStage('success')
+    setAdding(false)
   }
 
-  function reset() {
-    setStage('upload')
-    setParsedFiles([])
-    setImportResult(null)
-    setErrorMsg('')
-    setExpandedIdx(null)
-    if (fileRef.current) fileRef.current.value = ''
+  async function removeStudent(studentId) {
+    await supabase.from('student_periods')
+      .delete()
+      .eq('student_id', studentId)
+      .eq('period', activePeriod)
+      .eq('room', room)
+    const { data: remaining } = await supabase
+      .from('student_periods')
+      .select('id')
+      .eq('student_id', studentId)
+    if (!remaining || remaining.length === 0) {
+      await supabase.from('students').delete().eq('id', studentId)
+    }
+    setConfirmDelete(null)
+    loadStudents()
   }
 
-  const totalStudents = parsedFiles.reduce((sum, f) => sum + f.students.length, 0)
+  async function movePeriod(studentId, newPeriod) {
+    const { data: existing } = await supabase
+      .from('student_periods')
+      .select('id')
+      .eq('student_id', studentId)
+      .eq('period', activePeriod)
+      .eq('room', room)
+      .maybeSingle()
+    if (existing) {
+      await supabase.from('student_periods')
+        .update({ period: newPeriod })
+        .eq('id', existing.id)
+    } else {
+      await supabase.from('student_periods').insert({
+        student_id: studentId, period: newPeriod, room
+      })
+    }
+    await supabase.from('students').update({ period: newPeriod }).eq('id', studentId)
+    loadStudents()
+  }
 
-  // ── UPLOAD ──
-  if (stage === 'upload') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-md">
-        <div className="flex items-center gap-3 mb-8">
-          <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-10 h-10 object-contain" />
-          <div className="flex-1">
-            <h1 className="text-xl font-bold" style={{ color: RHS_GREEN }}>Roster Import</h1>
-            <p className="text-xs text-gray-400">RHS PassAble · Room {teacherRoom}</p>
-          </div>
-          <button
-            onClick={() => { setShowHelp(v => !v); setHelpSearch(''); setHelpPos({ x: null, y: null }) }}
-            style={{ background: showHelp ? RHS_GREEN : '#e5e7eb', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 15, fontWeight: 700, color: showHelp ? 'white' : '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-          >?</button>
-        </div>
+  function openEdit(s) {
+    setEditStudent(s)
+    setEditFirst(s.first_name || '')
+    setEditLast(s.last_name || '')
+    setEditDisplay(s.full_name || '')
+    setEditId('')
+    setPhotoUrl(getPhotoUrl(s))
+  }
 
-        <div
-          className="border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-colors"
-          style={{ borderColor: isDragging ? RHS_GREEN : RHS_GRAY, backgroundColor: isDragging ? '#f0f7f3' : 'white' }}
-          onClick={() => fileRef.current?.click()}
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-        >
-          <div className="text-5xl mb-4">📋</div>
-          <p className="text-gray-700 font-medium mb-1">Drop your Aeries rosters here</p>
-          <p className="text-gray-400 text-sm mb-3">or click to browse</p>
-          <p className="text-xs text-gray-400 mb-4">Select multiple files at once — one per class period</p>
-          <span className="text-xs px-3 py-1 rounded-full font-medium" style={{ backgroundColor: '#f0f7f3', color: RHS_GREEN }}>
-            XLSX files only · Period auto-detected
-          </span>
-          <input ref={fileRef} type="file" accept=".xlsx" multiple className="hidden" onChange={handleFileInput} />
-        </div>
+  async function saveEdit() {
+    if (!editStudent) return
+    setSaving(true)
+    const full_name = editDisplay.trim() || `${editFirst.trim()} ${editLast.trim()}`
+    const newId = editId.trim()
+    if (newId && newId !== editStudent.id) {
+      let photoFile = editStudent.photo_file || null
+      if (photoFile && photoFile.startsWith(editStudent.id)) {
+        photoFile = newId + '.jpg'
+      }
+      await supabase.from('students').insert({
+        id: newId,
+        first_name: editFirst.trim(),
+        last_name: editLast.trim(),
+        full_name,
+        period: editStudent.period,
+        nfc_uid: editStudent.nfc_uid || null,
+        photo_file: photoFile,
+        photo_url: editStudent.photo_url || null,
+      })
+      const { data: oldPeriods } = await supabase
+        .from('student_periods')
+        .select('period, room')
+        .eq('student_id', editStudent.id)
+      if (oldPeriods && oldPeriods.length > 0) {
+        await supabase.from('student_periods').insert(
+          oldPeriods.map(p => ({ student_id: newId, period: p.period, room: p.room }))
+        )
+      }
+      await supabase.from('student_periods').delete().eq('student_id', editStudent.id)
+      await supabase.from('students').delete().eq('id', editStudent.id)
+    } else {
+      await supabase.from('students').update({
+        first_name: editFirst.trim(),
+        last_name: editLast.trim(),
+        full_name,
+      }).eq('id', editStudent.id)
+    }
+    setSaving(false)
+    setEditStudent(null)
+    loadStudents()
+  }
 
-        <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
-          <p className="font-medium mb-1">How to export from Aeries:</p>
-          <ol className="list-decimal list-inside space-y-1 text-xs">
-            <li>Go to Attendance → Class Roster</li>
-            <li>Export each class as a separate XLSX</li>
-            <li>Select all files here at once — period is read automatically</li>
-          </ol>
-        </div>
-        <a href="/teacher" className="block text-center text-sm text-gray-400 hover:text-gray-600 mt-6">← Back to Dashboard</a>
-      </div>
-      {renderHelpPanel()}
+  async function handlePhotoUpload(e) {
+    const file = e.target.files[0]
+    if (!file || !editStudent) return
+    setPhotoUploading(true)
+    const path = `${editStudent.id}.jpg`
+    // Upload to lifetouch-raw bucket (not student-photos)
+    const { error: uploadError } = await supabase.storage
+      .from('lifetouch-raw')
+      .upload(path, file, { upsert: true, contentType: 'image/jpeg' })
+    if (!uploadError) {
+      await supabase.from('students').update({ photo_file: path }).eq('id', editStudent.id)
+      // Get public URL from lifetouch-raw bucket (not student-photos)
+      const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(path)
+      setPhotoUrl(data?.publicUrl ? `${data.publicUrl}?t=${Date.now()}` : null)
+      setEditStudent(prev => ({ ...prev, photo_file: path }))
+    }
+    setPhotoUploading(false)
+  }
+
+  const teacherName = currentTeacher?.name || 'Loading...'
+
+  if (!activePeriod) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="w-6 h-6 border-2 border-gray-300 rounded-full animate-spin" style={{ borderTopColor: RHS_GREEN }} />
     </div>
   )
 
-  // ── PREVIEW ──
-  if (stage === 'preview') return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-2xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" />
-          <div className="flex-1">
-            <h1 className="text-xl font-bold" style={{ color: RHS_GREEN }}>Review Before Importing</h1>
-            <p className="text-xs text-gray-400">{parsedFiles.length} roster{parsedFiles.length !== 1 ? 's' : ''} · Room {teacherRoom}</p>
-          </div>
-          <button
-            onClick={() => { setShowHelp(v => !v); setHelpSearch(''); setHelpPos({ x: null, y: null }) }}
-            style={{ background: showHelp ? RHS_GREEN : '#e5e7eb', border: 'none', borderRadius: '50%', width: 32, height: 32, cursor: 'pointer', fontSize: 15, fontWeight: 700, color: showHelp ? 'white' : '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
-          >?</button>
-        </div>
+  return (
+    <div className="min-h-screen bg-gray-50">
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 flex items-center justify-between">
-          <div>
-            <p className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{totalStudents}</p>
-            <p className="text-xs text-gray-500">total students across {parsedFiles.length} period{parsedFiles.length !== 1 ? 's' : ''}</p>
-          </div>
-          <div className="flex gap-2 flex-wrap justify-end">
-            {parsedFiles.map(f => (
-              <span key={f.period + f.term} className="text-xs px-2 py-1 rounded-full font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
-                P{f.period} {f.term ? `· ${f.term}` : ''}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {errorMsg && (
-          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs whitespace-pre-line">
-            ⚠ Some files were skipped:<br />{errorMsg}
-          </div>
-        )}
-
-        <div className="space-y-3 mb-6">
-          {parsedFiles.map((f, idx) => (
-            <div key={idx} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <button
-                className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
-                onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold text-white flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
-                    {f.period}
-                  </span>
-                  <div className="text-left">
-                    <p className="text-sm font-medium text-gray-800">Period {f.period} · {f.term}</p>
-                    <p className="text-xs text-gray-400">{f.courseTitle}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-semibold" style={{ color: RHS_GREEN }}>{f.students.length} students</span>
-                  <span className="text-gray-400 text-xs">{expandedIdx === idx ? '▲' : '▼'}</span>
-                </div>
-              </button>
-              {expandedIdx === idx && (
-                <div className="border-t border-gray-100 max-h-56 overflow-y-auto">
-                  {f.students.map((s, i) => (
-                    <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
-                      <span className="text-xs text-gray-400 w-6">{i + 1}</span>
-                      <span className="text-xs font-mono text-gray-500 w-16">{s.id}</span>
-                      <span className="text-sm text-gray-800 flex-1">{s.full_name}</span>
-                      <span className="text-xs text-gray-400">Gr {s.grade}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div className="flex gap-3">
-          <button onClick={reset}
-            className="flex-1 py-3 rounded-xl border-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-            style={{ borderColor: RHS_GRAY }}>
-            Cancel
-          </button>
-          <button onClick={handleImportAll}
-            className="flex-1 py-3 rounded-xl text-sm font-bold text-white hover:opacity-90"
-            style={{ backgroundColor: RHS_GREEN }}>
-            Import All {totalStudents} Students →
-          </button>
-        </div>
-      </div>
-      {renderHelpPanel()}
-    </div>
-  )
-
-  // ── IMPORTING ──
-  if (stage === 'importing') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-      <div className="text-center">
-        <div className="w-16 h-16 border-4 border-gray-200 rounded-full mx-auto mb-6 animate-spin" style={{ borderTopColor: RHS_GREEN }} />
-        <p className="text-lg font-semibold text-gray-800">Importing rosters...</p>
-        <p className="text-sm text-gray-400 mt-1">{parsedFiles.length} periods · {totalStudents} students · Room {teacherRoom}</p>
-      </div>
-    </div>
-  )
-
-  // ── SUCCESS ──
-  if (stage === 'success') return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-full flex items-center justify-center text-3xl mx-auto mb-4" style={{ backgroundColor: '#f0f7f3' }}>✅</div>
-          <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>Import Complete</h1>
-          <p className="text-gray-500 text-sm">Room {teacherRoom} · {importResult.files.length} periods loaded</p>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
-          <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100">
-            <span className="text-gray-600 text-sm">Total students imported</span>
-            <span className="text-2xl font-bold" style={{ color: RHS_GREEN }}>{importResult.imported}</span>
-          </div>
-          <div className="space-y-2">
-            {importResult.files.map(f => (
-              <div key={f.period + f.term} className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded text-xs font-bold text-white flex items-center justify-center flex-shrink-0" style={{ backgroundColor: RHS_GREEN }}>
-                  {f.period}
-                </span>
-                <span className="text-sm text-gray-600">Period {f.period} · {f.term} · {f.courseTitle}</span>
-                <span className="ml-auto text-sm font-medium text-gray-800">{f.students.length}</span>
+      {/* Edit Modal */}
+      {editStudent && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-800">Edit Student</h2>
+                <p className="text-xs text-gray-400">ID: {editStudent.id}</p>
               </div>
-            ))}
-          </div>
-          {importResult.errors > 0 && (
-            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs">
-              ⚠ {importResult.errors} records had errors and may not have imported correctly.
+              <button onClick={() => setEditStudent(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
+
+            {editStudent.id?.startsWith('NEW') && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <label className="text-xs text-amber-700 font-medium mb-1 block">⚠ Set Aeries Student ID</label>
+                <input type="text" placeholder="6-digit Aeries ID"
+                  value={editId} onChange={e => setEditId(e.target.value)}
+                  maxLength={6}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: '#f59e0b' }} />
+                <p className="text-xs text-amber-600 mt-1">This will replace the auto-generated ID. Enter the student's real Aeries ID.</p>
+              </div>
+            )}
+
+            {/* Photo */}
+            <div className="flex items-center gap-4 mb-4 p-3 bg-gray-50 rounded-xl">
+              <div className="w-16 h-16 rounded-xl overflow-hidden bg-gray-200 flex-shrink-0 flex items-center justify-center">
+                {photoUrl
+                  ? <img src={photoUrl} alt={editStudent.full_name} className="w-full h-full object-cover" />
+                  : <span className="text-2xl font-bold text-gray-400">
+                      {editStudent.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
+                    </span>
+                }
+              </div>
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => photoRef.current?.click()}
+                  disabled={photoUploading}
+                  className="text-xs px-3 py-1.5 rounded-lg font-medium text-white disabled:opacity-50"
+                  style={{ backgroundColor: RHS_GREEN }}>
+                  {photoUploading ? 'Uploading...' : photoUrl ? 'Replace Photo' : 'Add Photo'}
+                </button>
+                <p className="text-xs text-gray-400">JPG only</p>
+                <input ref={photoRef} type="file" accept=".jpg,.jpeg" className="hidden" onChange={handlePhotoUpload} />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 mb-4">
+              <div>
+                <label className="text-xs text-gray-500 font-medium mb-1 block">First Name</label>
+                <input type="text" value={editFirst} onChange={e => setEditFirst(e.target.value)}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-medium mb-1 block">Last Name</label>
+                <input type="text" value={editLast} onChange={e => setEditLast(e.target.value)}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 font-medium mb-1 block">Display Name <span className="text-gray-400 font-normal">(what shows on passes)</span></label>
+                <input type="text" value={editDisplay} onChange={e => setEditDisplay(e.target.value)}
+                  placeholder={`${editFirst} ${editLast}`}
+                  className="w-full p-2.5 text-sm border-2 rounded-xl bg-white text-gray-800"
+                  style={{ borderColor: RHS_GREEN }} />
+                <p className="text-xs text-gray-400 mt-1">Leave as-is or type a preferred name</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={saveEdit} disabled={saving}
+                className="flex-1 py-3 text-white text-sm font-semibold rounded-xl disabled:opacity-30"
+                style={{ backgroundColor: RHS_GREEN }}>
+                {saving ? 'Saving...' : 'Save Changes'}
+              </button>
+              <button onClick={() => setEditStudent(null)}
+                className="flex-1 py-3 border border-gray-200 text-gray-600 text-sm rounded-xl hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="px-6 py-4 flex items-center justify-between" style={{ backgroundColor: RHS_GREEN }}>
+        <div className="flex items-center gap-3">
+          <img src="/RHSCOWBOYlogo.png" alt="RHS" className="w-8 h-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
+          <div>
+            <h1 className="text-lg font-bold text-white">Student Management</h1>
+            <p className="text-green-200 text-xs">Room {room} · {teacherName}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <a href="/admin/photos" className="text-sm text-green-200 hover:text-white">📷 Photo Upload</a>
+          <a href="/teacher" className="text-sm text-green-200 hover:text-white">← Dashboard</a>
+        </div>
+      </div>
+
+      <div className="p-6 max-w-3xl mx-auto">
+
+        {/* Add Student */}
+        <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
+          <p className="text-sm font-medium mb-3" style={{ color: RHS_GREEN }}>Add Student</p>
+          <div className="flex gap-2 mb-2">
+            <input type="text" placeholder="First name" value={firstName}
+              onChange={e => setFirstName(e.target.value)}
+              className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+              style={{ borderColor: RHS_GREEN }} />
+            <input type="text" placeholder="Last name" value={lastName}
+              onChange={e => setLastName(e.target.value)}
+              className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+              style={{ borderColor: RHS_GREEN }} />
+            <input type="text" placeholder="Student ID (optional)" value={addId}
+              onChange={e => setAddId(e.target.value)}
+              className="w-36 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+              style={{ borderColor: RHS_GREEN }} />
+            <select value={addPeriod} onChange={e => setAddPeriod(e.target.value)}
+              className="p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+              style={{ borderColor: RHS_GREEN }}>
+              {periods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+            <button onClick={addStudent} disabled={adding || !firstName.trim() || !lastName.trim()}
+              className="px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-30"
+              style={{ backgroundColor: RHS_GREEN }}>
+              {adding ? 'Adding...' : 'Add'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400">Student ID from Aeries (6 digits). Leave blank to auto-generate.</p>
+        </div>
+
+        {/* Student List */}
+        <div className="bg-white rounded-xl border border-gray-200">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <div className="flex gap-2">
+              {periods.map(p => (
+                <button key={p.value} onClick={() => setActivePeriod(p.value)}
+                  className="px-3 py-1.5 text-xs font-medium rounded-lg border"
+                  style={activePeriod === p.value
+                    ? { backgroundColor: RHS_GREEN, color: 'white', borderColor: RHS_GREEN }
+                    : { backgroundColor: 'white', color: '#374151', borderColor: '#e5e7eb' }}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-gray-400">{students.length} students</span>
+          </div>
+
+          {loading ? (
+            <div className="p-8 text-center text-gray-400 text-sm">Loading...</div>
+          ) : students.length === 0 ? (
+            <div className="p-8 text-center text-gray-400 text-sm">No students in this period</div>
+          ) : (
+            students.map(s => {
+              const url = getPhotoUrl(s)
+              return (
+                <div key={s.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+                  {/* Photo: prefer photo_url, fall back to lifetouch-raw storage, then initials */}
+                  <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center text-xs font-medium text-white"
+                    style={{ backgroundColor: RHS_GREEN }}>
+                    {url
+                      ? <img src={url} alt={s.full_name} className="w-full h-full object-cover" />
+                      : s.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')
+                    }
+                  </div>
+                  <div className="flex-1">
+                    {/* no confirmed /student/[id] route — plain span instead of link */}
+                    <span className="text-sm font-medium" style={{ color: RHS_GREEN }}>
+                      {s.full_name}
+                    </span>
+                    <div className="flex gap-2 mt-0.5">
+                      {s.nfc_uid && <p className="text-xs text-gray-400">📲 NFC</p>}
+                      {(s.photo_file || s.photo_url) && <p className="text-xs text-gray-400">📷 Photo</p>}
+                    </div>
+                  </div>
+                  <select
+                    value={activePeriod}
+                    onChange={e => movePeriod(s.id, e.target.value)}
+                    className="text-xs border rounded-lg p-1 text-gray-600 bg-white"
+                    style={{ borderColor: '#e5e7eb' }}>
+                    {periods.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                  </select>
+                  <button onClick={() => openEdit(s)}
+                    className="text-xs px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50">
+                    Edit
+                  </button>
+                  {confirmDelete === s.id ? (
+                    <div className="flex gap-1">
+                      <button onClick={() => removeStudent(s.id)}
+                        className="text-xs px-2 py-1 bg-red-500 text-white rounded-lg">
+                        Confirm
+                      </button>
+                      <button onClick={() => setConfirmDelete(null)}
+                        className="text-xs px-2 py-1 border border-gray-200 text-gray-600 rounded-lg">
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setConfirmDelete(s.id)}
+                      className="text-xs px-3 py-1.5 border border-red-200 text-red-500 rounded-lg hover:bg-red-50">
+                      Remove
+                    </button>
+                  )}
+                </div>
+              )
+            })
           )}
         </div>
-        <div className="flex gap-3">
-          <button onClick={reset}
-            className="flex-1 py-3 rounded-xl border-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-            style={{ borderColor: RHS_GRAY }}>
-            Import More
-          </button>
-          <a href="/teacher"
-            className="flex-1 py-3 rounded-xl text-sm font-bold text-white text-center hover:opacity-90"
-            style={{ backgroundColor: RHS_GREEN }}>
-            Back to Dashboard
-          </a>
-        </div>
       </div>
     </div>
-  )
-
-  // ── ERROR ──
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-md text-center">
-        <div className="text-5xl mb-4">⚠️</div>
-        <h1 className="text-xl font-bold text-gray-800 mb-2">Could not read file</h1>
-        <p className="text-gray-500 text-sm mb-6 whitespace-pre-line">{errorMsg}</p>
-        <button onClick={reset} className="px-6 py-3 rounded-xl text-sm font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
-          Try Again
-        </button>
-      </div>
-    </div>
-  )
-}
-
-export default function RosterImport() {
-  return (
-    <Suspense>
-      <RosterImportInner />
-    </Suspense>
   )
 }
