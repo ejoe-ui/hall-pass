@@ -33,6 +33,7 @@ export default function StudentsAdmin() {
   const [activePeriod, setActivePeriod] = useState(null)
   const [students, setStudents] = useState([])
   const [loading, setLoading] = useState(false)
+  const [notAuthed, setNotAuthed] = useState(false)
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [addPeriod, setAddPeriod] = useState(null)
@@ -87,8 +88,6 @@ export default function StudentsAdmin() {
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }, [])
-
-  const [notAuthed, setNotAuthed] = useState(false)
 
   useEffect(() => {
     async function loadTeacher() {
