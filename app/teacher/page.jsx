@@ -569,6 +569,7 @@ function TeacherInner() {
     if (currentTeacher.print_passes !== undefined) setPrintPasses(!!currentTeacher.print_passes)
     if (currentTeacher.sub_code) setSubCode(currentTeacher.sub_code)
     if (currentTeacher.block_first_last_15 !== undefined) setBlockMinsEnabled(!!currentTeacher.block_first_last_15)
+    if (currentTeacher.session_code) setSelfCheckoutCode(currentTeacher.session_code)
   }, [currentTeacher])
 
   useEffect(() => {
@@ -646,7 +647,7 @@ function TeacherInner() {
   // ── Settings ───────────────────────────────────────────────────────────────
   async function loadSettings() {
     const { data } = await supabase.from('settings').select('key, value')
-      .in('key', ['teacher_unlock_code', 'sub_code', 'teacher_checkout_code', 'kiosk_return_required', 'print_passes', 'block_first_last_15'])
+      .in('key', ['teacher_unlock_code', 'sub_code', 'kiosk_return_required', 'print_passes', 'block_first_last_15'])
     if (!data) return
     const get = (key) => data.find(r => r.key === key)?.value
     const teacherUnlockVal = currentTeacher?.unlock_code || get('teacher_unlock_code')
@@ -656,7 +657,7 @@ function TeacherInner() {
       QRCode.toDataURL(url, { width: 160, margin: 1 }).then(setUnlockQR)
     }
     if (!currentTeacher?.sub_code && get('sub_code')) setSubCode(get('sub_code'))
-    if (get('teacher_checkout_code')) setSelfCheckoutCode(get('teacher_checkout_code'))
+    // session_code is per-teacher — loaded from currentTeacher in the teacher effect below
     if (get('kiosk_return_required')) setKioskReturnRequired(get('kiosk_return_required') !== 'false')
     if (!currentTeacher?.print_passes && get('print_passes')) setPrintPasses(get('print_passes') === 'true')
     if (currentTeacher?.block_first_last_15 === undefined && get('block_first_last_15')) setBlockMinsEnabled(get('block_first_last_15') !== 'false')
@@ -706,7 +707,9 @@ function TeacherInner() {
   async function generateCheckoutCode() {
     const code = Math.floor(1000 + Math.random() * 9000).toString()
     setSelfCheckoutCode(code)
-    await supabase.from('settings').update({ value: code }).eq('key', 'active_checkout_code')
+    if (currentTeacher?.id) {
+      await supabase.from('teachers').update({ session_code: code }).eq('id', currentTeacher.id)
+    }
   }
 
   // ── Data ───────────────────────────────────────────────────────────────────
