@@ -1076,8 +1076,8 @@ function TeacherInner() {
               a: <>Open {settingsBtn} → Change Password. Minimum 8 characters.</> },
           ]},
           { title: 'Pages & Tools', items: [
-            { q: "Manage Students", keys: "manage students edit name fix lookup periods enrolled",
-              a: <>{lnk('/admin/students', 'Manage Students →')} lets you view, search, and edit student records. Use it to fix a name spelling, look up a student, or check which periods they're enrolled in.</> },
+            { q: "Manage & Import Students", keys: "manage students edit name fix lookup periods enrolled import roster",
+              a: <>{lnk(`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`, 'Manage & Import Students →')} is where you view and edit your roster, import from Aeries, and manage who's enrolled in each period.</> },
             { q: "Print QR Badges", keys: "qr badges print scan camera kiosk id",
               a: <>{lnk('/qr', 'Print QR Badges →')} generates a printable sheet of QR code ID badges for your students. Students can use these to scan in and out at the kiosk using a camera instead of tapping their name on screen.</> },
             { q: "Pass Log", keys: "pass log history record who when how long reason save print",
@@ -1091,7 +1091,7 @@ function TeacherInner() {
             { q: "Import Roster", keys: "import roster aeries excel upload students period",
               a: <>{lnk(`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`, 'Import Roster →')} is where you upload your Aeries class roster Excel file to populate your student list for each period.</> },
             { q: "Match the Photos", keys: "match photos lifetouch pictures student photo missing upload",
-              a: <>Pulls the Lifetouch photos your admin uploaded and matches them to the students on your roster. Run this after your admin imports a new photo batch. If a student's photo still doesn't appear, the name in the photo file may not match their name in PassAble — contact your admin. You can also add a photo manually for any individual student by going to {lnk('/admin/students', 'Manage Students →')} and clicking Edit next to their name.</> },
+              a: <>Pulls the Lifetouch photos your admin uploaded and matches them to the students on your roster. Run this after your admin imports a new photo batch. If a student's photo still doesn't appear, the name in the photo file may not match their name in PassAble — contact your admin. You can also add a photo manually for any individual student by going to {lnk(`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`, 'Manage & Import Students →')} and clicking Edit next to their name.</> },
             { q: "Analytics", keys: "analytics trends pass count reason busiest time pattern",
               a: <>{lnk(`/analytics?teacher_id=${currentTeacher?.id || ''}`, 'Analytics →')} (in the header) shows pass trends for your classroom — busiest times, most frequent reasons, and students with high pass counts.</> },
           ]},
@@ -1624,8 +1624,7 @@ function TeacherInner() {
         </div>
 
         <div className="flex justify-between items-center flex-wrap gap-2">
-          <a href="/admin/students" className="text-sm text-gray-400 hover:text-gray-600">Manage Students →</a>
-          <a href={`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-gray-400 hover:text-gray-600">Import Roster →</a>
+          <a href={`/roster?room=${teacherRoom}&teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-gray-400 hover:text-gray-600">Manage & Import Students →</a>
           <a href="/teacher/match-photos" className="text-sm text-gray-400 hover:text-gray-600">Match the Photos →</a>
           <a href="/qr" className="text-sm text-gray-400 hover:text-gray-600">Print QR Badges →</a>
           <a href="/log" className="text-sm text-gray-400 hover:text-gray-600">Pass Log →</a>
