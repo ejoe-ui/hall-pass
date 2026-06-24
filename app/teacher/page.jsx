@@ -422,6 +422,18 @@ function TeacherInner() {
     return localStorage.getItem('passable_warnings') !== 'false'
   })
 
+  // Pass frequency limit
+  const [passLimitEnabled, setPassLimitEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem('passable_pass_limit') === 'true'
+  })
+  const [passLimitThreshold, setPassLimitThreshold] = useState(() => {
+    if (typeof window === 'undefined') return 5
+    return parseInt(localStorage.getItem('passable_pass_limit_threshold') || '5', 10)
+  })
+  const [passLimitSaved, setPassLimitSaved] = useState(false)
+  const [weeklyPassCounts, setWeeklyPassCounts] = useState({}) // student_id → count
+
   // Schedule & period status
   const [currentSchedule, setCurrentSchedule] = useState(null)
   const [periodInfo, setPeriodInfo] = useState(null)
@@ -674,6 +686,41 @@ function TeacherInner() {
     const next = !warningsEnabled
     setWarningsEnabled(next)
     localStorage.setItem('passable_warnings', next ? 'true' : 'false')
+  }
+
+  // ── Pass frequency limit ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!passLimitEnabled || !currentTeacher?.id) return
+    loadWeeklyPassCounts()
+  }, [passLimitEnabled, currentTeacher?.id])
+
+  async function loadWeeklyPassCounts() {
+    const weekAgo = new Date()
+    weekAgo.setDate(weekAgo.getDate() - 7)
+    const { data } = await supabase
+      .from('passes')
+      .select('student_id')
+      .eq('teacher_id', currentTeacher.id)
+      .gte('time_out', weekAgo.toISOString())
+    if (!data) return
+    const counts = {}
+    data.forEach(p => { counts[p.student_id] = (counts[p.student_id] || 0) + 1 })
+    setWeeklyPassCounts(counts)
+  }
+
+  function togglePassLimit() {
+    const next = !passLimitEnabled
+    setPassLimitEnabled(next)
+    localStorage.setItem('passable_pass_limit', next ? 'true' : 'false')
+    if (next && currentTeacher?.id) loadWeeklyPassCounts()
+  }
+
+  function savePassLimitThreshold(val) {
+    const n = Math.max(1, parseInt(val) || 5)
+    setPassLimitThreshold(n)
+    localStorage.setItem('passable_pass_limit_threshold', String(n))
+    setPassLimitSaved(true)
+    setTimeout(() => setPassLimitSaved(false), 2000)
   }
 
   useEffect(() => {
@@ -1718,10 +1765,19 @@ function TeacherInner() {
           {/* ── Checkout form ── */}
           <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl">
             <div className="text-xs font-medium text-gray-500 mb-2">Check out a student</div>
+            {passLimitEnabled && selected && (weeklyPassCounts[selected] || 0) >= passLimitThreshold && (
+              <div className="mb-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium flex items-center gap-1.5">
+                ⚠ {allStudents.find(s => s.id === selected)?.full_name?.split(' ')[0]} has had {weeklyPassCounts[selected]} passes in the last 7 days
+              </div>
+            )}
             <div className="flex gap-2 mb-2">
               <select value={selected} onChange={e => setSelected(e.target.value)} className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
                 <option value="">— Student —</option>
-                {allStudents.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                {allStudents.map(s => {
+                  const count = passLimitEnabled ? (weeklyPassCounts[s.id] || 0) : 0
+                  const overLimit = passLimitEnabled && count >= passLimitThreshold
+                  return <option key={s.id} value={s.id}>{overLimit ? `⚠ ${s.full_name} (${count} this week)` : s.full_name}</option>
+                })}
               </select>
               <select value={reason} onChange={e => { setReason(e.target.value); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText('') }} className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
                 <option value="">— Reason —</option>
@@ -1940,6 +1996,35 @@ function TeacherInner() {
                 ))}
               </div>
               {sessionTimeoutSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
+            </div>
+
+            {/* ── Pass Frequency Limit ── */}
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="flex items-start justify-between mb-1">
+                <div className="flex-1 pr-4">
+                  <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Pass Frequency Limit</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Shows a warning before checking out a student who's reached your pass threshold in the last 7 days. Doesn't block checkout — just flags it so you can decide. Off by default.</p>
+                </div>
+                <button onClick={togglePassLimit}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${passLimitEnabled ? 'bg-green-600' : 'bg-gray-200'}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${passLimitEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+              {passLimitEnabled && (
+                <div className="flex items-center gap-2 mt-3">
+                  <span className="text-xs text-gray-600">Warn after</span>
+                  <input
+                    type="number" min="1" max="99"
+                    value={passLimitThreshold}
+                    onChange={e => setPassLimitThreshold(parseInt(e.target.value) || 1)}
+                    onBlur={e => savePassLimitThreshold(e.target.value)}
+                    className="w-14 p-1.5 text-sm border-2 rounded-lg text-center bg-white text-gray-800"
+                    style={{ borderColor: RHS_GREEN }}
+                  />
+                  <span className="text-xs text-gray-600">passes in 7 days</span>
+                </div>
+              )}
+              {passLimitSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
