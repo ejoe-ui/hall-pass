@@ -30,12 +30,18 @@ function getStudentPhotoUrl(student) {
 const RHS_GREEN = '#006938'
 const TIME_LIMIT = 10
 
-// Locale-safe time formatter (avoids React hydration mismatch #418)
+// Locale-safe formatters (avoids React hydration mismatch #418)
 function fmt(ts) {
   if (!ts) return '—'
   const d = new Date(ts)
   const h = d.getHours(), m = d.getMinutes().toString().padStart(2, '0')
   return `${h % 12 || 12}:${m} ${h >= 12 ? 'PM' : 'AM'}`
+}
+function fmtDate(ts) {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
 }
 
 const REASONS = [
