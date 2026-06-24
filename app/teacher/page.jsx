@@ -422,6 +422,15 @@ function TeacherInner() {
     return localStorage.getItem('passable_warnings') !== 'false'
   })
 
+  // Token system
+  const [tokensEnabled, setTokensEnabled]               = useState(false)
+  const [tokensPerPeriod, setTokensPerPeriod]           = useState(5)
+  const [gradingPeriodStart, setGradingPeriodStart]     = useState(() => new Date().toISOString().slice(0, 10))
+  const [tokenSummary, setTokenSummary]                 = useState([]) // [{id, name, used, remaining}]
+  const [tokenSummaryLoading, setTokenSummaryLoading]   = useState(false)
+  const [tokenSettingsSaved, setTokenSettingsSaved]     = useState(false)
+  const [showTokenSummary, setShowTokenSummary]         = useState(false)
+
   // Pass frequency limit
   const [passLimitEnabled, setPassLimitEnabled] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -636,6 +645,9 @@ function TeacherInner() {
       setSessionTimeout(currentTeacher.session_timeout_minutes === 0 ? null : (currentTeacher.session_timeout_minutes || 30))
     }
     if (currentTeacher.receive_notifications !== undefined) setReceiveNotifications(!!currentTeacher.receive_notifications)
+    if (currentTeacher.tokens_enabled !== undefined) setTokensEnabled(!!currentTeacher.tokens_enabled)
+    if (currentTeacher.tokens_per_period) setTokensPerPeriod(currentTeacher.tokens_per_period)
+    if (currentTeacher.grading_period_start) setGradingPeriodStart(currentTeacher.grading_period_start)
   }, [currentTeacher])
 
   // ── Realtime notification subscription ────────────────────────────────────
@@ -687,6 +699,77 @@ function TeacherInner() {
     setWarningsEnabled(next)
     localStorage.setItem('passable_warnings', next ? 'true' : 'false')
   }
+
+  // ── Token system ───────────────────────────────────────────────────────────
+  async function saveTokenSettings({ enabled, perPeriod, startDate } = {}) {
+    const newEnabled   = enabled   !== undefined ? enabled   : tokensEnabled
+    const newPerPeriod = perPeriod !== undefined ? perPeriod : tokensPerPeriod
+    const newStart     = startDate !== undefined ? startDate : gradingPeriodStart
+    if (enabled   !== undefined) setTokensEnabled(newEnabled)
+    if (perPeriod !== undefined) setTokensPerPeriod(newPerPeriod)
+    if (startDate !== undefined) setGradingPeriodStart(newStart)
+    if (currentTeacher?.id) {
+      await supabase.from('teachers').update({
+        tokens_enabled: newEnabled,
+        tokens_per_period: newPerPeriod,
+        grading_period_start: newStart,
+      }).eq('id', currentTeacher.id)
+    }
+    setTokenSettingsSaved(true)
+    setTimeout(() => setTokenSettingsSaved(false), 2000)
+    if (newEnabled) loadTokenSummary(newPerPeriod, newStart)
+  }
+
+  async function loadTokenSummary(perPeriod, startDate) {
+    if (!currentTeacher?.id) return
+    setTokenSummaryLoading(true)
+    const cap  = perPeriod ?? tokensPerPeriod
+    const from = startDate ?? gradingPeriodStart
+    // All students in teacher's active period + room
+    const room = selectedRoom || currentTeacher?.room?.split(',')[0]?.trim() || '27'
+    const { data: spRows } = await supabase.from('student_periods').select('student_id').eq('period', activePeriod).eq('room', room)
+    const studentIds = (spRows || []).map(r => r.student_id)
+    if (!studentIds.length) { setTokenSummary([]); setTokenSummaryLoading(false); return }
+    // Pass counts since grading period start
+    const { data: passes } = await supabase.from('passes').select('student_id')
+      .eq('teacher_id', currentTeacher.id)
+      .in('student_id', studentIds)
+      .gte('time_out', new Date(from).toISOString())
+    const counts = {}
+    passes?.forEach(p => { counts[p.student_id] = (counts[p.student_id] || 0) + 1 })
+    const summary = studentIds.map(id => {
+      const s    = allStudents.find(s => s.id === id)
+      const used = counts[id] || 0
+      return { id, name: s?.full_name || '—', used, remaining: Math.max(0, cap - used) }
+    }).sort((a, b) => b.remaining - a.remaining || a.name.localeCompare(b.name))
+    setTokenSummary(summary)
+    setTokenSummaryLoading(false)
+  }
+
+  function printTokenSummary() {
+    const label = gradingPeriodStart ? `Since ${fmtDate(gradingPeriodStart + 'T00:00:00')}` : 'This Period'
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Token Summary</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,Arial,sans-serif;font-size:12px;color:#111;padding:32px}
+h1{font-size:20px;font-weight:800;color:#006938;margin-bottom:2px}.sub{font-size:12px;color:#6b7280;margin-bottom:20px}
+table{width:100%;border-collapse:collapse}th{background:#f9fafb;text-align:left;padding:8px 12px;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;border-bottom:2px solid #e5e7eb}
+td{padding:8px 12px;border-bottom:1px solid #f3f4f6}.green{color:#16a34a;font-weight:700}.red{color:#dc2626;font-weight:700}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>
+<h1>Pass Token Summary</h1>
+<div class="sub">Riverdale High School &nbsp;·&nbsp; Period ${activePeriod} &nbsp;·&nbsp; ${label} &nbsp;·&nbsp; ${tokensPerPeriod} tokens/period</div>
+<table><thead><tr><th>#</th><th>Student</th><th>Tokens Used</th><th>Tokens Remaining</th></tr></thead><tbody>
+${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.used}</td><td class="${r.remaining > 0 ? 'green' : 'red'}">${r.remaining}</td></tr>`).join('')}
+</tbody></table></body></html>`
+    const win = window.open('', '_blank', 'width=700,height=600')
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 400)
+  }
+
+  useEffect(() => {
+    if (!tokensEnabled || !currentTeacher?.id || !activePeriod) return
+    loadTokenSummary()
+  }, [tokensEnabled, currentTeacher?.id, activePeriod, selectedRoom, allStudents.length])
 
   // ── Pass frequency limit ───────────────────────────────────────────────────
   useEffect(() => {
@@ -1704,6 +1787,46 @@ function TeacherInner() {
           </div>
         )}
 
+        {/* ── Token Summary ── */}
+        {tokensEnabled && (
+          <div className="bg-white rounded-xl border border-gray-200 mb-6 overflow-hidden">
+            <div className="px-4 py-2.5 flex items-center justify-between border-b border-gray-100">
+              <button onClick={() => { setShowTokenSummary(v => !v); if (!showTokenSummary) loadTokenSummary() }}
+                className="text-sm font-medium flex items-center gap-1.5" style={{ color: RHS_GREEN }}>
+                🎟 Pass Tokens — Period {activePeriod}
+                <span className="text-xs text-gray-400 font-normal">{tokensPerPeriod} per student · since {fmtDate(gradingPeriodStart + 'T00:00:00')}</span>
+                <span className="text-xs text-gray-400">{showTokenSummary ? '▲' : '▼'}</span>
+              </button>
+              {showTokenSummary && (
+                <button onClick={printTokenSummary} className="text-xs px-2.5 py-1 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
+                  🖨️ Print
+                </button>
+              )}
+            </div>
+            {showTokenSummary && (
+              tokenSummaryLoading
+                ? <div className="p-6 text-center text-sm text-gray-400">Loading…</div>
+                : tokenSummary.length === 0
+                  ? <div className="p-6 text-center text-sm text-gray-400">No students found for this period</div>
+                  : <div className="divide-y divide-gray-50">
+                      {tokenSummary.map(r => (
+                        <div key={r.id} className="px-4 py-2.5 flex items-center gap-3">
+                          <div className="flex-1 text-sm text-gray-800">{r.name}</div>
+                          <div className="text-xs text-gray-400">{r.used} used</div>
+                          <div className={`text-sm font-bold w-20 text-right ${r.remaining === 0 ? 'text-red-500' : r.remaining === 1 ? 'text-amber-500' : 'text-green-600'}`}>
+                            {r.remaining} left
+                          </div>
+                          <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all"
+                              style={{ width: `${Math.round((r.remaining / tokensPerPeriod) * 100)}%`, backgroundColor: r.remaining === 0 ? '#ef4444' : r.remaining === 1 ? '#f59e0b' : '#006938' }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+            )}
+          </div>
+        )}
+
         {activePasses.length >= 2 && <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">⚠ {activePasses.length} students out simultaneously: {activePasses.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')}</div>}
         {overLimit.length > 0 && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm flex items-center justify-between gap-3">
@@ -1765,6 +1888,21 @@ function TeacherInner() {
           {/* ── Checkout form ── */}
           <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl">
             <div className="text-xs font-medium text-gray-500 mb-2">Check out a student</div>
+            {tokensEnabled && selected && (() => {
+              const entry = tokenSummary.find(r => r.id === selected)
+              if (!entry) return null
+              if (entry.remaining === 0) return (
+                <div className="mb-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-1.5">
+                  🎟 {entry.name.split(' ')[0]} has used all {tokensPerPeriod} tokens this period
+                </div>
+              )
+              if (entry.remaining === 1) return (
+                <div className="mb-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium flex items-center gap-1.5">
+                  🎟 {entry.name.split(' ')[0]} has 1 token left this period
+                </div>
+              )
+              return null
+            })()}
             {passLimitEnabled && selected && (weeklyPassCounts[selected] || 0) >= passLimitThreshold && (
               <div className="mb-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium flex items-center gap-1.5">
                 ⚠ {allStudents.find(s => s.id === selected)?.full_name?.split(' ')[0]} has had {weeklyPassCounts[selected]} passes in the last 7 days
@@ -1996,6 +2134,47 @@ function TeacherInner() {
                 ))}
               </div>
               {sessionTimeoutSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
+            </div>
+
+            {/* ── Token System ── */}
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="flex items-start justify-between mb-1">
+                <div className="flex-1 pr-4">
+                  <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Pass Tokens</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Give each student a set number of passes per grading period. Unused tokens = reward. Warnings appear at checkout when a student is down to 1 or 0 tokens. Off by default.</p>
+                </div>
+                <button onClick={() => saveTokenSettings({ enabled: !tokensEnabled })}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${tokensEnabled ? 'bg-green-600' : 'bg-gray-200'}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${tokensEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+              {tokensEnabled && (
+                <div className="mt-3 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-600 w-28">Tokens per period</span>
+                    <input type="number" min="1" max="99" value={tokensPerPeriod}
+                      onChange={e => setTokensPerPeriod(parseInt(e.target.value) || 1)}
+                      onBlur={e => saveTokenSettings({ perPeriod: parseInt(e.target.value) || 1 })}
+                      className="w-14 p-1.5 text-sm border-2 rounded-lg text-center bg-white text-gray-800"
+                      style={{ borderColor: RHS_GREEN }} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-600 w-28">Period started</span>
+                    <input type="date" value={gradingPeriodStart}
+                      onChange={e => setGradingPeriodStart(e.target.value)}
+                      onBlur={e => saveTokenSettings({ startDate: e.target.value })}
+                      className="p-1.5 text-sm border-2 rounded-lg bg-white text-gray-800"
+                      style={{ borderColor: RHS_GREEN }} />
+                  </div>
+                  <button onClick={() => {
+                    const today = new Date().toISOString().slice(0, 10)
+                    saveTokenSettings({ startDate: today })
+                  }} className="text-xs font-medium px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">
+                    🔄 Reset — start new period today
+                  </button>
+                </div>
+              )}
+              {tokenSettingsSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
             </div>
 
             {/* ── Pass Frequency Limit ── */}
