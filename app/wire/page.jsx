@@ -1180,12 +1180,12 @@ function WireContent() {
 
   useEffect(() => {
     async function loadSchedule() {
-      const result = await fetchTodayScheduleType()
+      const result = await fetchTodayScheduleType(new Date(), roomParam || null)
       setScheduleType(result?.type || null)
       setScheduleObj(result?.schedule || null)
     }
     loadSchedule()
-  }, [])
+  }, [roomParam])
 
   useEffect(() => {
     if (!scheduleObj) return
@@ -1617,31 +1617,24 @@ function WireContent() {
           </div>
         </div>
 
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ color: 'white', fontSize: 28, fontWeight: 500, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em', lineHeight: 1 }}>
-            {now ? fmtTime(now) : '—:—'}
-          </div>
-          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 2 }}>
-            {now ? fmtDateLong(now) : ''}
-          </div>
-        </div>
-
         <div style={{ textAlign: 'right' }}>
           {periodInfo?.status === 'period' && periodInfo.current && (
-            <>
-              <div style={{ color: 'white', fontSize: 14, fontWeight: 500 }}>
-                {periodInfo.current.label}
-              </div>
-              <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, marginTop: 1 }}>
-                {SCHEDULE_LABELS[scheduleType] || scheduleType || ''}
-              </div>
-            </>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginBottom: 2 }}>
+              {periodInfo.current.label}
+              {scheduleType && ` · ${SCHEDULE_LABELS[scheduleType] || scheduleType}`}
+            </div>
           )}
           {periodInfo?.status === 'break' && (
-            <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 500 }}>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginBottom: 2 }}>
               {periodInfo.current?.label || 'Break'}
             </div>
           )}
+          <div style={{ color: 'white', fontSize: 28, fontWeight: 500, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em', lineHeight: 1 }}>
+            {now ? fmtTime(now) : '—:—'}
+          </div>
+          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 3 }}>
+            {now ? fmtDateLong(now) : ''}
+          </div>
         </div>
       </div>
 
