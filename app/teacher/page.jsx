@@ -736,17 +736,25 @@ function TeacherInner() {
     const { data: spRows } = await supabase.from('student_periods').select('student_id').eq('period', activePeriod).eq('room', room)
     const studentIds = (spRows || []).map(r => r.student_id)
     if (!studentIds.length) { setTokenSummary([]); setTokenSummaryLoading(false); return }
-    // Pass counts since grading period start
-    const { data: passes } = await supabase.from('passes').select('student_id')
-      .eq('teacher_id', currentTeacher.id)
-      .in('student_id', studentIds)
-      .gte('time_out', new Date(from).toISOString())
+    // Pass counts since grading period start + manual adjustments
+    const [{ data: passes }, { data: adjustments }] = await Promise.all([
+      supabase.from('passes').select('student_id')
+        .eq('teacher_id', currentTeacher.id)
+        .in('student_id', studentIds)
+        .gte('time_out', new Date(from).toISOString()),
+      supabase.from('teacher_token_adjustments').select('student_id, amount')
+        .eq('teacher_id', currentTeacher.id)
+        .in('student_id', studentIds),
+    ])
     const counts = {}
     passes?.forEach(p => { counts[p.student_id] = (counts[p.student_id] || 0) + 1 })
+    const adjTotals = {}
+    adjustments?.forEach(a => { adjTotals[a.student_id] = (adjTotals[a.student_id] || 0) + a.amount })
     const summary = studentIds.map(id => {
       const s    = allStudents.find(s => s.id === id)
       const used = counts[id] || 0
-      return { id, name: s?.full_name || '—', used, remaining: Math.max(0, cap - used) }
+      const adj  = adjTotals[id] || 0
+      return { id, name: s?.full_name || '—', used, adj, remaining: Math.max(0, cap - used + adj) }
     }).sort((a, b) => b.remaining - a.remaining || a.name.localeCompare(b.name))
     setTokenSummary(summary)
     setTokenSummaryLoading(false)
@@ -763,13 +771,28 @@ td{padding:8px 12px;border-bottom:1px solid #f3f4f6}.green{color:#16a34a;font-we
 <h1>Pass Token Summary</h1>
 <div class="sub">Riverdale High School &nbsp;·&nbsp; Period ${activePeriod} &nbsp;·&nbsp; ${label} &nbsp;·&nbsp; ${tokensPerPeriod} tokens/period</div>
 <table><thead><tr><th>#</th><th>Student</th><th>Tokens Used</th><th>Tokens Remaining</th></tr></thead><tbody>
-${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.used}</td><td class="${r.remaining > 0 ? 'green' : 'red'}">${r.remaining}</td></tr>`).join('')}
+${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.used}${r.adj > 0 ? ` <span style="color:#16a34a;font-size:10px">(+${r.adj} returned)</span>` : ''}</td><td class="${r.remaining > 0 ? 'green' : 'red'}">${r.remaining}</td></tr>`).join('')}
 </tbody></table></body></html>`
     const win = window.open('', '_blank', 'width=700,height=600')
     win.document.write(html)
     win.document.close()
     win.focus()
     setTimeout(() => win.print(), 400)
+  }
+
+  async function returnToken(studentId) {
+    if (!currentTeacher?.id) return
+    await supabase.from('teacher_token_adjustments').insert({
+      teacher_id: currentTeacher.id,
+      student_id: studentId,
+      amount: 1,
+    })
+    // Optimistically update summary in place
+    setTokenSummary(prev => prev.map(r =>
+      r.id === studentId
+        ? { ...r, adj: r.adj + 1, remaining: r.remaining + 1 }
+        : r
+    ))
   }
 
   useEffect(() => {
@@ -1449,7 +1472,7 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
             { q: "What's Auto Sign-Out?", keys: "auto sign out session timeout inactivity security minutes idle",
               a: <>When turned on in {settingsBtn}, the dashboard signs you out automatically after a set period of no activity — 30 or 60 minutes. Default is <strong>30 min</strong>. Any mouse movement, typing, or clicking resets the timer. Set it to <strong>None</strong> if you'd rather stay signed in indefinitely (not recommended on shared devices).</> },
             { q: "What are Pass Tokens?", keys: "pass tokens grading period reward bonus points unused token count threshold",
-              a: <>Pass Tokens give each student a set number of passes per grading period. When a student uses a pass, it counts against their balance. At the end of the period, students with unused tokens can earn bonus points or a prize — up to you. To turn it on, go to {settingsBtn} → Pass Tokens. Set how many tokens each student gets and when the current grading period started. Click <strong>Reset — start new period today</strong> at the start of each new period to clear all counts. When a student is down to 1 token you'll see an amber warning at checkout; at 0 tokens it turns red. Checkout is never blocked — just flagged. To see the full class summary, expand the <strong>🎟 Pass Tokens</strong> panel on your dashboard and click <strong>Print</strong> for a printable sheet showing each student's used and remaining count — one page per period, ready for awarding points.</> },
+              a: <>Pass Tokens give each student a set number of passes per grading period. When a student uses a pass, it counts against their balance. At the end of the period, students with unused tokens can earn bonus points or a prize — up to you. To turn it on, go to {settingsBtn} → Pass Tokens. Set how many tokens each student gets and when the current grading period started. Click <strong>Reset — start new period today</strong> at the start of each new period to clear all counts. When a student is down to 1 token you'll see an amber warning at checkout; at 0 tokens it turns red. Checkout is never blocked — just flagged. To see the full class summary, expand the <strong>🎟 Pass Tokens</strong> panel on your dashboard and click <strong>Print</strong> for a printable sheet showing each student's used and remaining count — one page per period, ready for awarding points. If a pass shouldn't have counted against a student (excused absence, emergency, etc.), click <strong>↩ Return</strong> next to their name in the token panel to restore one token to their balance. Returns are tracked separately from the pass history and show up on the print sheet.</> },
             { q: "What's Pass Frequency Limit?", keys: "pass frequency limit threshold weekly passes flag warn",
               a: <>A separate optional setting that warns you at checkout when a student has reached a set number of passes in the last 7 days. Unlike tokens, this resets on a rolling 7-day window rather than a grading period. Turn it on in {settingsBtn} → Pass Frequency Limit and set your threshold. Off by default.</> },
             { q: "How do I change my password?", keys: "password change update reset minimum characters",
@@ -1822,7 +1845,10 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
                       {tokenSummary.map(r => (
                         <div key={r.id} className="px-4 py-2.5 flex items-center gap-3">
                           <div className="flex-1 text-sm text-gray-800">{r.name}</div>
-                          <div className="text-xs text-gray-400">{r.used} used</div>
+                          <div className="text-xs text-gray-400">
+                            {r.used} used
+                            {r.adj > 0 && <span className="ml-1 text-green-600 font-medium">+{r.adj} returned</span>}
+                          </div>
                           <div className={`text-sm font-bold w-20 text-right ${r.remaining === 0 ? 'text-red-500' : r.remaining === 1 ? 'text-amber-500' : 'text-green-600'}`}>
                             {r.remaining} left
                           </div>
@@ -1830,6 +1856,13 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
                             <div className="h-full rounded-full transition-all"
                               style={{ width: `${Math.round((r.remaining / tokensPerPeriod) * 100)}%`, backgroundColor: r.remaining === 0 ? '#ef4444' : r.remaining === 1 ? '#f59e0b' : '#006938' }} />
                           </div>
+                          <button
+                            onClick={() => returnToken(r.id)}
+                            title="Return a token to this student"
+                            className="text-xs px-2 py-1 rounded-lg border border-gray-200 text-gray-500 hover:border-green-400 hover:text-green-700 hover:bg-green-50 transition-colors"
+                          >
+                            ↩ Return
+                          </button>
                         </div>
                       ))}
                     </div>
