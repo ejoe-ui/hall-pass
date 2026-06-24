@@ -7,8 +7,8 @@
            Badges are per-period, per-teacher room. Two print templates: badge cards (3-up)
            and sticker sheets (2-up, 10 per sheet).
   REPO:    hall-pass (hall-pass-lime.vercel.app)
-  BACKEND: Supabase (students, student_periods, teachers) + lifetouch-raw storage bucket
-  UPDATED: 2026-06-23 — added file header; fixed photo bucket student-photos → lifetouch-raw
+  BACKEND: Supabase (students, student_periods, teachers) + student-photos storage bucket (private)
+  UPDATED: 2026-06-23 — fixed photo loading: createSignedUrls on student-photos (private bucket)
 */
 'use client'
 import { useState, useEffect } from 'react'
@@ -115,13 +115,16 @@ export default function QRPage() {
   }
 
   async function generatePhotoUrls(studentList) {
+    const withPhotos = (studentList || []).filter(s => s?.photo_file)
+    if (withPhotos.length === 0) return
     const urls = {}
-    for (const s of studentList) {
-      if (s.photo_file) {
-        // Uses lifetouch-raw bucket (not student-photos)
-        const { data } = supabase.storage.from('lifetouch-raw').getPublicUrl(s.photo_file)
-        if (data?.publicUrl) urls[s.id] = data.publicUrl
-      }
+    const BATCH = 50
+    for (let i = 0; i < withPhotos.length; i += BATCH) {
+      const batch = withPhotos.slice(i, i + BATCH)
+      const { data } = await supabase.storage
+        .from('student-photos')
+        .createSignedUrls(batch.map(s => s.photo_file), 3600)
+      if (data) data.forEach((item, j) => { if (item.signedUrl) urls[batch[j].id] = item.signedUrl })
     }
     setPhotoUrls(urls)
   }
