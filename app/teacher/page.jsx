@@ -784,25 +784,29 @@ function TeacherInner() {
 
   async function sendPassNotification(passId, studentId, studentName, toTeacherName, reason) {
     // Look up receiving teacher by name (case-insensitive partial match)
-    const { data: toTeacher } = await supabase
+    const { data: toTeacher, error: lookupErr } = await supabase
       .from('teachers')
       .select('id, name, receive_notifications')
       .ilike('name', `%${toTeacherName}%`)
       .eq('is_active', true)
       .maybeSingle()
-    if (!toTeacher?.receive_notifications) return
-    await supabase.from('pass_notifications').insert({
-      pass_id: passId,
+    if (lookupErr) { console.error('[PassAble] Teacher lookup failed:', lookupErr); return }
+    if (!toTeacher || toTeacher.receive_notifications === false) return
+    const fromName = currentTeacher?.name || 'Teacher'
+    const payload = {
+      pass_id: passId || null,
       from_teacher_id: currentTeacher.id,
       to_teacher_id: toTeacher.id,
-      from_teacher_name: currentTeacher.name || teacherDisplayName,
-      to_teacher_name: toTeacherName,
-      from_room: teacherRoom,
-      student_id: studentId,
-      student_name: studentName,
-      reason,
+      from_teacher_name: fromName,
+      to_teacher_name: toTeacher.name,
+      from_room: teacherRoom || '',
+      student_id: studentId || null,
+      student_name: studentName || 'Student',
+      reason: reason || '',
       status: 'pending',
-    })
+    }
+    const { error } = await supabase.from('pass_notifications').insert(payload)
+    if (error) console.error('[PassAble] Notification insert failed:', JSON.stringify(error), 'payload:', JSON.stringify(payload))
   }
 
   async function updateNotifStatus(notifId, status) {
