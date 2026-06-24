@@ -352,6 +352,16 @@ function MobilePageInner() {
     await supabase.from('pass_notifications').update({ [field]: true }).eq('id', notifId)
   }
 
+  async function clearAllNotifs() {
+    const promises = [
+      ...incomingNotifs.map(n => supabase.from('pass_notifications').update({ cleared_by_receiver: true }).eq('id', n.id)),
+      ...outgoingNotifs.map(n => supabase.from('pass_notifications').update({ cleared_by_sender: true }).eq('id', n.id)),
+    ]
+    await Promise.all(promises)
+    setIncomingNotifs([])
+    setOutgoingNotifs([])
+  }
+
   function openSheet() {
     setShowSheet(true); setSheetView('students')
     setSelectedStudent(null); setStudentSearch('')
@@ -474,10 +484,16 @@ function MobilePageInner() {
         )}
 
         {/* ── Incoming transfer notifications ── */}
-        {incomingNotifs.length > 0 && (
+        {(incomingNotifs.length > 0 || outgoingNotifs.length > 0) && (
           <section style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
-              🔔 Students Heading Your Way ({incomingNotifs.length})
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                🔔 Notifications ({incomingNotifs.length + outgoingNotifs.length})
+              </div>
+              <button onClick={clearAllNotifs}
+                style={{ fontSize: 12, fontWeight: 600, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                Clear all
+              </button>
             </div>
             {incomingNotifs.map(n => (
               <div key={n.id} style={{ background: '#eff6ff', border: '2px solid #93c5fd', borderRadius: 14, padding: 14, marginBottom: 10 }}>
@@ -526,8 +542,16 @@ function MobilePageInner() {
         {/* ── Outgoing transfer updates ── */}
         {outgoingNotifs.length > 0 && (
           <section style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
-              📤 Transfer Updates ({outgoingNotifs.length})
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                📤 Transfer Updates ({outgoingNotifs.length})
+              </div>
+              {incomingNotifs.length === 0 && (
+                <button onClick={clearAllNotifs}
+                  style={{ fontSize: 12, fontWeight: 600, color: '#7c3aed', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                  Clear all
+                </button>
+              )}
             </div>
             {outgoingNotifs.map(n => (
               <div key={n.id} style={{ background: '#faf5ff', border: '1px solid #c4b5fd', borderRadius: 14, padding: 14, marginBottom: 10 }}>
