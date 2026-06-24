@@ -30,6 +30,14 @@ function getStudentPhotoUrl(student) {
 const RHS_GREEN = '#006938'
 const TIME_LIMIT = 10
 
+// Locale-safe time formatter (avoids React hydration mismatch #418)
+function fmt(ts) {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  const h = d.getHours(), m = d.getMinutes().toString().padStart(2, '0')
+  return `${h % 12 || 12}:${m} ${h >= 12 ? 'PM' : 'AM'}`
+}
+
 const REASONS = [
   'Restroom', 'Library', 'Office', 'Counselor', 'Lockers',
   'Errand', 'On Assignment', 'Career Counselor', 'Other',
@@ -408,6 +416,11 @@ function TeacherInner() {
   const [students, setStudents] = useState({})
   const [allStudents, setAllStudents] = useState([])
   const [now, setNow] = useState(Date.now())
+  const notifiedPassesRef = useRef(new Set()) // track which pass IDs have already triggered an alert
+  const [warningsEnabled, setWarningsEnabled] = useState(() => {
+    if (typeof window === 'undefined') return true
+    return localStorage.getItem('passable_warnings') !== 'false'
+  })
 
   // Schedule & period status
   const [currentSchedule, setCurrentSchedule] = useState(null)
@@ -649,6 +662,52 @@ function TeacherInner() {
     const timer = setInterval(() => { setNow(Date.now()); loadData() }, 15000)
     return () => clearInterval(timer)
   }, [activePeriod, currentTeacher, selectedRoom])
+
+  // ── Duration warning: browser notification + sound when student crosses TIME_LIMIT ──
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    // Request notification permission once
+    if (Notification?.permission === 'default') Notification.requestPermission()
+  }, [])
+
+  function toggleWarnings() {
+    const next = !warningsEnabled
+    setWarningsEnabled(next)
+    localStorage.setItem('passable_warnings', next ? 'true' : 'false')
+  }
+
+  useEffect(() => {
+    if (!warningsEnabled || !activePasses.length) return
+    activePasses.forEach(pass => {
+      const mins = Math.floor((now - new Date(pass.time_out).getTime()) / 60000)
+      if (mins >= TIME_LIMIT && !notifiedPassesRef.current.has(pass.id)) {
+        notifiedPassesRef.current.add(pass.id)
+        const studentName = students[pass.student_id]?.full_name?.split(' ')[0] || 'A student'
+        // Browser notification (works even if tab is in background)
+        if (Notification?.permission === 'granted') {
+          new Notification('PassAble — Student Over Time', {
+            body: `${studentName} has been out ${mins} minutes (${pass.reason})`,
+            icon: '/RHSCOWBOYlogo.png',
+          })
+        }
+        // Subtle audio alert using Web Audio API (no file needed)
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)()
+          const osc = ctx.createOscillator()
+          const gain = ctx.createGain()
+          osc.connect(gain); gain.connect(ctx.destination)
+          osc.frequency.setValueAtTime(880, ctx.currentTime)
+          osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15)
+          gain.gain.setValueAtTime(0.3, ctx.currentTime)
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
+          osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5)
+        } catch (e) { /* audio not supported */ }
+      }
+    })
+    // Clean up notified set when passes return
+    const activeIds = new Set(activePasses.map(p => p.id))
+    notifiedPassesRef.current.forEach(id => { if (!activeIds.has(id)) notifiedPassesRef.current.delete(id) })
+  }, [now, activePasses, students, warningsEnabled])
 
   // ── Auth ───────────────────────────────────────────────────────────────────
   async function loadCurrentTeacher() {
@@ -1573,7 +1632,23 @@ function TeacherInner() {
         )}
 
         {activePasses.length >= 2 && <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">⚠ {activePasses.length} students out simultaneously: {activePasses.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')}</div>}
-        {overLimit.length > 0 && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm">! {overLimit.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')} {overLimit.length === 1 ? 'has' : 'have'} been out over {TIME_LIMIT} min</div>}
+        {overLimit.length > 0 && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm flex items-center justify-between gap-3">
+            <span>🔔 {overLimit.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')} {overLimit.length === 1 ? 'has' : 'have'} been out over {TIME_LIMIT} min</span>
+            <button onClick={toggleWarnings} title={warningsEnabled ? 'Mute alerts' : 'Unmute alerts'}
+              className="text-xs px-2 py-1 rounded-lg border border-red-300 bg-white text-red-600 hover:bg-red-100 whitespace-nowrap font-medium transition-colors flex-shrink-0">
+              {warningsEnabled ? '🔔 Alerts on' : '🔕 Muted'}
+            </button>
+          </div>
+        )}
+        {!overLimit.length && (
+          <div className="flex justify-end mb-2">
+            <button onClick={toggleWarnings} title={warningsEnabled ? 'Mute alerts' : 'Unmute alerts'}
+              className="text-xs px-2 py-1 rounded-lg border border-gray-200 text-gray-400 hover:text-gray-600 hover:bg-gray-50 font-medium transition-colors">
+              {warningsEnabled ? '🔔 Alerts on' : '🔕 Alerts muted'}
+            </button>
+          </div>
+        )}
 
         {/* ── Students Out ── */}
         <div className="bg-white rounded-xl border border-gray-200 mb-6">
@@ -1593,10 +1668,10 @@ function TeacherInner() {
             const student = students[pass.student_id]
             const isLatePass = pass.pass_type === 'late_pass'
             return (
-              <div key={pass.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 ${isLatePass ? 'bg-blue-50' : ''}`}>
+              <div key={pass.id} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 transition-colors ${isLatePass ? 'bg-blue-50' : mins >= TIME_LIMIT ? 'bg-red-50' : ''}`} style={mins >= TIME_LIMIT ? { outline: '2px solid #fca5a5', outlineOffset: '-2px', borderRadius: '0' } : {}}>
                 {(photoUrls[student?.id] || student?.photo_url)
-                  ? <img src={photoUrls[student?.id] || student?.photo_url} alt={student.full_name} className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
-                  : <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white" style={{ backgroundColor: isLatePass ? '#1d4ed8' : RHS_GREEN }}>
+                  ? <img src={photoUrls[student?.id] || student?.photo_url} alt={student.full_name} className={`w-9 h-9 rounded-full object-cover flex-shrink-0 ${mins >= TIME_LIMIT ? 'ring-2 ring-red-400' : ''}`} />
+                  : <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 text-white ${mins >= TIME_LIMIT ? 'ring-2 ring-red-400' : ''}`} style={{ backgroundColor: isLatePass ? '#1d4ed8' : mins >= TIME_LIMIT ? '#dc2626' : RHS_GREEN }}>
                       {student?.full_name?.split(' ').map(n => n[0]).slice(0,2).join('')}
                     </div>
                 }
@@ -1604,8 +1679,9 @@ function TeacherInner() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-800">{student?.full_name}</span>
                     {isLatePass && <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">Late Pass</span>}
+                    {mins >= TIME_LIMIT && <span className="text-xs px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-medium animate-pulse">Over {TIME_LIMIT}m</span>}
                   </div>
-                  <div className="text-xs text-gray-400">{pass.reason} · out at {new Date(pass.time_out).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>
+                  <div className="text-xs text-gray-400">{pass.reason} · out at {fmt(pass.time_out)}</div>
                 </div>
                 <span className={`text-sm font-medium w-10 text-right ${elapsedColor(mins)}`}>{mins}m</span>
                 {!isLatePass && <button onClick={() => handleReturn(pass.id)} className="text-xs px-3 py-1.5 rounded-lg text-white" style={{ backgroundColor: RHS_GREEN }}>Return</button>}
