@@ -75,6 +75,87 @@ const BUILTIN_FORTUNES = [
   "The key to success is to focus on goals, not obstacles.",
 ]
 
+// ── Words of Wisdom (rotates weekly) ─────────────────────────────────────────
+const WORDS_OF_WISDOM = [
+  { quote: "The mind is not a vessel to be filled, but a fire to be kindled.", author: "Plutarch" },
+  { quote: "Education is the most powerful weapon you can use to change the world.", author: "Nelson Mandela" },
+  { quote: "An investment in knowledge pays the best interest.", author: "Benjamin Franklin" },
+  { quote: "In the middle of every difficulty lies opportunity.", author: "Albert Einstein" },
+  { quote: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+  { quote: "You miss 100% of the shots you don't take.", author: "Wayne Gretzky" },
+  { quote: "Whether you think you can or you think you can't, you're right.", author: "Henry Ford" },
+  { quote: "It does not matter how slowly you go as long as you do not stop.", author: "Confucius" },
+  { quote: "Life is what happens when you're busy making other plans.", author: "John Lennon" },
+  { quote: "The best time to plant a tree was 20 years ago. The second best time is now.", author: "Chinese Proverb" },
+  { quote: "Strive not to be a success, but rather to be of value.", author: "Albert Einstein" },
+  { quote: "Two roads diverged in a wood, and I took the one less traveled by.", author: "Robert Frost" },
+  { quote: "I have not failed. I've just found 10,000 ways that won't work.", author: "Thomas Edison" },
+  { quote: "A person who never made a mistake never tried anything new.", author: "Albert Einstein" },
+  { quote: "The only impossible journey is the one you never begin.", author: "Tony Robbins" },
+]
+
+// ── Word of the Day (rotates daily) ──────────────────────────────────────────
+const WORD_OF_DAY = [
+  { word: "Perseverance", pos: "noun", def: "Steadfastness despite difficulty or slow progress." },
+  { word: "Resilience",   pos: "noun", def: "The ability to recover quickly from setbacks or hard times." },
+  { word: "Integrity",    pos: "noun", def: "The quality of being honest and having strong moral principles." },
+  { word: "Tenacity",     pos: "noun", def: "The quality of holding firm to a purpose; determined persistence." },
+  { word: "Empathy",      pos: "noun", def: "The ability to understand and share the feelings of another person." },
+  { word: "Ambition",     pos: "noun", def: "A strong desire to achieve something, typically requiring hard work." },
+  { word: "Diligence",    pos: "noun", def: "Careful, steady effort and attention to work." },
+  { word: "Eloquent",     pos: "adj.",  def: "Fluent and persuasive in speaking or writing." },
+  { word: "Innovative",   pos: "adj.",  def: "Featuring new ideas or methods; original and creative." },
+  { word: "Collaborate",  pos: "verb",  def: "To work jointly with others toward a shared goal." },
+  { word: "Meticulous",   pos: "adj.",  def: "Showing great attention to detail; very careful and precise." },
+  { word: "Advocate",     pos: "verb",  def: "To publicly support or recommend a particular cause or policy." },
+  { word: "Exemplary",    pos: "adj.",  def: "Serving as a desirable model; representing the best of its kind." },
+  { word: "Fortitude",    pos: "noun",  def: "Courage and strength in facing difficulty or adversity." },
+  { word: "Astute",       pos: "adj.",  def: "Having an ability to accurately assess situations or people; shrewd." },
+  { word: "Candid",       pos: "adj.",  def: "Truthful and straightforward; frank without sugarcoating." },
+  { word: "Eloquence",    pos: "noun",  def: "The power of effective, persuasive, or beautiful speech or writing." },
+  { word: "Benevolent",   pos: "adj.",  def: "Well-meaning and kindly toward others." },
+  { word: "Proactive",    pos: "adj.",  def: "Creating or controlling a situation rather than just responding to it." },
+  { word: "Pragmatic",    pos: "adj.",  def: "Dealing with things sensibly and realistically; practical." },
+]
+
+// ── History Drops (rotates daily) ────────────────────────────────────────────
+const HISTORY_DROPS = [
+  { year: "1969", fact: "Apollo 11 lands on the moon. Neil Armstrong becomes the first human to walk on the lunar surface, watched by 600 million people on TV." },
+  { year: "1863", fact: "Abraham Lincoln delivers the Gettysburg Address — a 272-word speech that redefined the purpose of the Civil War and American democracy." },
+  { year: "1955", fact: "Rosa Parks refuses to give up her bus seat in Montgomery, Alabama, sparking a 381-day bus boycott that becomes a turning point in the Civil Rights Movement." },
+  { year: "1903", fact: "The Wright Brothers make the first powered airplane flight at Kitty Hawk, NC — 12 seconds, 120 feet. 66 years later, humans are on the moon." },
+  { year: "1989", fact: "The Berlin Wall falls, reuniting East and West Germany and symbolizing the end of the Cold War after 28 years of division." },
+  { year: "1776", fact: "The Declaration of Independence is adopted, establishing that 'all men are created equal' — the founding idea that America has been working to live up to ever since." },
+  { year: "1920", fact: "The 19th Amendment is ratified, giving women the right to vote in the United States after more than 70 years of activism." },
+  { year: "1947", fact: "Jackie Robinson breaks Major League Baseball's color barrier, joining the Brooklyn Dodgers and changing American sports — and culture — forever." },
+  { year: "1928", fact: "Alexander Fleming discovers penicillin by accident after leaving petri dishes out over a weekend. The antibiotic goes on to save an estimated 200 million lives." },
+  { year: "1984", fact: "Apple introduces the Macintosh with a famous Super Bowl ad. The personal computer revolution shifts from hobbyists to everyday people." },
+  { year: "1849", fact: "The California Gold Rush brings 300,000 people to California, transforming it from a frontier territory into a state — and reshaping the American West forever." },
+  { year: "1965", fact: "NASA's Mariner 4 sends the first close-up photographs of Mars back to Earth — 22 grainy images that show craters and confirm Mars has a thin atmosphere." },
+  { year: "1912", fact: "The Titanic sinks in the North Atlantic. The disaster leads to major reforms in maritime safety, including enough lifeboats for all passengers on every ship." },
+  { year: "1991", fact: "The World Wide Web becomes publicly available. Tim Berners-Lee's invention would change how humans communicate, learn, shop, and connect — forever." },
+  { year: "1963", fact: "Dr. Martin Luther King Jr. delivers his 'I Have a Dream' speech in front of 250,000 people in Washington, D.C. — one of the most powerful speeches in American history." },
+]
+
+// ── Business Facts (rotates daily) ───────────────────────────────────────────
+const BIZ_FACTS = [
+  { fact: "Amazon started in a garage in 1994 selling just books. Today it's one of the most valuable companies in the world." },
+  { fact: "The average millionaire has 7 streams of income. Diversifying how you earn is a key financial strategy." },
+  { fact: "Apple was worth about $2 when Steve Jobs was ousted in 1985. When he returned in 1997, he turned it into the world's first $3 trillion company." },
+  { fact: "It costs 5x more to get a new customer than to keep an existing one. That's why great customer service is a business superpower." },
+  { fact: "Warren Buffett bought his first stock at age 11 — 6 shares of Cities Service Preferred at $38 each. He's been investing ever since." },
+  { fact: "About 20% of new businesses fail in their first year, but those that make it to year 5 have learned something most people never teach." },
+  { fact: "The word 'salary' comes from the Latin 'salarium' — Roman soldiers were sometimes paid in salt because it was so valuable." },
+  { fact: "Nike's 'swoosh' logo was designed by a college student for $35 in 1971. Phil Knight wasn't even sure he liked it at first." },
+  { fact: "The stock market has returned an average of about 10% per year over the long term. $1,000 invested at 18 becomes over $45,000 by retirement." },
+  { fact: "95% of products launched each year fail. The ones that succeed usually solve a real problem people actually have." },
+  { fact: "Compound interest is called the '8th wonder of the world' by many investors — small amounts invested early grow dramatically over time." },
+  { fact: "Starbucks was originally a tea company. The founders nearly didn't go into coffee — and Howard Schultz had to convince them." },
+  { fact: "You spend roughly 90,000 hours working over a lifetime. Choosing work you care about is one of the best decisions you can make." },
+  { fact: "The first ATM was installed in London in 1967. Banks thought customers would never trust a machine with their money." },
+  { fact: "Entrepreneurship doesn't require money — it requires solving problems. Many of the most successful businesses started with an idea, not capital." },
+]
+
 // ── Component Registry ────────────────────────────────────────────────────────
 // alwaysOn: true → included always, no toggle (but user can reorder)
 // defaultOn: initial state for new visitors
@@ -84,19 +165,22 @@ const COMPONENT_REGISTRY = [
   { id: 'passHistory', label: 'Pass History',     icon: 'ti-id-badge-2',     defaultOn: true,  alwaysOn: false },
   { id: 'fortune',     label: 'Fortune Cookie',   icon: 'ti-sparkles',       defaultOn: true,  alwaysOn: false },
   { id: 'cowboyCode',  label: 'Cowboy Code',      icon: 'ti-star',           defaultOn: true,  alwaysOn: false },
-  { id: 'releases',    label: 'Release Times',    icon: 'ti-clock-play',     defaultOn: true,  alwaysOn: false },
-  { id: 'countdowns',  label: 'Countdowns',       icon: 'ti-hourglass',      defaultOn: true,  alwaysOn: false },
-  { id: 'sports',      label: 'Sports',           icon: 'ti-trophy',         defaultOn: false, alwaysOn: false },
-  { id: 'birthdays',   label: 'Birthdays',        icon: 'ti-cake',           defaultOn: false, alwaysOn: false },
+  { id: 'wisdom',      label: 'Words of Wisdom',  icon: 'ti-quote',          defaultOn: true,  alwaysOn: false },
+  { id: 'wordOfDay',   label: 'Word of the Day',  icon: 'ti-book-2',         defaultOn: true,  alwaysOn: false },
+  { id: 'historyDrop', label: 'History Drop',     icon: 'ti-world',          defaultOn: false, alwaysOn: false },
+  { id: 'bizFacts',    label: 'Business Facts',   icon: 'ti-chart-bar',      defaultOn: false, alwaysOn: false },
   { id: 'funFacts',    label: 'Fun Facts',        icon: 'ti-bulb',           defaultOn: false, alwaysOn: false },
-  { id: 'news',        label: 'School News',      icon: 'ti-news',           defaultOn: false, alwaysOn: false },
-  { id: 'ads',         label: 'Ad Spot',          icon: 'ti-speakerphone',   defaultOn: true,  alwaysOn: true  },
+  { id: 'releases',    label: 'Release Times',    icon: 'ti-clock-play',     defaultOn: false, alwaysOn: false },
+  { id: 'sports',      label: 'Sports',           icon: 'ti-trophy',         defaultOn: false, alwaysOn: false },
+  { id: 'birthdays',   label: 'Birthdays',        icon: 'ti-cake',           defaultOn: true,  alwaysOn: false },
+  { id: 'teacherMsg',  label: 'Teacher Messages', icon: 'ti-message-2',      defaultOn: false, alwaysOn: false },
 ]
 
 // Default order for right column slots
 const DEFAULT_ORDER = [
   'weather','lunch','passHistory','fortune','cowboyCode',
-  'releases','countdowns','sports','birthdays','funFacts','news','ads',
+  'wisdom','wordOfDay','historyDrop','bizFacts','funFacts',
+  'releases','sports','birthdays','teacherMsg',
 ]
 
 const PREFS_KEY = 'rhs-wire-prefs-v1'
@@ -359,13 +443,14 @@ function ObjectivesCard({ objectives, loading }) {
     </Card>
   )
 
+  // teacher_objectives shape: { class_name, topic, objectives (jsonb array), do_now, period }
   const items = Array.isArray(objectives.objectives) ? objectives.objectives : []
 
   return (
     <Card locked>
       <CardHeader label="Today's Class" tag={objectives.period ? `Period ${objectives.period}` : undefined} locked />
       <CardBody>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: items.length ? 10 : 0 }}>
           <span style={{ fontSize: 15, fontWeight: 500, color: RHS_GREEN }}>
             {objectives.class_name || 'Class'}
           </span>
@@ -376,7 +461,7 @@ function ObjectivesCard({ objectives, loading }) {
         {items.length > 0 && (
           <>
             <p style={{ fontSize: 9, fontWeight: 500, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#ccc', marginBottom: 6 }}>
-              Learning objectives
+              Learning Objectives
             </p>
             {items.map((obj, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 5 }}>
@@ -397,9 +482,7 @@ function ObjectivesCard({ objectives, loading }) {
             <p style={{ fontSize: 9, fontWeight: 500, letterSpacing: '0.12em', textTransform: 'uppercase', color: RHS_GREEN, marginBottom: 4 }}>
               Do Now
             </p>
-            <p style={{ fontSize: 12, color: '#1a1a18', lineHeight: 1.55 }}>
-              {objectives.do_now}
-            </p>
+            <p style={{ fontSize: 12, color: '#1a1a18', lineHeight: 1.55 }}>{objectives.do_now}</p>
           </div>
         )}
       </CardBody>
@@ -969,16 +1052,18 @@ function CountdownsCard({ countdowns }) {
       <CardHeader label="Countdowns" draggable />
       <div style={{ padding: '7px 13px' }}>
         {countdowns.map((c, i) => {
-          const days = daysUntil(c.target_date)
+          const days = daysUntil(c.date)
           const soon = days <= 14
           return (
             <div key={i} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '5px 0', borderBottom: i < countdowns.length - 1 ? '0.5px solid #f0eeea' : 'none',
             }}>
-              <span style={{ fontSize: 12, fontWeight: 500, color: '#1a1a18' }}>{c.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#1a1a18' }}>
+                {c.emoji ? `${c.emoji} ` : ''}{c.label}
+              </span>
               <span style={{ fontSize: 12, fontWeight: 500, color: soon ? '#b06010' : RHS_GREEN, whiteSpace: 'nowrap' }}>
-                {days === 0 ? 'Today!' : `${days} days`}
+                {days === 0 ? 'Today!' : `${days}d`}
               </span>
             </div>
           )
@@ -1024,15 +1109,95 @@ function NewsCard({ news }) {
   )
 }
 
-function AdCard({ ad }) {
-  if (!ad) return null
+function WisdomCard({ woy }) {
+  const w = WORDS_OF_WISDOM[woy % WORDS_OF_WISDOM.length]
+  return (
+    <Card>
+      <CardHeader label="Words of Wisdom" draggable />
+      <CardBody>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <span style={{ fontSize: 22, flexShrink: 0, lineHeight: 1.2 }}>"</span>
+          <div>
+            <p style={{ fontSize: 13, color: '#1a1a18', lineHeight: 1.6, fontStyle: 'italic', marginBottom: 6 }}>
+              {w.quote}
+            </p>
+            <p style={{ fontSize: 11, fontWeight: 500, color: RHS_GREEN }}>— {w.author}</p>
+          </div>
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+function WordOfDayCard({ doy }) {
+  const w = WORD_OF_DAY[doy % WORD_OF_DAY.length]
+  return (
+    <Card>
+      <CardHeader label="Word of the Day" draggable />
+      <CardBody>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
+          <span style={{ fontSize: 18, fontWeight: 700, color: RHS_GREEN }}>{w.word}</span>
+          <span style={{ fontSize: 10, color: '#aaa', fontStyle: 'italic' }}>{w.pos}</span>
+        </div>
+        <p style={{ fontSize: 12, color: '#1a1a18', lineHeight: 1.6 }}>{w.def}</p>
+      </CardBody>
+    </Card>
+  )
+}
+
+function HistoryDropCard({ doy }) {
+  const h = HISTORY_DROPS[doy % HISTORY_DROPS.length]
+  return (
+    <Card>
+      <CardHeader label="History Drop" draggable />
+      <CardBody>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <div style={{
+            minWidth: 44, height: 44, borderRadius: 8, background: '#f0f8f4',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: RHS_GREEN, textAlign: 'center', lineHeight: 1.2 }}>{h.year}</span>
+          </div>
+          <p style={{ fontSize: 12, color: '#1a1a18', lineHeight: 1.6 }}>{h.fact}</p>
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+function BizFactCard({ doy }) {
+  const b = BIZ_FACTS[doy % BIZ_FACTS.length]
+  return (
+    <Card>
+      <CardHeader label="Business Facts" draggable />
+      <CardBody>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <span style={{ fontSize: 22, flexShrink: 0 }}>📊</span>
+          <p style={{ fontSize: 12, color: '#1a1a18', lineHeight: 1.6 }}>{b.fact}</p>
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+function TeacherMsgCard({ msg }) {
+  if (!msg) return null
+  // cw2_messages shape: { sender, line1–line8, room }
+  const title    = msg.line1 || ''
+  const subtitle = msg.line2 || ''
+  const extra    = [msg.line3, msg.line4].filter(Boolean)
+  const from     = msg.sender || 'Teacher'
+  if (!title) return null
   return (
     <div style={{ background: RHS_GREEN, borderRadius: 10, padding: '13px 13px' }}>
       <p style={{ fontSize: 9, fontWeight: 500, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.5)', marginBottom: 5 }}>
-        {ad.category || 'Announcement'}
+        Message from {from}
       </p>
-      <p style={{ fontSize: 14, fontWeight: 500, color: 'white', marginBottom: 3 }}>{ad.title}</p>
-      {ad.subtitle && <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>{ad.subtitle}</p>}
+      <p style={{ fontSize: 14, fontWeight: 500, color: 'white', marginBottom: subtitle ? 3 : 0 }}>{title}</p>
+      {subtitle && <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', marginBottom: extra.length ? 3 : 0 }}>{subtitle}</p>}
+      {extra.map((line, i) => (
+        <p key={i} style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>{line}</p>
+      ))}
     </div>
   )
 }
@@ -1241,7 +1406,7 @@ function WireContent() {
         }
       }
 
-      // 2. Look up teacher by room
+      // 2. Look up teacher by room — try PassAble teachers first, fall back to cw2_classrooms
       if (resolvedRoom) {
         const { data: t } = await supabase
           .from('teachers')
@@ -1252,6 +1417,17 @@ function WireContent() {
         if (t) {
           resolvedTeacher = t
           setTeacher(t)
+        } else {
+          const { data: cls } = await supabase
+            .from('cw2_classrooms')
+            .select('*')
+            .eq('room', resolvedRoom)
+            .eq('is_active', true)
+            .single()
+          if (cls) {
+            resolvedTeacher = { id: cls.id, room: cls.room, full_name: cls.teacher_name, email: cls.teacher_email }
+            setTeacher(resolvedTeacher)
+          }
         }
       }
 
@@ -1295,19 +1471,22 @@ function WireContent() {
         }
       }
 
-      // 5. Objectives
+      // 5. Objectives — from teacher_objectives by teacher_id + current period
+      //    (teacher enters these in PassAble dashboard — no character limit)
       setObjectivesLoading(true)
       if (resolvedTeacher) {
-        const period = periodInfo?.current?.covers?.[0] || periodInfo?.current?.value || null
-        let q = supabase
-          .from('teacher_objectives')
-          .select('*')
-          .eq('teacher_id', resolvedTeacher.id)
-          .order('updated_at', { ascending: false })
-          .limit(1)
-        if (period) q = q.eq('period', String(period))
-        const { data: obj } = await q
-        setObjectives(obj?.[0] || null)
+        try {
+          const period = periodInfo?.current?.covers?.[0] || periodInfo?.current?.id || null
+          let q = supabase
+            .from('teacher_objectives')
+            .select('*')
+            .eq('teacher_id', resolvedTeacher.id)
+            .order('updated_at', { ascending: false })
+            .limit(1)
+          if (period) q = q.eq('period', String(period))
+          const { data: obj } = await q
+          setObjectives(obj?.[0] || null)
+        } catch { setObjectives(null) }
       } else {
         setObjectives(null)
       }
@@ -1367,13 +1546,11 @@ function WireContent() {
   // ── Supabase content tables ────────────────────────────────────────────────
   const [cwFortune,    setCwFortune]    = useState(null)
   const [cwSports,     setCwSports]     = useState([])
-  const [cwAds,        setCwAds]        = useState([])
-  const [cwCountdowns, setCwCountdowns] = useState([])
+  const [cwTeacherMsg, setCwTeacherMsg] = useState([])
   const [cwReleases,   setCwReleases]   = useState([])
-  const [cwNews,       setCwNews]       = useState([])
   const [cwFunFact,    setCwFunFact]    = useState(null)
   const [cwBirthdays,  setCwBirthdays]  = useState([])
-  const [adIndex,      setAdIndex]      = useState(0)
+  const [msgIndex,     setMsgIndex]     = useState(0)
 
   useEffect(() => {
     const today = new Date()
@@ -1396,97 +1573,50 @@ function WireContent() {
         setCwFortune({ text: BUILTIN_FORTUNES[doy % BUILTIN_FORTUNES.length] })
       }
 
-      // Sports — next 7 days
-      try {
-        const next7 = new Date(today); next7.setDate(today.getDate() + 7)
-        const { data } = await supabase
-          .from('cw_sports')
-          .select('*')
-          .gte('date', today.toISOString().slice(0, 10))
-          .lte('date', next7.toISOString().slice(0, 10))
-          .order('date')
-          .limit(6)
-        setCwSports(data || [])
-      } catch { setCwSports([]) }
+      // Sports — no table yet; graceful empty
+      setCwSports([])
 
-      // Ads — active, ordered
+      // Releases — no table yet; graceful empty
+      setCwReleases([])
+
+      // Teacher Messages — cw2_messages scoped to this room
       try {
-        const { data } = await supabase
-          .from('cw_ads')
+        let q = supabase
+          .from('cw2_messages')
           .select('*')
           .eq('active', true)
-          .order('order_num')
-        setCwAds(data || [])
-      } catch { setCwAds([]) }
-
-      // Countdowns — active future dates
-      try {
-        const { data } = await supabase
-          .from('cw_countdowns')
-          .select('*')
-          .eq('active', true)
-          .gte('target_date', today.toISOString().slice(0, 10))
-          .order('target_date')
+          .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
           .limit(5)
-        setCwCountdowns(data || [])
-      } catch { setCwCountdowns([]) }
+        if (roomParam) q = q.eq('room', roomParam)
+        const { data } = await q
+        setCwTeacherMsg(data || [])
+      } catch { setCwTeacherMsg([]) }
 
-      // Releases — this week + next 7 days
+      // Birthdays — cw2_birthdays: separate integer month + day columns
       try {
-        const next7 = new Date(today); next7.setDate(today.getDate() + 7)
-        const { data } = await supabase
-          .from('cw_releases')
-          .select('*')
-          .gte('date', today.toISOString().slice(0, 10))
-          .lte('date', next7.toISOString().slice(0, 10))
-          .order('date')
-        setCwReleases(data || [])
-      } catch { setCwReleases([]) }
-
-      // News — active
-      try {
-        const { data } = await supabase
-          .from('cw_news')
-          .select('*')
-          .eq('active', true)
-          .order('published_at', { ascending: false })
-          .limit(3)
-        setCwNews(data || [])
-      } catch { setCwNews([]) }
-
-      // Fun facts — daily rotation
-      try {
-        const { data } = await supabase
-          .from('cw_fun_facts')
-          .select('text')
-          .eq('active', true)
-        if (data?.length) setCwFunFact(data[doy % data.length].text)
-      } catch { setCwFunFact(null) }
-
-      // Birthdays — today and tomorrow
-      try {
-        const mm = String(today.getMonth() + 1).padStart(2, '0')
-        const dd = String(today.getDate()).padStart(2, '0')
+        const mm  = today.getMonth() + 1
+        const dd  = today.getDate()
         const tom = new Date(today); tom.setDate(today.getDate() + 1)
-        const mm2 = String(tom.getMonth() + 1).padStart(2, '0')
-        const dd2 = String(tom.getDate()).padStart(2, '0')
+        const mm2 = tom.getMonth() + 1
+        const dd2 = tom.getDate()
         const { data } = await supabase
-          .from('cw_birthdays')
-          .select('name, date, note')
-          .in('month_day', [`${mm}-${dd}`, `${mm2}-${dd2}`])
+          .from('cw2_birthdays')
+          .select('name, month, day')
+          .eq('active', true)
+          .or(`and(month.eq.${mm},day.eq.${dd}),and(month.eq.${mm2},day.eq.${dd2})`)
         setCwBirthdays(data || [])
       } catch { setCwBirthdays([]) }
     }
 
     loadAll()
-  }, [])
+  }, [roomParam])
 
-  // Ad rotation every 12 seconds
+  // Teacher message rotation every 15 seconds
   useEffect(() => {
-    if (cwAds.length <= 1) return
-    const id = setInterval(() => setAdIndex(i => (i + 1) % cwAds.length), 12000)
+    if (cwTeacherMsg.length <= 1) return
+    const id = setInterval(() => setMsgIndex(i => (i + 1) % cwTeacherMsg.length), 15000)
     return () => clearInterval(id)
-  }, [cwAds.length])
+  }, [cwTeacherMsg.length])
 
   // ── Temperature unit ───────────────────────────────────────────────────────
   const [useCelsius, setUseCelsius] = useState(false)
@@ -1552,8 +1682,11 @@ function WireContent() {
     return `${h % 12 || 12}:${m.toString().padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`
   }
 
-  // ── Cowboy code for this week ──────────────────────────────────────────────
-  const weekTrait = COWBOY_CODE[weekOfYear(now || new Date()) % COWBOY_CODE.length]
+  // ── Derived content indices ────────────────────────────────────────────────
+  const _now      = now || new Date()
+  const _doy      = dayOfYear(_now)
+  const _woy      = weekOfYear(_now)
+  const weekTrait = COWBOY_CODE[_woy % COWBOY_CODE.length]
 
   // ── Right column slot renderer ─────────────────────────────────────────────
   const slotData = {
@@ -1562,13 +1695,15 @@ function WireContent() {
     passHistory: true, // always render (card shows generic state if no student)
     fortune:     cwFortune,
     cowboyCode:  weekTrait,
+    wisdom:      true, // always has built-in content
+    wordOfDay:   true,
+    historyDrop: true,
+    bizFacts:    true,
+    funFacts:    cwFunFact,
     releases:    cwReleases.length > 0 ? cwReleases : null,
-    countdowns:  cwCountdowns.length > 0 ? cwCountdowns : null,
     sports:      cwSports.length > 0 ? cwSports : null,
     birthdays:   cwBirthdays.length > 0 ? cwBirthdays : null,
-    funFacts:    cwFunFact,
-    news:        cwNews.length > 0 ? cwNews : null,
-    ads:         cwAds.length > 0 ? cwAds[adIndex % cwAds.length] : null,
+    teacherMsg:  cwTeacherMsg.length > 0 ? cwTeacherMsg[msgIndex % cwTeacherMsg.length] : null,
   }
 
   function renderSlot(id) {
@@ -1582,13 +1717,15 @@ function WireContent() {
       case 'passHistory': return <PassHistoryCard key={id} student={student} activePass={activePass} weekPassCount={weekPassCount} weekPassTotal={weekPassTotal} selfCheckoutEnabled={selfCheckoutEnabled} checkoutUrl={checkoutUrl} checkoutStatus={checkoutStatus} roomParam={roomParam} />
       case 'fortune':     return <FortuneCard key={id} fortune={d} />
       case 'cowboyCode':  return <CowboyCodeCard key={id} trait={d} />
+      case 'wisdom':      return <WisdomCard key={id} woy={_woy} />
+      case 'wordOfDay':   return <WordOfDayCard key={id} doy={_doy} />
+      case 'historyDrop': return <HistoryDropCard key={id} doy={_doy} />
+      case 'bizFacts':    return <BizFactCard key={id} doy={_doy} />
+      case 'funFacts':    return <FunFactCard key={id} fact={d} />
       case 'releases':    return <ReleasesCard key={id} releases={d} />
-      case 'countdowns':  return <CountdownsCard key={id} countdowns={d} />
       case 'sports':      return <SportsCard key={id} sports={d} />
       case 'birthdays':   return <BirthdaysCard key={id} birthdays={d} />
-      case 'funFacts':    return <FunFactCard key={id} fact={d} />
-      case 'news':        return <NewsCard key={id} news={d} />
-      case 'ads':         return <AdCard key={id} ad={d} />
+      case 'teacherMsg':  return <TeacherMsgCard key={id} msg={d} />
       default:            return null
     }
   }
