@@ -882,6 +882,19 @@ function TeacherInner() {
     await supabase.from('pass_notifications').update({ [field]: true }).eq('id', notifId)
   }
 
+  async function clearAllNotifs() {
+    if (!currentTeacher?.id) return
+    const incomingIds = incomingNotifs.map(n => n.id)
+    const outgoingIds = outgoingNotifs.map(n => n.id)
+    const promises = [
+      ...incomingIds.map(id => supabase.from('pass_notifications').update({ cleared_by_receiver: true }).eq('id', id)),
+      ...outgoingIds.map(id => supabase.from('pass_notifications').update({ cleared_by_sender: true }).eq('id', id)),
+    ]
+    await Promise.all(promises)
+    setIncomingNotifs([])
+    setOutgoingNotifs([])
+  }
+
   async function saveReceiveNotifications(val) {
     setReceiveNotifications(val)
     if (currentTeacher?.id) {
@@ -1533,8 +1546,21 @@ function TeacherInner() {
         {(incomingNotifs.length > 0 || outgoingNotifs.length > 0) && (
           <div className="bg-white rounded-xl border border-blue-200 mb-6 overflow-hidden">
             <div className="px-4 py-2.5 bg-blue-50 border-b border-blue-100 flex items-center justify-between">
-              <span className="text-sm font-semibold text-blue-800">🔔 Student Transfer Notifications</span>
-              <span className="text-xs text-blue-500">Automated — updates in real time</span>
+              <span className="text-sm font-semibold text-blue-800">
+                🔔 Student Transfer Notifications
+                {(incomingNotifs.length + outgoingNotifs.length) > 0 && (
+                  <span className="ml-2 text-xs font-bold bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded-full">
+                    {incomingNotifs.length + outgoingNotifs.length}
+                  </span>
+                )}
+              </span>
+              {(incomingNotifs.length + outgoingNotifs.length) > 0 ? (
+                <button onClick={clearAllNotifs} className="text-xs font-medium text-blue-500 hover:text-blue-700 underline">
+                  Clear all
+                </button>
+              ) : (
+                <span className="text-xs text-blue-400">Updates in real time</span>
+              )}
             </div>
             <div className="max-h-64 overflow-y-auto divide-y divide-gray-50">
 
