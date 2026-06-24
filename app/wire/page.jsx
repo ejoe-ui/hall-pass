@@ -779,7 +779,7 @@ function PassHistoryCard({
             padding: '8px 13px', borderBottom: '0.5px solid #eeece8',
           }}>
             <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.11em', textTransform: 'uppercase', color: '#999' }}>
-              Pass Status
+              PassAble Pass Status
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 10, color: '#bbb' }}>tap for check-out</span>
@@ -827,7 +827,7 @@ function PassHistoryCard({
           padding: '8px 13px', borderBottom: '0.5px solid #eeece8',
         }}>
           <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.11em', textTransform: 'uppercase', color: '#999' }}>
-            {activePass ? 'Pass Active' : 'Pass Status'}
+            {activePass ? 'PassAble · Pass Active' : 'PassAble Pass Status'}
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 10, color: '#bbb' }}>{activePass ? 'Out of class' : 'In class'}</span>
