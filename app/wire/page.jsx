@@ -485,6 +485,18 @@ function ObjectivesCard({ objectives, loading }) {
             <p style={{ fontSize: 12, color: '#1a1a18', lineHeight: 1.55 }}>{objectives.do_now}</p>
           </div>
         )}
+        {objectives.got_it_when && (
+          <div style={{
+            background: '#fffbeb', borderRadius: 7,
+            borderLeft: '2.5px solid #f59e0b', borderTopLeftRadius: 3, borderBottomLeftRadius: 3,
+            padding: '8px 11px', marginTop: 8,
+          }}>
+            <p style={{ fontSize: 9, fontWeight: 500, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#b45309', marginBottom: 4 }}>
+              You know you got it when…
+            </p>
+            <p style={{ fontSize: 12, color: '#1a1a18', lineHeight: 1.55 }}>{objectives.got_it_when}</p>
+          </div>
+        )}
       </CardBody>
     </Card>
   )
@@ -1645,14 +1657,27 @@ function WireContent() {
     if (!periodInfo) return 'Loading…'
     const { status, current, minutesLeftInCurrent } = periodInfo
     if (checkoutStatus === 'first15') {
-      const [h, m] = (current?.start || '00:00').split(':').map(Number)
-      const openMins = h * 60 + m + 15
-      const oh = Math.floor(openMins / 60), om = openMins % 60
-      return `No passes · first 15 min · opens at ${oh % 12 || 12}:${om.toString().padStart(2,'0')} ${oh >= 12 ? 'PM' : 'AM'}`
+      // Calculate how many minutes until the safe window opens (period start + 15 min)
+      const [sh, sm] = (current?.start || '00:00').split(':').map(Number)
+      const now = new Date()
+      const nowMins = now.getHours() * 60 + now.getMinutes()
+      const openMins = sh * 60 + sm + 15
+      const minsUntilOpen = Math.max(1, openMins - nowMins)
+      return `No passes · safe window opens in ${minsUntilOpen} min`
     }
-    if (checkoutStatus === 'last15') return `No passes · last 15 min of period`
-    if (checkoutStatus === 'warning20') return `Passes open · ${minutesLeftInCurrent} min left · last call approaching`
-    if (checkoutStatus === 'ok') return `Passes open · safe window · ${minutesLeftInCurrent} min left in period`
+    if (checkoutStatus === 'last15') return `No passes · safe window closed`
+    if (checkoutStatus === 'warning20') {
+      // Window closes when 15 min remain (last15 threshold)
+      const minsUntilClose = Math.max(0, (minutesLeftInCurrent ?? 0) - 15)
+      return minsUntilClose <= 1
+        ? `Passes open · no passes very soon`
+        : `Passes open · ${minsUntilClose} min until no passes`
+    }
+    if (checkoutStatus === 'ok') {
+      // Window closes when 15 min remain
+      const minsUntilClose = Math.max(0, (minutesLeftInCurrent ?? 0) - 15)
+      return `Passes open · safe window closes in ${minsUntilClose} min`
+    }
     if (status === 'break' || status === 'passing') return `${current?.label || 'Break'} · no passes during transitions`
     if (status === 'before') return 'Before school · no passes yet'
     if (status === 'after') return 'School day complete'
