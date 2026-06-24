@@ -225,12 +225,15 @@ function SelfCheckoutInner() {
     setStudentName(stud.full_name)
     setPeriod(stud.period)
 
-    if (stud.photo_url) {
-      setStudentPhoto(stud.photo_url)
-    } else if (stud.photo_file) {
+    // Prefer signed URL from lifetouch-raw (source of truth after matching)
+    // Fall back to photo_url only if no photo_file exists
+    if (stud.photo_file) {
       const { data: photoData } = await supabase.storage
         .from('lifetouch-raw').createSignedUrl(stud.photo_file, 3600)
       if (photoData?.signedUrl) setStudentPhoto(photoData.signedUrl)
+      else if (stud.photo_url) setStudentPhoto(stud.photo_url)
+    } else if (stud.photo_url) {
+      setStudentPhoto(stud.photo_url)
     }
 
     const { data: openPasses } = await supabase.from('passes')
@@ -424,11 +427,20 @@ function SelfCheckoutInner() {
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-6">
         <div className="flex items-center gap-4 mb-6">
           {studentPhoto
-            ? <img src={studentPhoto} alt="" className="w-16 h-16 rounded-full object-cover border-2" style={{ borderColor: RHS_GREEN }} />
-            : <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
-                {studentName.split(' ').map(n => n[0]).slice(0,2).join('')}
-              </div>
-          }
+            ? <img
+                src={studentPhoto}
+                alt=""
+                className="w-16 h-16 rounded-full object-cover border-2"
+                style={{ borderColor: RHS_GREEN }}
+                onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling.style.display = 'flex' }}
+              />
+            : null}
+          <div
+            className="w-16 h-16 rounded-full items-center justify-center text-xl font-bold text-white"
+            style={{ backgroundColor: RHS_GREEN, display: studentPhoto ? 'none' : 'flex' }}
+          >
+            {studentName.split(' ').map(n => n[0]).slice(0,2).join('')}
+          </div>
           <div>
             <h1 className="text-xl font-bold text-gray-800">{studentName}</h1>
             <p className="text-gray-400 text-sm">Where are you going?</p>
