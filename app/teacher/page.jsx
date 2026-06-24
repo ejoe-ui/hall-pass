@@ -492,6 +492,10 @@ function TeacherInner() {
   const [kioskReturnRequired, setKioskReturnRequired] = useState(true)
   const [kioskReturnSaved, setKioskReturnSaved] = useState(false)
 
+  // Cowboy Wire — inline self-checkout toggle
+  const [wireCheckoutEnabled, setWireCheckoutEnabled] = useState(false)
+  const [wireCheckoutSaving, setWireCheckoutSaving] = useState(false)
+
   // Multi-room support
   const [selectedRoom, setSelectedRoom] = useState(null)
 
@@ -982,6 +986,33 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
     setTimeout(() => { setObjSaved(false); setObjSavedPeriods([]) }, 3000)
   }
 
+  // Clear one period's objectives (removes the row from DB, wire shows "no objectives" state)
+  async function clearObjectivesPeriod(period) {
+    if (!currentTeacher?.id) return
+    await supabase
+      .from('teacher_objectives')
+      .delete()
+      .eq('teacher_id', currentTeacher.id)
+      .eq('period', period)
+    if (period === objPeriod) {
+      setObjClassName(''); setObjTopic(''); setObjDoNow(''); setObjGotIt('')
+      setObjLines(['', '', ''])
+    }
+  }
+
+  // Clear ALL periods — for breaks/holidays
+  async function clearAllObjectives() {
+    if (!currentTeacher?.id) return
+    if (!window.confirm('Clear objectives for ALL periods? Students will see "no objectives posted" on the wire display until you add new ones.')) return
+    await supabase
+      .from('teacher_objectives')
+      .delete()
+      .eq('teacher_id', currentTeacher.id)
+    setObjClassName(''); setObjTopic(''); setObjDoNow(''); setObjGotIt('')
+    setObjLines(['', '', ''])
+    setObjAlsoPeriods([])
+  }
+
   // Load objectives when period tab changes or teacher loads; clear extra periods on switch
   useEffect(() => {
     if (currentTeacher?.id) {
@@ -1036,6 +1067,29 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
     setKioskReturnRequired(val); setKioskReturnSaved(true)
     setTimeout(() => setKioskReturnSaved(false), 2000)
   }
+
+  async function toggleWireCheckout() {
+    if (!teacherRoom) return
+    setWireCheckoutSaving(true)
+    const next = !wireCheckoutEnabled
+    await supabase.from('settings').upsert(
+      { key: `self_checkout_enabled_${teacherRoom}`, value: next ? 'true' : 'false' },
+      { onConflict: 'key' }
+    )
+    setWireCheckoutEnabled(next)
+    setWireCheckoutSaving(false)
+  }
+
+  // Load wire checkout setting when room is known
+  useEffect(() => {
+    async function loadWireCheckout() {
+      if (!teacherRoom) return
+      const { data } = await supabase.from('settings').select('value')
+        .eq('key', `self_checkout_enabled_${teacherRoom}`).single()
+      setWireCheckoutEnabled(data?.value === 'true' || data?.value === true)
+    }
+    loadWireCheckout()
+  }, [teacherRoom])
 
   async function savePassword() {
     setPasswordError('')
@@ -2394,12 +2448,26 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
           >
             <div>
               <p className="text-sm font-semibold" style={{ color: RHS_GREEN }}>Cowboy Wire · Class Objectives</p>
-              {!showObjectives && <p className="text-xs text-gray-400 mt-0.5">Tap to set objectives for each period</p>}
-              {showObjectives  && <p className="text-xs text-gray-400 mt-0.5">Shown on the /wire student display. Updates immediately.</p>}
+              {!showObjectives && <p className="text-xs text-gray-400 mt-0.5">Tap to set what students see on the Cowboy Wire display in your room</p>}
+              {showObjectives  && <p className="text-xs text-gray-400 mt-0.5">Students see this on the <strong>Cowboy Wire</strong> board in your room — automatically switches to the active period.</p>}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+              {/* Wire self-checkout toggle */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-400 whitespace-nowrap">Wire checkout</span>
+                <button
+                  onClick={toggleWireCheckout}
+                  disabled={wireCheckoutSaving}
+                  className="px-2.5 py-1 rounded-full text-xs font-semibold transition-colors disabled:opacity-50"
+                  style={{
+                    background: wireCheckoutEnabled ? RHS_GREEN : '#e5e7eb',
+                    color: wireCheckoutEnabled ? 'white' : '#6b7280',
+                    border: 'none', cursor: 'pointer', minWidth: 36,
+                  }}>
+                  {wireCheckoutSaving ? '…' : wireCheckoutEnabled ? 'ON' : 'OFF'}
+                </button>
+              </div>
               <a href={`/wire?room=${teacherRoom}`} target="_blank" rel="noopener noreferrer"
-                onClick={e => e.stopPropagation()}
                 className="text-xs px-2.5 py-1 rounded-lg border text-gray-500 hover:bg-gray-50 whitespace-nowrap" style={{ textDecoration: 'none' }}>
                 Open Wire ↗
               </a>
@@ -2463,7 +2531,8 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
               {/* Class Name + Topic */}
               <div className="flex gap-2">
                 <div className="flex-1">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Class Name</label>
+                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5 block">Class Name</label>
+                  <p className="text-xs text-gray-400 mb-1">Shows as the card header on the wire display — saves once per period.</p>
                   <input
                     type="text"
                     value={objClassName}
@@ -2474,7 +2543,8 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
                   />
                 </div>
                 <div style={{ width: 160 }}>
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Topic (optional)</label>
+                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5 block">Topic (optional)</label>
+                  <p className="text-xs text-gray-400 mb-1">Today's unit or focus.</p>
                   <input
                     type="text"
                     value={objTopic}
@@ -2488,7 +2558,7 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
 
               {/* Objectives */}
               <div>
-                <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center justify-between mb-0.5">
                   <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Learning Objectives</label>
                   {objLines.length < 5 && (
                     <button onClick={() => setObjLines(l => [...l, ''])}
@@ -2497,6 +2567,7 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
                     </button>
                   )}
                 </div>
+                <p className="text-xs text-gray-400 mb-1.5">What students will be able to do — shown as a numbered list on the wire display.</p>
                 <div className="space-y-1.5">
                   {objLines.map((line, i) => (
                     <div key={i} className="flex gap-2 items-center">
@@ -2521,7 +2592,8 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
 
               {/* Do Now */}
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Do Now (optional)</label>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5 block">Do Now (optional)</label>
+                <p className="text-xs text-gray-400 mb-1">Warm-up prompt shown to students at the top of the Today's Class card.</p>
                 <textarea
                   value={objDoNow}
                   onChange={e => setObjDoNow(e.target.value)}
@@ -2534,7 +2606,8 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
 
               {/* You know you got it when… */}
               <div>
-                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">You know you got it when… (optional)</label>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-0.5 block">You know you got it when… (optional)</label>
+                <p className="text-xs text-gray-400 mb-1">Success criteria — helps students self-assess. Shows at the bottom of the card in an amber box.</p>
                 <textarea
                   value={objGotIt}
                   onChange={e => setObjGotIt(e.target.value)}
@@ -2545,9 +2618,27 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
                 />
               </div>
 
-              {/* Save button */}
-              <div className="flex items-center justify-between pt-1">
-                <p className="text-xs text-gray-400">Class name saves per period and auto-loads next time.</p>
+              {/* Save + Clear buttons */}
+              <div className="flex items-center justify-between pt-1 gap-2 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Clear objectives for Period ${objPeriod}? The wire display will show "no objectives posted" for this period.`))
+                        clearObjectivesPeriod(objPeriod)
+                    }}
+                    className="text-xs px-3 py-1.5 rounded-lg border"
+                    style={{ color: '#6b7280', borderColor: '#e5e7eb', background: 'white', cursor: 'pointer' }}
+                  >
+                    Clear Period {objPeriod}
+                  </button>
+                  <button
+                    onClick={clearAllObjectives}
+                    className="text-xs"
+                    style={{ color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    Clear all periods
+                  </button>
+                </div>
                 <button
                   onClick={saveObjectives}
                   disabled={objSaving}
