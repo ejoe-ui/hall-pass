@@ -281,14 +281,24 @@ function CalendarCard({ events }) {
   const DAYS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-  function labelFor(dateStr) {
-    if (!dateStr) return ''
+  function diffFor(dateStr) {
+    if (!dateStr) return 0
     const d = new Date(dateStr + 'T00:00:00')
-    const diffDays = Math.round((d - new Date(today.toDateString())) / 86400000)
-    if (diffDays === 0) return 'Today'
-    if (diffDays === 1) return 'Tomorrow'
-    if (diffDays > 0 && diffDays < 7) return DAYS[d.getDay()]
-    return `${MONTHS[d.getMonth()]} ${d.getDate()}`
+    return Math.round((d - new Date(today.toDateString())) / 86400000)
+  }
+  function labelFor(dateStr) {
+    const diff = diffFor(dateStr)
+    if (diff === 0) return 'Today'
+    if (diff === 1) return 'Tomorrow'
+    if (diff > 0 && diff < 7) return DAYS[new Date(dateStr + 'T00:00:00').getDay()]
+    return `${MONTHS[new Date(dateStr + 'T00:00:00').getMonth()]} ${new Date(dateStr + 'T00:00:00').getDate()}`
+  }
+  function countdownFor(dateStr) {
+    const diff = diffFor(dateStr)
+    if (diff <= 0) return null
+    if (diff === 1) return null // "Tomorrow" is enough
+    if (diff <= 6) return `${diff}d`
+    return `${diff}d`
   }
 
   const displayEvents = (events || []).slice(0, 5)
@@ -299,19 +309,32 @@ function CalendarCard({ events }) {
       <CardBody compact>
         {displayEvents.length === 0 ? (
           <p style={{ fontSize: 12, color: '#aaa', fontStyle: 'italic' }}>No upcoming events</p>
-        ) : displayEvents.map((ev, i) => (
-          <div key={i} style={{
-            display: 'flex', alignItems: 'flex-start', gap: 8,
-            padding: '5px 0', borderBottom: i < displayEvents.length - 1 ? '0.5px solid #f0eeea' : 'none',
-          }}>
-            <span style={{ fontSize: 10, color: '#999', minWidth: 52, paddingTop: 1 }}>
-              {labelFor(ev.date)}
-            </span>
-            <span style={{ fontSize: 12, fontWeight: 500, color: '#1a1a18', lineHeight: 1.4 }}>
-              {ev.title}{ev.time ? ` · ${ev.time}` : ''}
-            </span>
-          </div>
-        ))}
+        ) : displayEvents.map((ev, i) => {
+          const countdown = countdownFor(ev.date)
+          return (
+            <div key={i} style={{
+              display: 'flex', alignItems: 'flex-start', gap: 8,
+              padding: '5px 0', borderBottom: i < displayEvents.length - 1 ? '0.5px solid #f0eeea' : 'none',
+            }}>
+              <span style={{ fontSize: 10, color: '#999', minWidth: 52, paddingTop: 1 }}>
+                {labelFor(ev.date)}
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 500, color: '#1a1a18', lineHeight: 1.4, flex: 1 }}>
+                {ev.title}{ev.time ? ` · ${ev.time}` : ''}
+              </span>
+              {countdown && (
+                <span style={{
+                  fontSize: 9, fontWeight: 500, color: RHS_GREEN,
+                  background: '#e8f5ee', padding: '2px 6px', borderRadius: 8,
+                  whiteSpace: 'nowrap', flexShrink: 0, alignSelf: 'center',
+                  letterSpacing: '0.04em',
+                }}>
+                  in {countdown}
+                </span>
+              )}
+            </div>
+          )
+        })}
       </CardBody>
     </Card>
   )
@@ -479,19 +502,44 @@ function PeriodHeroCard({ periodInfo, checkoutStatus, selfCheckoutEnabled, check
 // CONFIGURABLE CARDS
 // ════════════════════════════════════════════════════════════════════════════════
 
-function WeatherCard({ weather }) {
+function WeatherCard({ weather, useCelsius, onToggleUnit }) {
   if (!weather) return null
+  const toC = f => Math.round((f - 32) * 5 / 9)
+  const fmt = f => useCelsius ? toC(f) : Math.round(f)
+  const unit = useCelsius ? 'C' : 'F'
   return (
     <Card>
-      <CardHeader label="Weather · Riverdale" tag={fmtTime(new Date())} draggable />
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '8px 13px', borderBottom: '0.5px solid #eeece8',
+      }}>
+        <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.11em', textTransform: 'uppercase', color: '#999' }}>
+          Weather · Riverdale
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 10, color: '#bbb' }}>{fmtTime(new Date())}</span>
+          <button
+            onClick={onToggleUnit}
+            title="Switch temperature unit"
+            style={{
+              fontSize: 9, fontWeight: 500, color: useCelsius ? RHS_GREEN : '#999',
+              background: useCelsius ? '#e8f5ee' : '#f5f5f5',
+              border: `0.5px solid ${useCelsius ? '#c0dece' : '#e0ddd8'}`,
+              borderRadius: 5, padding: '2px 6px', cursor: 'pointer',
+              letterSpacing: '0.06em',
+            }}
+          >°C</button>
+          <i className="ti ti-grip-vertical" aria-hidden="true" style={{ fontSize: 13, color: '#ddd', cursor: 'grab' }} />
+        </span>
+      </div>
       <CardBody>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
           <div>
             <div style={{ fontSize: 44, fontWeight: 500, color: '#1a1a18', lineHeight: 1 }}>
-              {Math.round(weather.temperature_2m)}°
+              {fmt(weather.temperature_2m)}°{unit}
             </div>
             <div style={{ fontSize: 10, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 2 }}>
-              Feels like {Math.round(weather.apparent_temperature)}°
+              Feels like {fmt(weather.apparent_temperature)}°{unit}
             </div>
           </div>
           <div style={{ textAlign: 'center' }}>
@@ -539,25 +587,140 @@ function LunchCard({ menu, nextBellLabel }) {
   )
 }
 
-function PassHistoryCard({ student, activePass, weekPassCount, weekPassTotal }) {
+function PassHistoryCard({
+  student, activePass, weekPassCount, weekPassTotal,
+  selfCheckoutEnabled, checkoutUrl, checkoutStatus, roomParam,
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [accessCode, setAccessCode] = useState('')
+  const isPassOpen = checkoutStatus === 'ok' || checkoutStatus === 'warning20'
+
+  // QR code image for the self-checkout URL (free service, no key needed)
+  const qrUrl = checkoutUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(
+        typeof window !== 'undefined' ? window.location.origin + checkoutUrl : checkoutUrl
+      )}`
+    : null
+
+  const CheckoutPopup = () => (
+    <div style={{
+      borderTop: '0.5px solid #e8f0ec',
+      background: '#f5f9f6',
+      padding: '11px 13px',
+    }}>
+      {selfCheckoutEnabled && isPassOpen ? (
+        <>
+          <p style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: RHS_GREEN, marginBottom: 9 }}>
+            Self Check-Out
+          </p>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            {qrUrl && (
+              <div style={{ flexShrink: 0, textAlign: 'center' }}>
+                <img src={qrUrl} alt="Self-checkout QR" width={80} height={80}
+                     style={{ borderRadius: 6, border: '0.5px solid #d0e4d8', display: 'block' }} />
+                <p style={{ fontSize: 9, color: '#aaa', marginTop: 4 }}>Scan with phone</p>
+              </div>
+            )}
+            <div style={{ flex: 1 }}>
+              <a
+                href={checkoutUrl}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  background: RHS_GREEN, color: 'white',
+                  fontSize: 12, fontWeight: 500, padding: '9px 14px', borderRadius: 7,
+                  textDecoration: 'none', marginBottom: 8,
+                }}
+              >
+                <i className="ti ti-door-exit" aria-hidden="true" style={{ fontSize: 14 }} />
+                Check Out Now
+              </a>
+              <p style={{ fontSize: 10, color: '#aaa', lineHeight: 1.5 }}>
+                Scans your pass automatically if you have a QR badge, or ask your teacher to check you out.
+              </p>
+            </div>
+          </div>
+          {/* Teacher / sub access code */}
+          <div style={{ marginTop: 11, borderTop: '0.5px solid #dde8e2', paddingTop: 10 }}>
+            <p style={{ fontSize: 9, color: '#bbb', marginBottom: 5, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Have a teacher access code?
+            </p>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                value={accessCode}
+                onChange={e => setAccessCode(e.target.value.toUpperCase())}
+                placeholder="Enter code"
+                maxLength={6}
+                style={{
+                  flex: 1, fontSize: 13, fontWeight: 500, letterSpacing: '0.12em',
+                  textAlign: 'center', padding: '6px 10px', borderRadius: 6,
+                  border: '0.5px solid #c0d8c8', background: 'white', color: '#1a1a18',
+                  outline: 'none',
+                }}
+              />
+              <button
+                onClick={() => {
+                  if (accessCode.length >= 4) {
+                    window.location.href = `${checkoutUrl}&code=${accessCode}`
+                  }
+                }}
+                style={{
+                  background: accessCode.length >= 4 ? RHS_GREEN : '#e0ddd8',
+                  color: 'white', fontSize: 11, fontWeight: 500,
+                  padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                }}
+              >Go</button>
+            </div>
+          </div>
+        </>
+      ) : selfCheckoutEnabled && !isPassOpen ? (
+        <p style={{ fontSize: 12, color: '#aaa', fontStyle: 'italic', textAlign: 'center', padding: '6px 0' }}>
+          {checkoutStatus === 'first15' ? 'Passes not available yet — first 15 min of class' : 'Passes closed — last 15 min of class'}
+        </p>
+      ) : (
+        <p style={{ fontSize: 12, color: '#aaa', fontStyle: 'italic', textAlign: 'center', padding: '6px 0' }}>
+          Self check-out not enabled for this room.
+        </p>
+      )}
+    </div>
+  )
+
   if (!student) {
     return (
       <Card>
-        <CardHeader label="Pass Status" draggable />
-        <CardBody>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: 0.5 }}>
-            <div style={{
-              width: 48, height: 48, borderRadius: '50%',
-              background: '#f0f8f4', border: '1px dashed #a0c8b0',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              <i className="ti ti-qrcode" aria-hidden="true" style={{ fontSize: 20, color: RHS_GREEN }} />
-            </div>
-            <p style={{ fontSize: 12, color: '#888', lineHeight: 1.5 }}>
-              Scan your QR code or NFC sticker to see your pass history
-            </p>
+        <div
+          onClick={() => setExpanded(o => !o)}
+          style={{ cursor: 'pointer' }}
+        >
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '8px 13px', borderBottom: '0.5px solid #eeece8',
+          }}>
+            <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.11em', textTransform: 'uppercase', color: '#999' }}>
+              Pass Status
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 10, color: '#bbb' }}>tap for check-out</span>
+              <i className={`ti ${expanded ? 'ti-chevron-up' : 'ti-chevron-down'}`} aria-hidden="true"
+                 style={{ fontSize: 12, color: '#ccc' }} />
+              <i className="ti ti-grip-vertical" aria-hidden="true" style={{ fontSize: 13, color: '#ddd', cursor: 'grab' }} />
+            </span>
           </div>
-        </CardBody>
+          <CardBody>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: 0.5 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: '50%',
+                background: '#f0f8f4', border: '1px dashed #a0c8b0',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <i className="ti ti-qrcode" aria-hidden="true" style={{ fontSize: 20, color: RHS_GREEN }} />
+              </div>
+              <p style={{ fontSize: 12, color: '#888', lineHeight: 1.5 }}>
+                Scan your QR badge or NFC sticker to see your pass history
+              </p>
+            </div>
+          </CardBody>
+        </div>
+        {expanded && <CheckoutPopup />}
       </Card>
     )
   }
@@ -575,52 +738,64 @@ function PassHistoryCard({ student, activePass, weekPassCount, weekPassTotal }) 
 
   return (
     <Card>
-      <CardHeader
-        label={activePass ? 'Pass Active' : 'Pass Status'}
-        tag={activePass ? 'Out of class' : 'In class'}
-        draggable
-      />
-      <CardBody>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {activePass ? (
-            <div style={{ position: 'relative', width: 52, height: 52, flexShrink: 0 }}>
-              <svg width="52" height="52" viewBox="0 0 52 52" style={{ transform: 'rotate(-90deg)' }}>
-                <circle cx="26" cy="26" r="18" fill="none" stroke="#e0f0e8" strokeWidth="5" />
-                <circle cx="26" cy="26" r="18" fill="none" stroke={ringColor} strokeWidth="5"
-                  strokeLinecap="round"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={circumference * (1 - ringPct)} />
-              </svg>
-              <div style={{
-                position: 'absolute', inset: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <span style={{ fontSize: 10, fontWeight: 500, color: ringColor, fontVariantNumeric: 'tabular-nums' }}>
-                  {elapsed != null ? `${elapsed}m` : '—'}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div style={{
-              width: 52, height: 52, borderRadius: '50%',
-              background: '#f0f8f4', border: `1.5px solid #c8e6d4`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              <i className="ti ti-check" aria-hidden="true" style={{ fontSize: 22, color: RHS_GREEN }} />
-            </div>
-          )}
-          <div>
-            <p style={{ fontSize: 14, fontWeight: 500, color: '#1a1a18' }}>{student.full_name}</p>
-            {activePass && (
-              <p style={{ fontSize: 11, color: '#888', marginTop: 1 }}>{activePass.reason}</p>
-            )}
-            <p style={{ fontSize: 10, color: RHS_GREEN, marginTop: 3 }}>
-              {weekPassCount != null ? `${ordinal(weekPassCount)} pass this week` : ''}
-              {weekPassTotal ? ` · ${weekPassTotal} min total` : ''}
-            </p>
-          </div>
+      <div onClick={() => setExpanded(o => !o)} style={{ cursor: 'pointer' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '8px 13px', borderBottom: '0.5px solid #eeece8',
+        }}>
+          <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.11em', textTransform: 'uppercase', color: '#999' }}>
+            {activePass ? 'Pass Active' : 'Pass Status'}
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 10, color: '#bbb' }}>{activePass ? 'Out of class' : 'In class'}</span>
+            <i className={`ti ${expanded ? 'ti-chevron-up' : 'ti-door-exit'}`} aria-hidden="true"
+               style={{ fontSize: 12, color: '#ccc' }} />
+            <i className="ti ti-grip-vertical" aria-hidden="true" style={{ fontSize: 13, color: '#ddd', cursor: 'grab' }} />
+          </span>
         </div>
-      </CardBody>
+        <CardBody>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {activePass ? (
+              <div style={{ position: 'relative', width: 52, height: 52, flexShrink: 0 }}>
+                <svg width="52" height="52" viewBox="0 0 52 52" style={{ transform: 'rotate(-90deg)' }}>
+                  <circle cx="26" cy="26" r="18" fill="none" stroke="#e0f0e8" strokeWidth="5" />
+                  <circle cx="26" cy="26" r="18" fill="none" stroke={ringColor} strokeWidth="5"
+                    strokeLinecap="round"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={circumference * (1 - ringPct)} />
+                </svg>
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <span style={{ fontSize: 10, fontWeight: 500, color: ringColor, fontVariantNumeric: 'tabular-nums' }}>
+                    {elapsed != null ? `${elapsed}m` : '—'}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                width: 52, height: 52, borderRadius: '50%',
+                background: '#f0f8f4', border: `1.5px solid #c8e6d4`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <i className="ti ti-check" aria-hidden="true" style={{ fontSize: 22, color: RHS_GREEN }} />
+              </div>
+            )}
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 500, color: '#1a1a18' }}>{student.full_name}</p>
+              {activePass && (
+                <p style={{ fontSize: 11, color: '#888', marginTop: 1 }}>{activePass.reason}</p>
+              )}
+              <p style={{ fontSize: 10, color: RHS_GREEN, marginTop: 3 }}>
+                {weekPassCount != null ? `${ordinal(weekPassCount)} pass this week` : ''}
+                {weekPassTotal ? ` · ${weekPassTotal} min total` : ''}
+              </p>
+            </div>
+          </div>
+        </CardBody>
+      </div>
+      {expanded && <CheckoutPopup />}
     </Card>
   )
 }
@@ -1313,6 +1488,9 @@ function WireContent() {
     return () => clearInterval(id)
   }, [cwAds.length])
 
+  // ── Temperature unit ───────────────────────────────────────────────────────
+  const [useCelsius, setUseCelsius] = useState(false)
+
   // ── Prefs (localStorage) ───────────────────────────────────────────────────
   const [prefs, setPrefs] = useState(getDefaultPrefs())
   const [configOpen, setConfigOpen] = useState(false)
@@ -1399,9 +1577,9 @@ function WireContent() {
     // Data-driven fallback: skip if data is null/empty (card won't mount)
     if (d === null && id !== 'passHistory') return null
     switch (id) {
-      case 'weather':     return <WeatherCard key={id} weather={d} />
+      case 'weather':     return <WeatherCard key={id} weather={d} useCelsius={useCelsius} onToggleUnit={() => setUseCelsius(u => !u)} />
       case 'lunch':       return <LunchCard key={id} menu={d} nextBellLabel={lunchBellLabel()} />
-      case 'passHistory': return <PassHistoryCard key={id} student={student} activePass={activePass} weekPassCount={weekPassCount} weekPassTotal={weekPassTotal} />
+      case 'passHistory': return <PassHistoryCard key={id} student={student} activePass={activePass} weekPassCount={weekPassCount} weekPassTotal={weekPassTotal} selfCheckoutEnabled={selfCheckoutEnabled} checkoutUrl={checkoutUrl} checkoutStatus={checkoutStatus} roomParam={roomParam} />
       case 'fortune':     return <FortuneCard key={id} fortune={d} />
       case 'cowboyCode':  return <CowboyCodeCard key={id} trait={d} />
       case 'releases':    return <ReleasesCard key={id} releases={d} />
@@ -1519,8 +1697,8 @@ function WireContent() {
         {/* LEFT — Locked column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <ScheduleCard periodInfo={periodInfo} scheduleType={scheduleType} />
-          <CalendarCard events={calendarEvents} />
           <ObjectivesCard objectives={objectives} loading={objectivesLoading} />
+          <CalendarCard events={calendarEvents} />
         </div>
 
         {/* RIGHT — Configurable column */}
