@@ -218,7 +218,7 @@ function ScheduleCard({ periodInfo, scheduleType }) {
     </Card>
   )
 
-  const schedule = SCHEDULES[scheduleType] || []
+  const schedule = SCHEDULES[scheduleType]?.periods || []
   const now = new Date()
   const nowMins = now.getHours() * 60 + now.getMinutes()
 
@@ -392,7 +392,7 @@ function PeriodHeroCard({ periodInfo, checkoutStatus, selfCheckoutEnabled, check
   if (!periodInfo) return null
   const { status, current, minutesLeftInCurrent } = periodInfo
 
-  const isPassOpen = checkoutStatus === 'open' || checkoutStatus === 'warning20'
+  const isPassOpen = checkoutStatus === 'ok' || checkoutStatus === 'warning20'
   const isFirst15  = checkoutStatus === 'first15'
   const isLast15   = checkoutStatus === 'last15'
   const isPassing  = status === 'break' || status === 'passing'
@@ -998,22 +998,24 @@ function WireContent() {
   }, [])
 
   // ── Schedule ───────────────────────────────────────────────────────────────
-  const [scheduleType, setScheduleType] = useState(null)
+  const [scheduleType, setScheduleType] = useState(null)  // string key e.g. 'regular'
+  const [scheduleObj,  setScheduleObj]  = useState(null)  // { name, periods } object
   const [periodInfo,   setPeriodInfo]   = useState(null)
-  const [checkoutStatus, setCheckoutStatus] = useState('open')
+  const [checkoutStatus, setCheckoutStatus] = useState('ok')
 
   useEffect(() => {
     async function loadSchedule() {
-      const type = await fetchTodayScheduleType()
-      setScheduleType(type)
+      const result = await fetchTodayScheduleType()
+      setScheduleType(result?.type || null)
+      setScheduleObj(result?.schedule || null)
     }
     loadSchedule()
   }, [])
 
   useEffect(() => {
-    if (!scheduleType) return
+    if (!scheduleObj) return
     function tick() {
-      const info = getCurrentPeriodInfo(scheduleType)
+      const info = getCurrentPeriodInfo(scheduleObj)
       const cs   = getCheckoutStatus(info)
       setPeriodInfo(info)
       setCheckoutStatus(cs)
@@ -1021,7 +1023,7 @@ function WireContent() {
     tick()
     const id = setInterval(tick, 30000)
     return () => clearInterval(id)
-  }, [scheduleType])
+  }, [scheduleObj])
 
   // ── Teacher + student lookup ───────────────────────────────────────────────
   const [teacher,  setTeacher]  = useState(null)
@@ -1342,7 +1344,7 @@ function WireContent() {
     }
     if (checkoutStatus === 'last15') return `No passes · last 15 min of period`
     if (checkoutStatus === 'warning20') return `Passes open · ${minutesLeftInCurrent} min left · last call approaching`
-    if (checkoutStatus === 'open') return `Passes open · safe window · ${minutesLeftInCurrent} min left in period`
+    if (checkoutStatus === 'ok') return `Passes open · safe window · ${minutesLeftInCurrent} min left in period`
     if (status === 'break' || status === 'passing') return `${current?.label || 'Break'} · no passes during transitions`
     if (status === 'before') return 'Before school · no passes yet'
     if (status === 'after') return 'School day complete'
@@ -1351,7 +1353,7 @@ function WireContent() {
   function statusRight() {
     if (!periodInfo || !periodInfo.current) return ''
     const { status, current } = periodInfo
-    if ((checkoutStatus === 'first15' || checkoutStatus === 'open' || checkoutStatus === 'warning20') && current?.end) {
+    if ((checkoutStatus === 'first15' || checkoutStatus === 'ok' || checkoutStatus === 'warning20') && current?.end) {
       const [h, m] = current.end.split(':').map(Number)
       return `Bell at ${h % 12 || 12}:${m.toString().padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`
     }
@@ -1365,7 +1367,7 @@ function WireContent() {
   // ── Lunch bell label ───────────────────────────────────────────────────────
   function lunchBellLabel() {
     if (!scheduleType || !SCHEDULES[scheduleType]) return 'Today'
-    const slots = SCHEDULES[scheduleType]
+    const slots = SCHEDULES[scheduleType]?.periods || []
     const lunch = slots.find(s => s.label?.toLowerCase().includes('lunch'))
     if (!lunch) return 'Today'
     const [h, m] = (lunch.start || '12:00').split(':').map(Number)
@@ -1486,14 +1488,14 @@ function WireContent() {
           )}
           {selfCheckoutEnabled && periodInfo?.status === 'period' && (
             <a
-              href={(checkoutStatus === 'open' || checkoutStatus === 'warning20') ? checkoutUrl : undefined}
+              href={(checkoutStatus === 'ok' || checkoutStatus === 'warning20') ? checkoutUrl : undefined}
               style={{
                 background: 'white',
-                color: (checkoutStatus === 'open' || checkoutStatus === 'warning20') ? RHS_GREEN : 'rgba(255,255,255,0.35)',
-                background: (checkoutStatus === 'open' || checkoutStatus === 'warning20') ? 'white' : 'rgba(255,255,255,0.12)',
+                color: (checkoutStatus === 'ok' || checkoutStatus === 'warning20') ? RHS_GREEN : 'rgba(255,255,255,0.35)',
+                background: (checkoutStatus === 'ok' || checkoutStatus === 'warning20') ? 'white' : 'rgba(255,255,255,0.12)',
                 fontSize: 11, fontWeight: 500, padding: '4px 11px', borderRadius: 6,
                 textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
-                pointerEvents: (checkoutStatus === 'open' || checkoutStatus === 'warning20') ? 'auto' : 'none',
+                pointerEvents: (checkoutStatus === 'ok' || checkoutStatus === 'warning20') ? 'auto' : 'none',
                 letterSpacing: '0.03em',
               }}
             >
