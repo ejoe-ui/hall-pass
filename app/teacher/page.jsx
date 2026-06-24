@@ -495,6 +495,16 @@ function TeacherInner() {
   // Multi-room support
   const [selectedRoom, setSelectedRoom] = useState(null)
 
+  // Cowboy Wire — Class Objectives
+  const [objPeriod,    setObjPeriod]    = useState('1')
+  const [objClassName, setObjClassName] = useState('')
+  const [objTopic,     setObjTopic]     = useState('')
+  const [objLines,     setObjLines]     = useState(['', '', ''])   // up to 5 objectives
+  const [objDoNow,     setObjDoNow]     = useState('')
+  const [objSaving,    setObjSaving]    = useState(false)
+  const [objSaved,     setObjSaved]     = useState(false)
+  const [objLoading,   setObjLoading]   = useState(false)
+
   // Settings
   const [showSettings, setShowSettings] = useState(false)
   const [subCode, setSubCode] = useState('')
@@ -916,6 +926,57 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
     setActivePeriod(null); setShowSettings(false); setCurrentTeacher(null)
     setMustChangePassword(false)
   }
+
+  // ── Cowboy Wire Objectives ─────────────────────────────────────────────────
+  async function loadObjectives(period) {
+    if (!currentTeacher?.id) return
+    setObjLoading(true)
+    try {
+      const { data } = await supabase
+        .from('teacher_objectives')
+        .select('*')
+        .eq('teacher_id', currentTeacher.id)
+        .eq('period', period)
+        .single()
+      if (data) {
+        setObjClassName(data.class_name || '')
+        setObjTopic(data.topic || '')
+        setObjDoNow(data.do_now || '')
+        const lines = Array.isArray(data.objectives) ? data.objectives : []
+        // Always show at least 3 slots
+        setObjLines([...lines, '', '', ''].slice(0, Math.max(3, lines.length + 1, 3)))
+      } else {
+        setObjClassName('')
+        setObjTopic('')
+        setObjDoNow('')
+        setObjLines(['', '', ''])
+      }
+    } catch { /* table may not exist yet — graceful */ }
+    setObjLoading(false)
+  }
+
+  async function saveObjectives() {
+    if (!currentTeacher?.id) return
+    setObjSaving(true)
+    const objectives = objLines.map(l => l.trim()).filter(Boolean)
+    await supabase
+      .from('teacher_objectives')
+      .upsert({
+        teacher_id: currentTeacher.id,
+        period:     objPeriod,
+        class_name: objClassName.trim(),
+        topic:      objTopic.trim() || null,
+        objectives,
+        do_now:     objDoNow.trim() || null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'teacher_id,period' })
+    setObjSaving(false)
+    setObjSaved(true)
+    setTimeout(() => setObjSaved(false), 2500)
+  }
+
+  // Load objectives when period tab changes or teacher loads
+  useEffect(() => { if (currentTeacher?.id) loadObjectives(objPeriod) }, [objPeriod, currentTeacher?.id])
 
   // ── Settings ───────────────────────────────────────────────────────────────
   async function loadSettings() {
@@ -2310,6 +2371,126 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
 
           </>
         )}
+
+        {/* ── Cowboy Wire — Class Objectives ──────────────────────────── */}
+        <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-sm font-semibold" style={{ color: RHS_GREEN }}>Cowboy Wire · Class Objectives</p>
+              <p className="text-xs text-gray-400 mt-0.5">Shown on the /wire student display. Updates immediately.</p>
+            </div>
+            <a href={`/wire?room=${teacherRoom}`} target="_blank" rel="noopener noreferrer"
+              className="text-xs px-2.5 py-1 rounded-lg border text-gray-500 hover:bg-gray-50 whitespace-nowrap" style={{ textDecoration: 'none' }}>
+              Open Wire ↗
+            </a>
+          </div>
+
+          {/* Period tabs */}
+          <div className="flex gap-1 mb-4 flex-wrap">
+            {['1','2','3','4','5','6','7'].map(p => (
+              <button key={p} onClick={() => setObjPeriod(p)}
+                className="px-3 py-1 text-xs font-medium rounded-lg transition-colors"
+                style={{
+                  background: objPeriod === p ? RHS_GREEN : '#f3f4f6',
+                  color: objPeriod === p ? 'white' : '#374151',
+                  border: 'none', cursor: 'pointer',
+                }}>
+                Period {p}
+              </button>
+            ))}
+          </div>
+
+          {objLoading ? (
+            <p className="text-xs text-gray-400 py-2">Loading…</p>
+          ) : (
+            <div className="space-y-3">
+              {/* Class Name + Topic */}
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Class Name</label>
+                  <input
+                    type="text"
+                    value={objClassName}
+                    onChange={e => setObjClassName(e.target.value)}
+                    placeholder="e.g. AP US History"
+                    className="w-full px-3 py-2 text-sm border rounded-lg bg-white"
+                    style={{ borderColor: '#e5e7eb' }}
+                  />
+                </div>
+                <div style={{ width: 160 }}>
+                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Topic (optional)</label>
+                  <input
+                    type="text"
+                    value={objTopic}
+                    onChange={e => setObjTopic(e.target.value)}
+                    placeholder="e.g. Civil War"
+                    className="w-full px-3 py-2 text-sm border rounded-lg bg-white"
+                    style={{ borderColor: '#e5e7eb' }}
+                  />
+                </div>
+              </div>
+
+              {/* Objectives */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Learning Objectives</label>
+                  {objLines.length < 5 && (
+                    <button onClick={() => setObjLines(l => [...l, ''])}
+                      className="text-xs" style={{ color: RHS_GREEN, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                      + Add
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  {objLines.map((line, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <span className="text-xs font-semibold w-4 text-right flex-shrink-0" style={{ color: RHS_GREEN }}>{i + 1}.</span>
+                      <input
+                        type="text"
+                        value={line}
+                        onChange={e => setObjLines(l => l.map((v, j) => j === i ? e.target.value : v))}
+                        placeholder={`Objective ${i + 1}`}
+                        className="flex-1 px-3 py-2 text-sm border rounded-lg bg-white"
+                        style={{ borderColor: '#e5e7eb' }}
+                      />
+                      {objLines.length > 1 && (
+                        <button onClick={() => setObjLines(l => l.filter((_, j) => j !== i))}
+                          className="text-gray-300 hover:text-red-400 text-sm flex-shrink-0"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Do Now */}
+              <div>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">Do Now (optional)</label>
+                <textarea
+                  value={objDoNow}
+                  onChange={e => setObjDoNow(e.target.value)}
+                  placeholder="Warm-up activity or prompt for students…"
+                  rows={2}
+                  className="w-full px-3 py-2 text-sm border rounded-lg bg-white resize-none"
+                  style={{ borderColor: '#e5e7eb' }}
+                />
+              </div>
+
+              {/* Save button */}
+              <div className="flex items-center justify-between pt-1">
+                <p className="text-xs text-gray-400">Period {objPeriod} · auto-loads when you switch periods</p>
+                <button
+                  onClick={saveObjectives}
+                  disabled={objSaving}
+                  className="px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-40"
+                  style={{ backgroundColor: RHS_GREEN, border: 'none', cursor: objSaving ? 'default' : 'pointer' }}
+                >
+                  {objSaved ? '✓ Saved' : objSaving ? 'Saving…' : 'Save Objectives'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
         <div className="flex justify-end mb-4">
           <button onClick={() => setShowSettings(s => !s)} className="text-xs px-3 py-1.5 border rounded-lg text-gray-500 hover:bg-gray-50">{showSettings ? '🔒 Hide Settings' : '⚙️ Show Settings'}</button>
