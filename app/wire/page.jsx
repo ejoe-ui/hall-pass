@@ -682,124 +682,270 @@ function LunchCard({ menu, nextBellLabel }) {
   )
 }
 
+const CO_REASONS = ['Restroom','Library','Office','Counselor','Lockers','Errand','On Assignment','Career Counselor','School Store','Other']
+
 function PassHistoryCard({
   student, activePass, weekPassCount, weekPassTotal,
-  selfCheckoutEnabled, checkoutUrl, checkoutStatus, roomParam,
+  selfCheckoutEnabled, checkoutUrl, checkoutStatus, roomParam, teacher,
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const [accessCode, setAccessCode] = useState('')
-  const isPassOpen = checkoutStatus === 'ok' || checkoutStatus === 'warning20'
+  // ── Inline self-checkout flow state ──────────────────────────────────────
+  const [coStage,   setCoStage]   = useState('idle')  // idle | found | alreadyOut | working | done | error
+  const [coInput,   setCoInput]   = useState('')
+  const [coStudent, setCoStudent] = useState(null)    // {id,name,photo,period,openPass}
+  const [coReason,  setCoReason]  = useState('')
+  const [coOther,   setCoOther]   = useState('')
+  const [coMsg,     setCoMsg]     = useState('')
+  const [coCountdown, setCoCountdown] = useState(5)
+  const coInputRef = useRef(null)
 
-  // QR code image for the self-checkout URL (free service, no key needed)
-  const qrUrl = checkoutUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(
-        typeof window !== 'undefined' ? window.location.origin + checkoutUrl : checkoutUrl
-      )}`
-    : null
+  // passes are always open during a class period — first/last 15 are verbal warnings only
+  const duringPeriod = checkoutStatus !== null && !['before','after','break','passing'].includes(checkoutStatus === null ? '' : '')
 
-  const CheckoutPopup = () => (
-    <div style={{
-      borderTop: '0.5px solid #e8f0ec',
-      background: '#f5f9f6',
-      padding: '11px 13px',
-    }}>
-      {selfCheckoutEnabled && isPassOpen ? (
-        <>
-          <p style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: RHS_GREEN, marginBottom: 9 }}>
-            Self Check-Out
-          </p>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-            {qrUrl && (
-              <div style={{ flexShrink: 0, textAlign: 'center' }}>
-                <img src={qrUrl} alt="Self-checkout QR" width={80} height={80}
-                     style={{ borderRadius: 6, border: '0.5px solid #d0e4d8', display: 'block' }} />
-                <p style={{ fontSize: 9, color: '#aaa', marginTop: 4 }}>Scan with phone</p>
+  function resetCo() {
+    setCoStage('idle'); setCoInput(''); setCoStudent(null)
+    setCoReason(''); setCoOther(''); setCoMsg(''); setCoCountdown(5)
+    setTimeout(() => coInputRef.current?.focus(), 50)
+  }
+
+  async function coLookup(rawId) {
+    const id = (rawId || coInput).trim()
+    if (!id) return
+    setCoStage('working')
+    try {
+      const { data: studs } = await supabase.from('students')
+        .select('id, full_name, photo_file, photo_url, period').eq('id', id)
+      if (!studs?.length) { setCoMsg('Student not found — check ID and try again'); setCoStage('error'); return }
+      const s = studs[0]
+      let photo = null
+      if (s.photo_file) {
+        const { data: pd } = await supabase.storage.from('lifetouch-raw').createSignedUrl(s.photo_file, 3600)
+        photo = pd?.signedUrl
+      }
+      photo = photo || s.photo_url || null
+      const { data: openPasses } = await supabase.from('passes')
+        .select('*').eq('student_id', s.id).is('time_in', null).order('time_out', { ascending: false }).limit(1)
+      const openPass = openPasses?.[0] || null
+      setCoStudent({ id: s.id, name: s.full_name, photo, period: s.period, openPass })
+      setCoStage(openPass ? 'alreadyOut' : 'found')
+    } catch { setCoMsg('Something went wrong — try again'); setCoStage('error') }
+  }
+
+  async function doCheckout() {
+    if (!coReason) return
+    setCoStage('working')
+    try {
+      const reason = coReason === 'Other' ? coOther.trim() || 'Other' : coReason
+      await supabase.from('passes').insert({
+        student_id: coStudent.id,
+        teacher_id: teacher?.id || null,
+        room:       roomParam,
+        reason,
+        time_out:   new Date().toISOString(),
+        period:     coStudent.period,
+      })
+      setCoMsg(`✓ ${coStudent.name} checked out — ${reason}`)
+      setCoStage('done')
+      startCountdown()
+    } catch { setCoMsg('Check-out failed — try again'); setCoStage('error') }
+  }
+
+  async function doCheckIn() {
+    setCoStage('working')
+    try {
+      await supabase.from('passes').update({ time_in: new Date().toISOString() }).eq('id', coStudent.openPass.id)
+      setCoMsg(`✓ ${coStudent.name} checked back in`)
+      setCoStage('done')
+      startCountdown()
+    } catch { setCoMsg('Check-in failed — try again'); setCoStage('error') }
+  }
+
+  function startCountdown(secs = 5) {
+    let remaining = secs
+    setCoCountdown(remaining)
+    const iv = setInterval(() => {
+      remaining -= 1
+      setCoCountdown(remaining)
+      if (remaining <= 0) { clearInterval(iv); resetCo() }
+    }, 1000)
+  }
+
+  // ── Inline checkout panel (shown when selfCheckoutEnabled) ────────────────
+  const InlineCheckout = () => {
+    if (coStage === 'idle' || coStage === 'error') return (
+      <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f5f9f6', padding: '12px 13px' }}>
+        <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: RHS_GREEN, marginBottom: 8 }}>
+          Self Check-Out
+        </p>
+        {coStage === 'error' && (
+          <p style={{ fontSize: 11, color: '#dc2626', marginBottom: 7 }}>{coMsg}</p>
+        )}
+        <p style={{ fontSize: 11, color: '#888', marginBottom: 6 }}>Enter your student ID or scan your QR / NFC badge</p>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input
+            ref={coInputRef}
+            value={coInput}
+            onChange={e => setCoInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') coLookup() }}
+            placeholder="Student ID"
+            inputMode="numeric"
+            autoComplete="off"
+            style={{
+              flex: 1, fontSize: 16, fontWeight: 500, textAlign: 'center',
+              padding: '8px 10px', borderRadius: 7,
+              border: `1.5px solid ${coStage === 'error' ? '#fca5a5' : '#c0d8c8'}`,
+              background: 'white', color: '#1a1a18', outline: 'none',
+            }}
+          />
+          <button
+            onClick={() => coLookup()}
+            style={{
+              background: coInput.trim() ? RHS_GREEN : '#e0ddd8', color: 'white',
+              fontSize: 13, fontWeight: 600, padding: '8px 16px', borderRadius: 7,
+              border: 'none', cursor: coInput.trim() ? 'pointer' : 'default',
+            }}
+          >Go</button>
+        </div>
+        {checkoutStatus === 'first15' && (
+          <p style={{ fontSize: 10, color: '#d97706', marginTop: 7 }}>⚠ First 15 min — teacher is aware</p>
+        )}
+        {checkoutStatus === 'last15' && (
+          <p style={{ fontSize: 10, color: '#d97706', marginTop: 7 }}>⚠ Last 15 min — teacher is aware</p>
+        )}
+      </div>
+    )
+
+    if (coStage === 'working') return (
+      <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f5f9f6', padding: '20px 13px', textAlign: 'center' }}>
+        <p style={{ fontSize: 12, color: '#aaa' }}>Looking up…</p>
+      </div>
+    )
+
+    if (coStage === 'found') return (
+      <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f5f9f6', padding: '12px 13px' }}>
+        {/* Student identity */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 11 }}>
+          {coStudent.photo
+            ? <img src={coStudent.photo} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: `1.5px solid ${RHS_GREEN}` }}
+                onError={e => { e.currentTarget.style.display = 'none' }} />
+            : <div style={{ width: 40, height: 40, borderRadius: '50%', background: RHS_GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
+                {coStudent.name.split(' ').map(n => n[0]).slice(0,2).join('')}
               </div>
-            )}
-            <div style={{ flex: 1 }}>
-              <a
-                href={checkoutUrl}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  background: RHS_GREEN, color: 'white',
-                  fontSize: 12, fontWeight: 500, padding: '9px 14px', borderRadius: 7,
-                  textDecoration: 'none', marginBottom: 8,
-                }}
-              >
-                <i className="ti ti-door-exit" aria-hidden="true" style={{ fontSize: 14 }} />
-                Check Out Now
-              </a>
-              <p style={{ fontSize: 10, color: '#aaa', lineHeight: 1.5 }}>
-                Scans your pass automatically if you have a QR badge, or ask your teacher to check you out.
-              </p>
+          }
+          <div>
+            <p style={{ fontSize: 14, fontWeight: 600, color: '#1a1a18', lineHeight: 1.2 }}>{coStudent.name}</p>
+            <p style={{ fontSize: 10, color: '#aaa' }}>Where are you going?</p>
+          </div>
+        </div>
+        {/* Reason grid */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 9 }}>
+          {CO_REASONS.filter(r => r !== 'Other').map(r => (
+            <button key={r} onClick={() => setCoReason(r)}
+              style={{
+                fontSize: 11, padding: '5px 10px', borderRadius: 6, border: `1.5px solid ${coReason === r ? RHS_GREEN : '#dde8e2'}`,
+                background: coReason === r ? RHS_GREEN : 'white', color: coReason === r ? 'white' : '#444',
+                cursor: 'pointer', fontWeight: coReason === r ? 600 : 400,
+              }}>{r}</button>
+          ))}
+          <button onClick={() => setCoReason('Other')}
+            style={{
+              fontSize: 11, padding: '5px 10px', borderRadius: 6, border: `1.5px solid ${coReason === 'Other' ? RHS_GREEN : '#dde8e2'}`,
+              background: coReason === 'Other' ? RHS_GREEN : 'white', color: coReason === 'Other' ? 'white' : '#444',
+              cursor: 'pointer',
+            }}>Other</button>
+        </div>
+        {coReason === 'Other' && (
+          <input
+            value={coOther}
+            onChange={e => setCoOther(e.target.value)}
+            placeholder="Where are you going?"
+            autoFocus
+            style={{
+              width: '100%', fontSize: 12, padding: '7px 10px', borderRadius: 6,
+              border: '1.5px solid #c0d8c8', background: 'white', outline: 'none',
+              marginBottom: 8, boxSizing: 'border-box',
+            }}
+          />
+        )}
+        <div style={{ display: 'flex', gap: 7 }}>
+          <button onClick={resetCo}
+            style={{ flex: 1, fontSize: 12, padding: '8px', borderRadius: 7, border: '1px solid #e0ddd8', background: 'white', color: '#888', cursor: 'pointer' }}>
+            Cancel
+          </button>
+          <button onClick={doCheckout}
+            disabled={!coReason || (coReason === 'Other' && !coOther.trim())}
+            style={{
+              flex: 2, fontSize: 13, fontWeight: 600, padding: '8px', borderRadius: 7, border: 'none',
+              background: coReason && !(coReason === 'Other' && !coOther.trim()) ? RHS_GREEN : '#e0ddd8',
+              color: 'white', cursor: coReason ? 'pointer' : 'default',
+            }}>
+            Check Out
+          </button>
+        </div>
+      </div>
+    )
+
+    if (coStage === 'alreadyOut') {
+      const op = coStudent.openPass
+      const outAt = op?.time_out ? new Date(op.time_out) : null
+      const outLabel = outAt ? `${outAt.getHours() % 12 || 12}:${String(outAt.getMinutes()).padStart(2,'0')} ${outAt.getHours() >= 12 ? 'PM' : 'AM'}` : ''
+      return (
+        <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#fff8f0', padding: '12px 13px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
+            {coStudent.photo
+              ? <img src={coStudent.photo} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: '1.5px solid #d97706' }}
+                  onError={e => { e.currentTarget.style.display = 'none' }} />
+              : <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
+                  {coStudent.name.split(' ').map(n => n[0]).slice(0,2).join('')}
+                </div>
+            }
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 600, color: '#92400e' }}>⚠ {coStudent.name} is already out</p>
+              <p style={{ fontSize: 10, color: '#b45309' }}>{outLabel ? `Since ${outLabel}` : ''}{op?.reason ? ` · ${op.reason}` : ''}</p>
             </div>
           </div>
-          {/* Teacher / sub access code */}
-          <div style={{ marginTop: 11, borderTop: '0.5px solid #dde8e2', paddingTop: 10 }}>
-            <p style={{ fontSize: 9, color: '#bbb', marginBottom: 5, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              Have a teacher access code?
-            </p>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input
-                value={accessCode}
-                onChange={e => setAccessCode(e.target.value.toUpperCase())}
-                placeholder="Enter code"
-                maxLength={6}
-                style={{
-                  flex: 1, fontSize: 13, fontWeight: 500, letterSpacing: '0.12em',
-                  textAlign: 'center', padding: '6px 10px', borderRadius: 6,
-                  border: '0.5px solid #c0d8c8', background: 'white', color: '#1a1a18',
-                  outline: 'none',
-                }}
-              />
-              <button
-                onClick={() => {
-                  if (accessCode.length >= 4) {
-                    window.location.href = `${checkoutUrl}&code=${accessCode}`
-                  }
-                }}
-                style={{
-                  background: accessCode.length >= 4 ? RHS_GREEN : '#e0ddd8',
-                  color: 'white', fontSize: 11, fontWeight: 500,
-                  padding: '6px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                }}
-              >Go</button>
-            </div>
+          <div style={{ display: 'flex', gap: 7 }}>
+            <button onClick={resetCo}
+              style={{ flex: 1, fontSize: 12, padding: '8px', borderRadius: 7, border: '1px solid #e0ddd8', background: 'white', color: '#888', cursor: 'pointer' }}>
+              Cancel
+            </button>
+            <button onClick={doCheckIn}
+              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '8px', borderRadius: 7, border: 'none', background: RHS_GREEN, color: 'white', cursor: 'pointer' }}>
+              Check Back In
+            </button>
           </div>
-        </>
-      ) : selfCheckoutEnabled && !isPassOpen ? (
-        <p style={{ fontSize: 12, color: '#aaa', fontStyle: 'italic', textAlign: 'center', padding: '6px 0' }}>
-          {checkoutStatus === 'first15' ? 'Passes not available yet — first 15 min of class' : 'Passes closed — last 15 min of class'}
-        </p>
-      ) : (
-        <p style={{ fontSize: 12, color: '#aaa', fontStyle: 'italic', textAlign: 'center', padding: '6px 0' }}>
-          Self check-out not enabled for this room.
-        </p>
-      )}
-    </div>
-  )
+        </div>
+      )
+    }
+
+    if (coStage === 'done') return (
+      <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f0f9f4', padding: '18px 13px', textAlign: 'center' }}>
+        <p style={{ fontSize: 20, marginBottom: 6 }}>✓</p>
+        <p style={{ fontSize: 13, fontWeight: 600, color: RHS_GREEN, marginBottom: 4 }}>{coMsg}</p>
+        <p style={{ fontSize: 10, color: '#aaa' }}>Returning in {coCountdown}s…</p>
+      </div>
+    )
+
+    return null
+  }
 
   if (!student) {
     return (
       <Card>
-        <div
-          onClick={() => setExpanded(o => !o)}
-          style={{ cursor: 'pointer' }}
-        >
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '8px 13px', borderBottom: '0.5px solid #eeece8',
-          }}>
-            <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.11em', textTransform: 'uppercase', color: '#999' }}>
-              PassAble Pass Status
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 10, color: '#bbb' }}>tap for check-out</span>
-              <i className={`ti ${expanded ? 'ti-chevron-up' : 'ti-chevron-down'}`} aria-hidden="true"
-                 style={{ fontSize: 12, color: '#ccc' }} />
-              <i className="ti ti-grip-vertical" aria-hidden="true" style={{ fontSize: 13, color: '#ddd', cursor: 'grab' }} />
-            </span>
-          </div>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '8px 13px', borderBottom: '0.5px solid #eeece8',
+        }}>
+          <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.11em', textTransform: 'uppercase', color: '#999' }}>
+            PassAble Pass Status
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {selfCheckoutEnabled && <span style={{ fontSize: 10, color: '#bbb' }}>enter ID to check out</span>}
+            <i className="ti ti-grip-vertical" aria-hidden="true" style={{ fontSize: 13, color: '#ddd', cursor: 'grab' }} />
+          </span>
+        </div>
+        {selfCheckoutEnabled ? (
+          <InlineCheckout />
+        ) : (
           <CardBody>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: 0.5 }}>
               <div style={{
@@ -814,8 +960,7 @@ function PassHistoryCard({
               </p>
             </div>
           </CardBody>
-        </div>
-        {expanded && <CheckoutPopup />}
+        )}
       </Card>
     )
   }
@@ -1649,8 +1794,9 @@ function WireContent() {
 
   // ── Status bar helpers ─────────────────────────────────────────────────────
   function statusBarStyle() {
-    if (checkoutStatus === 'first15' || checkoutStatus === 'last15') return { background: '#b91c1c' }
-    if (checkoutStatus === 'warning20') return { background: '#92400e' }
+    // first15 / last15 are now verbal warnings only — amber, not red; passes still open
+    if (checkoutStatus === 'first15' || checkoutStatus === 'last15') return { background: '#92400e' }
+    if (checkoutStatus === 'warning20') return { background: '#78350f' }
     return { background: RHS_DARK }
   }
   function statusText() {
@@ -1739,7 +1885,7 @@ function WireContent() {
     switch (id) {
       case 'weather':     return <WeatherCard key={id} weather={d} useCelsius={useCelsius} onToggleUnit={() => setUseCelsius(u => !u)} />
       case 'lunch':       return <LunchCard key={id} menu={d} nextBellLabel={lunchBellLabel()} />
-      case 'passHistory': return <PassHistoryCard key={id} student={student} activePass={activePass} weekPassCount={weekPassCount} weekPassTotal={weekPassTotal} selfCheckoutEnabled={selfCheckoutEnabled} checkoutUrl={checkoutUrl} checkoutStatus={checkoutStatus} roomParam={roomParam} />
+      case 'passHistory': return <PassHistoryCard key={id} student={student} activePass={activePass} weekPassCount={weekPassCount} weekPassTotal={weekPassTotal} selfCheckoutEnabled={selfCheckoutEnabled} checkoutUrl={checkoutUrl} checkoutStatus={checkoutStatus} roomParam={roomParam} teacher={teacher} />
       case 'fortune':     return <FortuneCard key={id} fortune={d} />
       case 'cowboyCode':  return <CowboyCodeCard key={id} trait={d} />
       case 'wisdom':      return <WisdomCard key={id} woy={_woy} />
@@ -1809,7 +1955,7 @@ function WireContent() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{
             width: 8, height: 8, borderRadius: '50%',
-            background: (checkoutStatus === 'first15' || checkoutStatus === 'last15') ? '#f87171' : '#5dca8a',
+            background: periodInfo?.status === 'period' ? '#5dca8a' : '#f87171',
           }} />
           <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 500 }}>
             {statusText()}
