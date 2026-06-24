@@ -99,6 +99,13 @@ function MobilePageInner() {
   const [incomingNotifs, setIncomingNotifs] = useState([])
   const [outgoingNotifs, setOutgoingNotifs] = useState([])
 
+  // ── Duration warnings ────────────────────────────────────────────────────
+  const notifiedPassesRef = useRef(new Set())
+  const [warningsEnabled, setWarningsEnabled] = useState(() => {
+    if (typeof window === 'undefined') return true
+    return localStorage.getItem('passable_warnings') !== 'false'
+  })
+
   // ── Checkout sheet ───────────────────────────────────────────────────────
   const [showHelp, setShowHelp]               = useState(false)
   const [showSheet, setShowSheet]             = useState(false)
@@ -161,6 +168,48 @@ function MobilePageInner() {
       .subscribe()
     return () => supabase.removeChannel(channel)
   }, [currentTeacher?.id])
+
+  // ── Duration warning: browser notification + audio when student goes over 10 min ──
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (Notification?.permission === 'default') Notification.requestPermission()
+  }, [])
+
+  function toggleWarnings() {
+    const next = !warningsEnabled
+    setWarningsEnabled(next)
+    localStorage.setItem('passable_warnings', next ? 'true' : 'false')
+  }
+
+  useEffect(() => {
+    if (!warningsEnabled || !activePasses.length) return
+    activePasses.forEach(pass => {
+      const mins = elapsed(pass.time_out)
+      if (mins >= 10 && !notifiedPassesRef.current.has(pass.id)) {
+        notifiedPassesRef.current.add(pass.id)
+        const name = students[pass.student_id]?.full_name?.split(' ')[0] || 'A student'
+        if (Notification?.permission === 'granted') {
+          new Notification('PassAble — Student Over Time', {
+            body: `${name} has been out ${mins} minutes (${pass.reason})`,
+            icon: '/RHSCOWBOYlogo.png',
+          })
+        }
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)()
+          const osc = ctx.createOscillator()
+          const gain = ctx.createGain()
+          osc.connect(gain); gain.connect(ctx.destination)
+          osc.frequency.setValueAtTime(880, ctx.currentTime)
+          osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15)
+          gain.gain.setValueAtTime(0.3, ctx.currentTime)
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
+          osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.5)
+        } catch (e) { /* audio not supported */ }
+      }
+    })
+    const activeIds = new Set(activePasses.map(p => p.id))
+    notifiedPassesRef.current.forEach(id => { if (!activeIds.has(id)) notifiedPassesRef.current.delete(id) })
+  }, [activePasses, students, warningsEnabled])
 
   async function loadCurrentTeacher() {
     setTeacherLoading(true)
@@ -546,8 +595,14 @@ function MobilePageInner() {
         {/* ── Currently out ── */}
         {activePeriod && (
           <section>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
-              Currently Out {outPasses.length > 0 ? `(${outPasses.length})` : ''}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                Currently Out {outPasses.length > 0 ? `(${outPasses.length})` : ''}
+              </div>
+              <button onClick={toggleWarnings}
+                style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 8, border: '1px solid #e5e7eb', background: 'white', color: warningsEnabled ? '#374151' : '#9ca3af', cursor: 'pointer' }}>
+                {warningsEnabled ? '🔔 Alerts on' : '🔕 Muted'}
+              </button>
             </div>
             {outPasses.length === 0 ? (
               <div style={{ background: 'white', borderRadius: 14, padding: '28px 16px', textAlign: 'center', color: '#9ca3af', fontSize: 14 }}>
