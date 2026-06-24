@@ -488,7 +488,7 @@ function WeatherCard({ weather }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
           <div>
             <div style={{ fontSize: 44, fontWeight: 500, color: '#1a1a18', lineHeight: 1 }}>
-              {Math.round(weather.temperature)}°
+              {Math.round(weather.temperature_2m)}°
             </div>
             <div style={{ fontSize: 10, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: 2 }}>
               Feels like {Math.round(weather.apparent_temperature)}°
@@ -503,8 +503,8 @@ function WeatherCard({ weather }) {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
           {[
-            { label: 'Humidity', value: `${Math.round(weather.relative_humidity)}%` },
-            { label: 'Wind',     value: `${Math.round(weather.wind_speed)} mph` },
+            { label: 'Humidity', value: `${Math.round(weather.relative_humidity_2m)}%` },
+            { label: 'Wind',     value: `${Math.round(weather.wind_speed_10m)} mph` },
           ].map(({ label, value }) => (
             <div key={label} style={{ background: '#f7f6f3', borderRadius: 6, padding: '6px 9px', border: '0.5px solid #eee' }}>
               <div style={{ fontSize: 9, color: '#ccc', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 1 }}>{label}</div>
