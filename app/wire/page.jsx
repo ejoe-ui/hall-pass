@@ -30,11 +30,11 @@ import {
 } from '../../lib/schedules'
 
 // ── Config ────────────────────────────────────────────────────────────────────
-// Replace these with real Google Apps Script endpoints from your CW2 config
-const CW_CALENDAR_URL = process.env.NEXT_PUBLIC_CW_CALENDAR_URL || ''
-const CW_MENU_URL     = process.env.NEXT_PUBLIC_CW_MENU_URL || ''
-const WEATHER_LAT     = process.env.NEXT_PUBLIC_WEATHER_LAT || '36.73'
-const WEATHER_LON     = process.env.NEXT_PUBLIC_WEATHER_LON || '-119.79'
+// Calendar is fetched server-side via /api/calendar (no env var needed here).
+// Menu: set NEXT_PUBLIC_CW_MENU_URL in Vercel if you have a GAS endpoint.
+const CW_MENU_URL        = process.env.NEXT_PUBLIC_CW_MENU_URL || ''
+const WEATHER_LAT        = process.env.NEXT_PUBLIC_WEATHER_LAT || '36.73'
+const WEATHER_LON        = process.env.NEXT_PUBLIC_WEATHER_LON || '-119.79'
 const SELF_CHECKOUT_BASE = '/self-checkout'
 
 const RHS_GREEN = '#006938'
@@ -1155,26 +1155,18 @@ function WireContent() {
     return () => clearInterval(id)
   }, [])
 
-  // ── Calendar ───────────────────────────────────────────────────────────────
+  // ── Calendar (via /api/calendar → RHS Events iCal) ────────────────────────
   const [calendarEvents, setCalendarEvents] = useState([])
   useEffect(() => {
-    if (!CW_CALENDAR_URL) return
     async function fetchCal() {
       try {
-        const res = await fetch(CW_CALENDAR_URL)
+        const res = await fetch('/api/calendar')
         const json = await res.json()
-        // Expect [{title, date, time?}] or adapt to whatever CW2 returns
-        const events = Array.isArray(json) ? json : json.events || []
-        const today = new Date()
-        const upcoming = events
-          .filter(e => e.date && new Date(e.date + 'T00:00:00') >= new Date(today.toDateString()))
-          .sort((a, b) => new Date(a.date) - new Date(b.date))
-          .slice(0, 6)
-        setCalendarEvents(upcoming)
-      } catch (e) { /* fallback: empty */ }
+        setCalendarEvents((json.events || []).slice(0, 6))
+      } catch (e) { /* graceful fallback: card stays empty */ }
     }
     fetchCal()
-    const id = setInterval(fetchCal, 1800000) // every 30 min
+    const id = setInterval(fetchCal, 1800000) // refresh every 30 min
     return () => clearInterval(id)
   }, [])
 
