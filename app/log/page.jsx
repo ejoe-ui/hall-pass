@@ -162,11 +162,15 @@ export default function Log() {
 
   function fmt(ts) {
     if (!ts) return '—'
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    const d = new Date(ts)
+    const h = d.getHours(), m = d.getMinutes().toString().padStart(2, '0')
+    return `${h % 12 || 12}:${m} ${h >= 12 ? 'PM' : 'AM'}`
   }
 
   function fmtDate(ts) {
-    return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' })
+    const d = new Date(ts)
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    return `${MONTHS[d.getMonth()]} ${d.getDate()}`
   }
 
   function exportCSV() {
@@ -280,7 +284,7 @@ export default function Log() {
           {/* Print header (hidden on screen) */}
           <div className="print-header hidden print:block mb-4">
             <h1 className="text-lg font-bold">Room {teacherRoom} · {teacherName} — RHS PassAble Pass Log</h1>
-            <p className="text-xs text-gray-500">Period: {filterLabel} · Printed {new Date().toLocaleDateString()} · {passes.length} passes</p>
+            <p className="text-xs text-gray-500" suppressHydrationWarning>Period: {filterLabel} · Printed {(() => { const d = new Date(); const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return `${M[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}` })()} · {passes.length} passes</p>
           </div>
 
           {/* Time period filter */}
