@@ -796,27 +796,196 @@ export default function AdminPanel() {
     })))
   }
 
-  function exportAdminCSV() {
-    const label = LOG_FILTER_OPTIONS.find(o => o.id === logFilter)?.label || 'All'
-    const headers = ['Student', 'Date', 'Reason', 'Out', 'In', 'Duration (min)', 'Room', 'Teacher', 'Period', 'Type']
-    const rows = passes.map(p => [
-      p.students?.full_name || p.student_id,
-      new Date(p.time_out).toLocaleDateString(),
-      `"${(p.reason || '').replace(/"/g, '""')}"`,
-      new Date(p.time_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      p.time_in ? new Date(p.time_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
-      p.duration_minutes || '',
-      p.room || '',
-      p.teacherInfo ? `${p.teacherInfo.name} (Rm ${p.teacherInfo.room})` : p.teacher_id ? 'Teacher' : 'Kiosk',
-      p.period || '',
-      p.pass_type === 'late_pass' ? 'Late Pass' : 'Hall Pass'
-    ])
-    const csv = [headers, ...rows].map(r => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `passable-school-log-${label.replace(/\s/g,'-').toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`
-    a.click()
+  // ── Pass log export helpers ────────────────────────────────────────────────
+  function fmtTime(ts) {
+    if (!ts) return '—'
+    const d = new Date(ts)
+    const h = d.getHours(), m = d.getMinutes().toString().padStart(2, '0')
+    return `${h % 12 || 12}:${m} ${h >= 12 ? 'PM' : 'AM'}`
+  }
+  function fmtDate(ts) {
+    const d = new Date(ts)
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
+  }
+  function passLogRows() {
+    return passes.map(p => ({
+      student:  p.students?.full_name || p.student_id || '—',
+      date:     fmtDate(p.time_out),
+      reason:   p.reason || '—',
+      out:      fmtTime(p.time_out),
+      in:       p.time_in ? fmtTime(p.time_in) : '—',
+      duration: p.duration_minutes != null ? p.duration_minutes : '—',
+      room:     p.room || '—',
+      teacher:  p.teacherInfo ? `${p.teacherInfo.name} (Rm ${p.teacherInfo.room})` : (p.teacher_id ? 'Teacher' : 'Kiosk'),
+      period:   p.period || '—',
+      type:     p.pass_type === 'late_pass' ? 'Late Pass' : 'Hall Pass',
+    }))
+  }
+  function passLogStats() {
+    const completed = passes.filter(p => p.duration_minutes != null)
+    const avgDur = completed.length ? Math.round(completed.reduce((a,p) => a + p.duration_minutes, 0) / completed.length) : null
+    const byReason = {}
+    const byTeacher = {}
+    passes.forEach(p => {
+      const r = p.reason?.split(' — ')[0] || 'Other'
+      byReason[r] = (byReason[r] || 0) + 1
+      const t = p.teacherInfo?.name || (p.teacher_id ? 'Unknown' : 'Kiosk')
+      byTeacher[t] = (byTeacher[t] || 0) + 1
+    })
+    const topReason = Object.entries(byReason).sort((a,b) => b[1]-a[1])[0]
+    const topTeacher = Object.entries(byTeacher).sort((a,b) => b[1]-a[1])[0]
+    return { total: passes.length, completed: completed.length, avgDur, topReason, topTeacher, byReason, byTeacher }
+  }
+
+  function exportPassLogPDF() {
+    const label = LOG_FILTER_OPTIONS.find(o => o.id === logFilter)?.label || 'All Time'
+    const stats = passLogStats()
+    const rows = passLogRows()
+    const topReasonBar = Object.entries(stats.byReason).sort((a,b) => b[1]-a[1]).slice(0,5)
+    const topTeacherBar = Object.entries(stats.byTeacher).sort((a,b) => b[1]-a[1]).slice(0,5)
+    const maxR = topReasonBar[0]?.[1] || 1
+    const maxT = topTeacherBar[0]?.[1] || 1
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>PassAble Pass Report — ${label}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, Arial, sans-serif; font-size: 12px; color: #111; background: white; }
+  .page { max-width: 900px; margin: 0 auto; padding: 32px; }
+  .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #006938; padding-bottom: 14px; margin-bottom: 20px; }
+  .header-left h1 { font-size: 22px; font-weight: 800; color: #006938; }
+  .header-left p { font-size: 12px; color: #6b7280; margin-top: 2px; }
+  .header-right { text-align: right; font-size: 11px; color: #9ca3af; }
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat-box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
+  .stat-box .val { font-size: 24px; font-weight: 800; color: #006938; }
+  .stat-box .lbl { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .chart-box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px; }
+  .chart-box h3 { font-size: 11px; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 11px; }
+  .bar-label { width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #374151; }
+  .bar-track { flex: 1; height: 10px; background: #f3f4f6; border-radius: 5px; overflow: hidden; }
+  .bar-fill { height: 100%; background: #006938; border-radius: 5px; }
+  .bar-count { width: 24px; text-align: right; color: #6b7280; font-weight: 600; }
+  .section-title { font-size: 11px; font-weight: 700; color: #374151; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th { background: #f9fafb; text-align: left; padding: 7px 10px; font-size: 10px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid #e5e7eb; }
+  td { padding: 7px 10px; border-bottom: 1px solid #f3f4f6; color: #374151; }
+  tr:last-child td { border-bottom: none; }
+  tr:nth-child(even) td { background: #f9fafb; }
+  .late { color: #1d4ed8; font-weight: 600; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style></head><body><div class="page">
+  <div class="header">
+    <div class="header-left">
+      <h1>Pass Activity Report</h1>
+      <p>Riverdale High School &nbsp;·&nbsp; ${label}</p>
+    </div>
+    <div class="header-right">
+      <div style="font-size:13px;font-weight:700;color:#006938;">PassAble</div>
+      Generated ${fmtDate(new Date().toISOString())}
+    </div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-box"><div class="val">${stats.total}</div><div class="lbl">Total Passes</div></div>
+    <div class="stat-box"><div class="val">${stats.completed}</div><div class="lbl">Completed</div></div>
+    <div class="stat-box"><div class="val">${stats.avgDur != null ? stats.avgDur + 'm' : '—'}</div><div class="lbl">Avg Duration</div></div>
+    <div class="stat-box"><div class="val">${stats.topReason ? stats.topReason[0] : '—'}</div><div class="lbl">Top Reason</div></div>
+  </div>
+
+  <div class="charts">
+    <div class="chart-box">
+      <h3>Passes by Reason</h3>
+      ${topReasonBar.map(([r,c]) => `<div class="bar-row"><div class="bar-label">${r}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(c/maxR*100)}%"></div></div><div class="bar-count">${c}</div></div>`).join('')}
+    </div>
+    <div class="chart-box">
+      <h3>Passes by Teacher</h3>
+      ${topTeacherBar.map(([t,c]) => `<div class="bar-row"><div class="bar-label">${t}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.round(c/maxT*100)}%"></div></div><div class="bar-count">${c}</div></div>`).join('')}
+    </div>
+  </div>
+
+  <div class="section-title">Pass Detail (${rows.length} records)</div>
+  <table>
+    <thead><tr><th>Student</th><th>Date</th><th>Reason</th><th>Out</th><th>In</th><th>Min</th><th>Room</th><th>Teacher</th><th>Type</th></tr></thead>
+    <tbody>
+      ${rows.map(r => `<tr>
+        <td>${r.student}</td><td>${r.date}</td><td>${r.reason}</td>
+        <td>${r.out}</td><td>${r.in}</td><td>${r.duration}</td>
+        <td>${r.room}</td><td>${r.teacher}</td>
+        <td${r.type === 'Late Pass' ? ' class="late"' : ''}>${r.type}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>
+</div></body></html>`
+
+    const win = window.open('', '_blank', 'width=960,height=780')
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 600)
+  }
+
+  async function exportPassLogExcel() {
+    setExportingPassLog(true)
+    try {
+      // Dynamically load SheetJS from CDN
+      await new Promise((resolve, reject) => {
+        if (window.XLSX) return resolve()
+        const s = document.createElement('script')
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'
+        s.onload = resolve; s.onerror = reject
+        document.head.appendChild(s)
+      })
+      const label = LOG_FILTER_OPTIONS.find(o => o.id === logFilter)?.label || 'All'
+      const stats = passLogStats()
+      const rows = passLogRows()
+      const XLSX = window.XLSX
+      const wb = XLSX.utils.book_new()
+
+      // ── Sheet 1: Pass Detail ─────────────────────────────────────────────
+      const detailData = [
+        ['Student', 'Date', 'Reason', 'Time Out', 'Time In', 'Duration (min)', 'Room', 'Teacher', 'Period', 'Type'],
+        ...rows.map(r => [r.student, r.date, r.reason, r.out, r.in, r.duration === '—' ? '' : r.duration, r.room, r.teacher, r.period, r.type])
+      ]
+      const ws1 = XLSX.utils.aoa_to_sheet(detailData)
+      ws1['!cols'] = [20,14,18,10,10,8,8,24,8,12].map(w => ({ wch: w }))
+      XLSX.utils.book_append_sheet(wb, ws1, 'Pass Detail')
+
+      // ── Sheet 2: Summary ────────────────────────────────────────────────
+      const summaryData = [
+        ['PassAble Pass Activity Report'],
+        ['Riverdale High School'],
+        [`Period: ${label}`],
+        [`Generated: ${fmtDate(new Date().toISOString())}`],
+        [],
+        ['Summary'],
+        ['Total Passes', stats.total],
+        ['Completed Passes', stats.completed],
+        ['Avg Duration (min)', stats.avgDur ?? '—'],
+        ['Top Reason', stats.topReason?.[0] ?? '—', stats.topReason?.[1] ?? ''],
+        ['Top Teacher', stats.topTeacher?.[0] ?? '—', stats.topTeacher?.[1] ?? ''],
+        [],
+        ['Passes by Reason'],
+        ...Object.entries(stats.byReason).sort((a,b) => b[1]-a[1]).map(([r,c]) => [r, c]),
+        [],
+        ['Passes by Teacher'],
+        ...Object.entries(stats.byTeacher).sort((a,b) => b[1]-a[1]).map(([t,c]) => [t, c]),
+      ]
+      const ws2 = XLSX.utils.aoa_to_sheet(summaryData)
+      ws2['!cols'] = [{ wch: 28 }, { wch: 16 }, { wch: 12 }]
+      XLSX.utils.book_append_sheet(wb, ws2, 'Summary')
+
+      const filename = `passable-report-${label.replace(/\s/g,'-').toLowerCase()}-${new Date().toISOString().slice(0,10)}.xlsx`
+      XLSX.writeFile(wb, filename)
+    } catch (e) {
+      console.error('Excel export failed:', e)
+      alert('Excel export failed. Try the PDF option instead.')
+    } finally {
+      setExportingPassLog(false)
+    }
   }
 
   async function checkInPass(passId) {
@@ -1120,7 +1289,7 @@ tr:last-child td{border-bottom:none}
 @media print{body{padding:24px}}
 </style></head><body>
 <div class="hdr">
-  <div><div class="logo">RHS PassAble <span>· Student Pass Report</span></div><div style="font-size:12px;color:#6b7280;margin-top:3px">Roseville High School</div></div>
+  <div><div class="logo">RHS PassAble <span>· Student Pass Report</span></div><div style="font-size:12px;color:#6b7280;margin-top:3px">Riverdale High School</div></div>
   <div class="meta">Generated: ${new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}<br>Period shown: ${filterLabel}</div>
 </div>
 <div class="sh">
@@ -1137,7 +1306,7 @@ ${studentLogActivePass ? `<div class="ap"><div class="apl">🟡 CURRENTLY ON A P
 </div>
 <div class="lbl" style="margin-bottom:12px">Pass History</div>
 ${studentLogPasses.length===0 ? '<p style="font-size:13px;color:#9ca3af;font-style:italic">No passes in this period.</p>' : `<table><thead><tr><th>Date &amp; Time</th><th>Reason</th><th>Teacher / Room</th><th>Period</th><th>Duration</th></tr></thead><tbody>${studentLogPasses.map(p=>{const isOut=!p.time_in;const dur=p.duration_minutes!=null?p.duration_minutes+'m':isOut?'Out now':'—';const tName=studentLogTeacherMap[p.room];return`<tr><td>${new Date(p.time_out).toLocaleDateString('en-US',{month:'short',day:'numeric'})} ${new Date(p.time_out).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</td><td>${p.reason}</td><td>${tName?tName.split(' ').pop()+' · ':''}Rm ${p.room}</td><td>P${p.period}</td><td class="dur${isOut?' out':''}">${dur}</td></tr>`}).join('')}</tbody></table>`}
-<div class="foot"><span>PassAble · Roseville High School</span><span>Printed ${new Date().toLocaleString()}</span></div>
+<div class="foot"><span>PassAble · Riverdale High School</span><span>Printed ${new Date().toLocaleString()}</span></div>
 </body></html>`
 
     const win = window.open('', '_blank', 'width=860,height=720')
@@ -2115,15 +2284,15 @@ ${studentLogPasses.length===0 ? '<p style="font-size:13px;color:#9ca3af;font-sty
                 </button>
               ))}
               <div className="ml-auto flex gap-2">
-                <button onClick={exportAdminCSV}
-                  disabled={passes.length === 0}
+                <button onClick={exportPassLogExcel}
+                  disabled={passes.length === 0 || exportingPassLog}
                   className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40">
-                  Export CSV
+                  {exportingPassLog ? '…' : '📊 Excel'}
                 </button>
-                <button onClick={() => window.print()}
+                <button onClick={exportPassLogPDF}
                   disabled={passes.length === 0}
                   className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40">
-                  Print
+                  📄 PDF Report
                 </button>
               </div>
             </div>
