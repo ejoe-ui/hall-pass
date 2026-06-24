@@ -246,7 +246,9 @@ export default function StudentsAdmin() {
     setEditLast(s.last_name || '')
     setEditDisplay(s.full_name || '')
     setEditId('')
-    if (s.photo_url) {
+    if (photoUrls[s.id]) {
+      setPhotoUrl(photoUrls[s.id])
+    } else if (s.photo_url) {
       setPhotoUrl(s.photo_url)
     } else if (s.photo_file) {
       const { data } = await supabase.storage.from('student-photos').createSignedUrl(s.photo_file, 3600)
