@@ -1080,16 +1080,18 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
     setWireCheckoutSaving(false)
   }
 
-  // Load wire checkout setting when room is known
+  // Load wire checkout setting when teacher/room is known
+  // Use selectedRoom + currentTeacher directly (teacherRoom is a derived const, not available here)
   useEffect(() => {
+    const room = selectedRoom || (currentTeacher?.room || '').split(',')[0]?.trim() || '27'
+    if (!room || !currentTeacher) return
     async function loadWireCheckout() {
-      if (!teacherRoom) return
       const { data } = await supabase.from('settings').select('value')
-        .eq('key', `self_checkout_enabled_${teacherRoom}`).single()
+        .eq('key', `self_checkout_enabled_${room}`).single()
       setWireCheckoutEnabled(data?.value === 'true' || data?.value === true)
     }
     loadWireCheckout()
-  }, [teacherRoom])
+  }, [selectedRoom, currentTeacher])
 
   async function savePassword() {
     setPasswordError('')
