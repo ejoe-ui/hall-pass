@@ -496,14 +496,18 @@ function TeacherInner() {
   const [selectedRoom, setSelectedRoom] = useState(null)
 
   // Cowboy Wire — Class Objectives
-  const [objPeriod,    setObjPeriod]    = useState('1')
-  const [objClassName, setObjClassName] = useState('')
-  const [objTopic,     setObjTopic]     = useState('')
-  const [objLines,     setObjLines]     = useState(['', '', ''])   // up to 5 objectives
-  const [objDoNow,     setObjDoNow]     = useState('')
-  const [objSaving,    setObjSaving]    = useState(false)
-  const [objSaved,     setObjSaved]     = useState(false)
-  const [objLoading,   setObjLoading]   = useState(false)
+  const [showObjectives,  setShowObjectives]  = useState(false)
+  const [objPeriod,       setObjPeriod]       = useState('1')
+  const [objAlsoPeriods,  setObjAlsoPeriods]  = useState([])  // additional periods to copy to on save
+  const [objClassName,    setObjClassName]    = useState('')
+  const [objTopic,        setObjTopic]        = useState('')
+  const [objLines,        setObjLines]        = useState(['', '', ''])   // up to 5 objectives
+  const [objDoNow,        setObjDoNow]        = useState('')
+  const [objGotIt,        setObjGotIt]        = useState('')
+  const [objSaving,       setObjSaving]       = useState(false)
+  const [objSaved,        setObjSaved]        = useState(false)
+  const [objSavedPeriods, setObjSavedPeriods] = useState([])
+  const [objLoading,      setObjLoading]      = useState(false)
 
   // Settings
   const [showSettings, setShowSettings] = useState(false)
@@ -942,13 +946,14 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
         setObjClassName(data.class_name || '')
         setObjTopic(data.topic || '')
         setObjDoNow(data.do_now || '')
+        setObjGotIt(data.got_it_when || '')
         const lines = Array.isArray(data.objectives) ? data.objectives : []
-        // Always show at least 3 slots
         setObjLines([...lines, '', '', ''].slice(0, Math.max(3, lines.length + 1, 3)))
       } else {
         setObjClassName('')
         setObjTopic('')
         setObjDoNow('')
+        setObjGotIt('')
         setObjLines(['', '', ''])
       }
     } catch { /* table may not exist yet — graceful */ }
@@ -958,25 +963,32 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
   async function saveObjectives() {
     if (!currentTeacher?.id) return
     setObjSaving(true)
-    const objectives = objLines.map(l => l.trim()).filter(Boolean)
-    await supabase
-      .from('teacher_objectives')
-      .upsert({
-        teacher_id: currentTeacher.id,
-        period:     objPeriod,
-        class_name: objClassName.trim(),
-        topic:      objTopic.trim() || null,
-        objectives,
-        do_now:     objDoNow.trim() || null,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'teacher_id,period' })
+    const objectives  = objLines.map(l => l.trim()).filter(Boolean)
+    const allPeriods  = [objPeriod, ...objAlsoPeriods.filter(p => p !== objPeriod)]
+    const rows        = allPeriods.map(period => ({
+      teacher_id:  currentTeacher.id,
+      period,
+      class_name:  objClassName.trim(),
+      topic:       objTopic.trim() || null,
+      objectives,
+      do_now:      objDoNow.trim() || null,
+      got_it_when: objGotIt.trim() || null,
+      updated_at:  new Date().toISOString(),
+    }))
+    await supabase.from('teacher_objectives').upsert(rows, { onConflict: 'teacher_id,period' })
     setObjSaving(false)
     setObjSaved(true)
-    setTimeout(() => setObjSaved(false), 2500)
+    setObjSavedPeriods(allPeriods)
+    setTimeout(() => { setObjSaved(false); setObjSavedPeriods([]) }, 3000)
   }
 
-  // Load objectives when period tab changes or teacher loads
-  useEffect(() => { if (currentTeacher?.id) loadObjectives(objPeriod) }, [objPeriod, currentTeacher?.id])
+  // Load objectives when period tab changes or teacher loads; clear extra periods on switch
+  useEffect(() => {
+    if (currentTeacher?.id) {
+      loadObjectives(objPeriod)
+      setObjAlsoPeriods([])
+    }
+  }, [objPeriod, currentTeacher?.id])
 
   // ── Settings ───────────────────────────────────────────────────────────────
   async function loadSettings() {
@@ -2373,31 +2385,75 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
         )}
 
         {/* ── Cowboy Wire — Class Objectives ──────────────────────────── */}
-        <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
-          <div className="flex items-start justify-between mb-3">
+        <div className="bg-white rounded-xl border border-gray-200 mb-4">
+          {/* Collapsible header */}
+          <button
+            onClick={() => setShowObjectives(o => !o)}
+            className="w-full flex items-center justify-between p-4 text-left"
+            style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+          >
             <div>
               <p className="text-sm font-semibold" style={{ color: RHS_GREEN }}>Cowboy Wire · Class Objectives</p>
-              <p className="text-xs text-gray-400 mt-0.5">Shown on the /wire student display. Updates immediately.</p>
+              {!showObjectives && <p className="text-xs text-gray-400 mt-0.5">Tap to set objectives for each period</p>}
+              {showObjectives  && <p className="text-xs text-gray-400 mt-0.5">Shown on the /wire student display. Updates immediately.</p>}
             </div>
-            <a href={`/wire?room=${teacherRoom}`} target="_blank" rel="noopener noreferrer"
-              className="text-xs px-2.5 py-1 rounded-lg border text-gray-500 hover:bg-gray-50 whitespace-nowrap" style={{ textDecoration: 'none' }}>
-              Open Wire ↗
-            </a>
+            <div className="flex items-center gap-2">
+              <a href={`/wire?room=${teacherRoom}`} target="_blank" rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="text-xs px-2.5 py-1 rounded-lg border text-gray-500 hover:bg-gray-50 whitespace-nowrap" style={{ textDecoration: 'none' }}>
+                Open Wire ↗
+              </a>
+              <span className="text-gray-300 text-sm">{showObjectives ? '▲' : '▼'}</span>
+            </div>
+          </button>
+
+          {showObjectives && <div className="px-4 pb-4">
+
+          {/* Period tabs — primary period (loads data) */}
+          <div className="mb-1">
+            <p className="text-xs text-gray-400 mb-1.5">Load period</p>
+            <div className="flex gap-1 flex-wrap">
+              {['1','2','3','4','5','6','7'].map(p => (
+                <button key={p} onClick={() => setObjPeriod(p)}
+                  className="px-3 py-1 text-xs font-medium rounded-lg transition-colors"
+                  style={{
+                    background: objPeriod === p ? RHS_GREEN : '#f3f4f6',
+                    color: objPeriod === p ? 'white' : '#374151',
+                    border: 'none', cursor: 'pointer',
+                  }}>
+                  Period {p}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Period tabs */}
-          <div className="flex gap-1 mb-4 flex-wrap">
-            {['1','2','3','4','5','6','7'].map(p => (
-              <button key={p} onClick={() => setObjPeriod(p)}
-                className="px-3 py-1 text-xs font-medium rounded-lg transition-colors"
-                style={{
-                  background: objPeriod === p ? RHS_GREEN : '#f3f4f6',
-                  color: objPeriod === p ? 'white' : '#374151',
-                  border: 'none', cursor: 'pointer',
-                }}>
-                Period {p}
-              </button>
-            ))}
+          {/* Also save to — multi-period copy */}
+          <div className="mb-4">
+            <p className="text-xs text-gray-400 mb-1.5">Also save to</p>
+            <div className="flex gap-2 flex-wrap">
+              {['1','2','3','4','5','6','7'].filter(p => p !== objPeriod).map(p => {
+                const checked = objAlsoPeriods.includes(p)
+                return (
+                  <label key={p} className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => setObjAlsoPeriods(prev =>
+                        checked ? prev.filter(x => x !== p) : [...prev, p]
+                      )}
+                      className="rounded"
+                      style={{ accentColor: RHS_GREEN }}
+                    />
+                    <span className="text-xs text-gray-600">Period {p}</span>
+                  </label>
+                )
+              })}
+            </div>
+            {objAlsoPeriods.length > 0 && (
+              <p className="text-xs mt-1" style={{ color: RHS_GREEN }}>
+                Will save to Periods {[objPeriod, ...objAlsoPeriods].sort().join(', ')}
+              </p>
+            )}
           </div>
 
           {objLoading ? (
@@ -2476,20 +2532,40 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
                 />
               </div>
 
+              {/* You know you got it when… */}
+              <div>
+                <label className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1 block">You know you got it when… (optional)</label>
+                <textarea
+                  value={objGotIt}
+                  onChange={e => setObjGotIt(e.target.value)}
+                  placeholder="Students can demonstrate mastery by…"
+                  rows={2}
+                  className="w-full px-3 py-2 text-sm border rounded-lg bg-white resize-none"
+                  style={{ borderColor: '#e5e7eb' }}
+                />
+              </div>
+
               {/* Save button */}
               <div className="flex items-center justify-between pt-1">
-                <p className="text-xs text-gray-400">Period {objPeriod} · auto-loads when you switch periods</p>
+                <p className="text-xs text-gray-400">Class name saves per period and auto-loads next time.</p>
                 <button
                   onClick={saveObjectives}
                   disabled={objSaving}
                   className="px-4 py-2 text-sm font-medium rounded-lg text-white disabled:opacity-40"
-                  style={{ backgroundColor: RHS_GREEN, border: 'none', cursor: objSaving ? 'default' : 'pointer' }}
+                  style={{ backgroundColor: objSaved ? '#16a34a' : RHS_GREEN, border: 'none', cursor: objSaving ? 'default' : 'pointer' }}
                 >
-                  {objSaved ? '✓ Saved' : objSaving ? 'Saving…' : 'Save Objectives'}
+                  {objSaving
+                    ? 'Saving…'
+                    : objSaved
+                      ? `✓ Saved to Period${objSavedPeriods.length > 1 ? 's' : ''} ${objSavedPeriods.sort().join(', ')}`
+                      : objAlsoPeriods.length > 0
+                        ? `Save to Periods ${[objPeriod, ...objAlsoPeriods].sort().join(', ')}`
+                        : 'Save Objectives'}
                 </button>
               </div>
             </div>
           )}
+          </div>}
         </div>
 
         <div className="flex justify-end mb-4">
