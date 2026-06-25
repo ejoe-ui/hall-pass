@@ -2300,11 +2300,11 @@ function WireContent() {
     const { status, current } = periodInfo
     if ((checkoutStatus === 'first15' || checkoutStatus === 'ok' || checkoutStatus === 'warning20') && current?.end) {
       const [h, m] = current.end.split(':').map(Number)
-      return `Bell at ${h % 12 || 12}:${m.toString().padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`
+      return `Next Bell at ${h % 12 || 12}:${m.toString().padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`
     }
     if (checkoutStatus === 'last15' && current?.end) {
       const [h, m] = current.end.split(':').map(Number)
-      return `Bell at ${h % 12 || 12}:${m.toString().padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`
+      return `Next Bell at ${h % 12 || 12}:${m.toString().padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`
     }
     return ''
   }
@@ -2416,24 +2416,27 @@ function WireContent() {
         padding: '7px 20px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{
-            width: 8, height: 8, borderRadius: '50%',
-            background: periodInfo?.status === 'period' ? '#5dca8a' : '#f87171',
-          }} />
-          <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 500 }}>
-            {statusText()}
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {statusRight() && (
-            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>{statusRight()}</span>
-          )}
+        {/* LEFT — Next Bell */}
+        <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>
+          {statusRight() || ' '}
+        </span>
+
+        {/* RIGHT — pass status dot + text + Self Check-Out */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: periodInfo?.status === 'period' ? '#5dca8a' : '#f87171',
+              flexShrink: 0,
+            }} />
+            <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 500 }}>
+              {statusText()}
+            </span>
+          </div>
           {selfCheckoutEnabled && periodInfo?.status === 'period' && (
             <a
               href={(checkoutStatus === 'ok' || checkoutStatus === 'warning20') ? checkoutUrl : undefined}
               style={{
-                background: 'white',
                 color: (checkoutStatus === 'ok' || checkoutStatus === 'warning20') ? RHS_GREEN : 'rgba(255,255,255,0.35)',
                 background: (checkoutStatus === 'ok' || checkoutStatus === 'warning20') ? 'white' : 'rgba(255,255,255,0.12)',
                 fontSize: 11, fontWeight: 500, padding: '4px 11px', borderRadius: 6,
