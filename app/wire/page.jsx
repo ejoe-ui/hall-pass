@@ -565,11 +565,6 @@ function PeriodHeroCard({ periodInfo }) {
   if (!periodInfo) return null
   const { status, current, minutesLeftInCurrent } = periodInfo
 
-  const isPassOpen = checkoutStatus === 'ok' || checkoutStatus === 'warning20'
-  const isFirst15  = checkoutStatus === 'first15'
-  const isLast15   = checkoutStatus === 'last15'
-  const isPassing  = status === 'break' || status === 'passing'
-
   let periodLabel = ''
   let timeDisplay = ''
   let sublabel    = ''
