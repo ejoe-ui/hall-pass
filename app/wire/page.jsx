@@ -2207,9 +2207,27 @@ function WireContent() {
   }, [uid, roomParam, periodInfo?.current?.value])
 
   // ── All teachers (for destination picker in self-checkout) ────────────────
+  // Try teachers table first (requires anon RLS policy); fall back to cw2_classrooms
   useEffect(() => {
-    supabase.from('teachers').select('id, full_name, room').order('full_name')
-      .then(({ data }) => { if (data) setAllTeachers(data) })
+    async function fetchTeachers() {
+      const { data: fromTeachers } = await supabase
+        .from('teachers').select('id, full_name, room').order('full_name')
+      if (fromTeachers?.length > 0) { setAllTeachers(fromTeachers); return }
+      // Fallback: cw2_classrooms (always readable by anon)
+      const { data: fromClassrooms } = await supabase
+        .from('cw2_classrooms')
+        .select('id, teacher_name, room')
+        .eq('is_active', true)
+        .order('teacher_name')
+      if (fromClassrooms) {
+        setAllTeachers(fromClassrooms.map(c => ({
+          id: c.id,
+          full_name: c.teacher_name,
+          room: c.room,
+        })))
+      }
+    }
+    fetchTeachers()
   }, [])
 
   // ── Weather ────────────────────────────────────────────────────────────────
