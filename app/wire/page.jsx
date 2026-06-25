@@ -841,7 +841,8 @@ function PassHistoryCard({
   const [expanded, setExpanded] = useState(false)
 
   // ── Inline self-checkout flow state ──────────────────────────────────────
-  const [coStage,   setCoStage]   = useState('idle')  // idle | found | alreadyOut | working | done | error
+  // Stages: idle | authEntry | authFail | found | libraryWarn | destInfo | alreadyOut | working | done | error
+  const [coStage,   setCoStage]   = useState('idle')
   const [coInput,   setCoInput]   = useState('')
   const [coStudent, setCoStudent] = useState(null)    // {id,name,photo,period,openPass}
   const [coReason,  setCoReason]  = useState('')
@@ -850,6 +851,11 @@ function PassHistoryCard({
   const [coCountdown, setCoCountdown] = useState(5)
   const [coAuthInput, setCoAuthInput] = useState('')
   const [coAuthMode,  setCoAuthMode]  = useState('qr')   // 'qr' | 'code'
+  // Destination teacher (for Errand / On Assignment)
+  const [coDestTeacher,       setCoDestTeacher]       = useState(null)   // {id, full_name, room}
+  const [coDestTeacherSearch, setCoDestTeacherSearch] = useState('')
+  const [coDestTeacherList,   setCoDestTeacherList]   = useState([])
+  const [coDestNote,          setCoDestNote]          = useState('')
   const coInputRef = useRef(null)
   const coAuthRef  = useRef(null)
 
@@ -906,7 +912,26 @@ function PassHistoryCard({
     setCoStage('idle'); setCoInput(''); setCoStudent(null)
     setCoReason(''); setCoOther(''); setCoMsg(''); setCoCountdown(5)
     setCoAuthInput(''); setCoAuthMode('qr')
+    setCoDestTeacher(null); setCoDestTeacherSearch(''); setCoDestNote('')
     setTimeout(() => coInputRef.current?.focus(), 50)
+  }
+
+  // Load all teachers for destination picker (once when component mounts)
+  useEffect(() => {
+    supabase.from('teachers').select('id, full_name, room').order('full_name')
+      .then(({ data }) => { if (data) setCoDestTeacherList(data) })
+  }, [])
+
+  // Handle reason selection — route to special stages for Library / Errand / On Assignment
+  function selectReason(r) {
+    setCoReason(r)
+    if (r === 'Library') {
+      setCoStage('libraryWarn')
+    } else if (r === 'Errand' || r === 'On Assignment') {
+      setCoDestTeacher(null); setCoDestTeacherSearch(''); setCoDestNote('')
+      setCoStage('destInfo')
+    }
+    // All other reasons stay on 'found' stage — Check Out button becomes active
   }
 
   // Called by ScannerPane when a QR is detected
@@ -980,15 +1005,23 @@ function PassHistoryCard({
     setCoStage('working')
     try {
       const reason = coReason === 'Other' ? coOther.trim() || 'Other' : coReason
+      const destId = coDestTeacher?.id || null
+
+      // Insert the pass — destination_teacher_id links to the teacher notification system
+      // Teacher dashboards query: passes WHERE destination_teacher_id = myId AND time_in IS NULL
       await supabase.from('passes').insert({
-        student_id: coStudent.id,
-        teacher_id: teacher?.id || null,
-        room:       roomParam,
+        student_id:            coStudent.id,
+        teacher_id:            teacher?.id || null,
+        room:                  roomParam,
         reason,
-        time_out:   new Date().toISOString(),
-        period:     coStudent.period,
+        time_out:              new Date().toISOString(),
+        period:                coStudent.period,
+        destination_teacher_id: destId,
+        destination_note:      coDestNote.trim() || null,
       })
-      setCoMsg(`✓ ${coStudent.name} checked out — ${reason}`)
+
+      const destLabel = coDestTeacher ? ` → Room ${coDestTeacher.room} (${coDestTeacher.full_name})` : ''
+      setCoMsg(`✓ ${coStudent.name} checked out — ${reason}${destLabel}`)
       setCoStage('done')
       startCountdown()
     } catch { setCoMsg('Check-out failed — try again'); setCoStage('error') }
@@ -1152,50 +1185,52 @@ function PassHistoryCard({
       </div>
     )
 
+    // ── Shared student identity header ────────────────────────────────────────
+    const StudentHeader = ({ sub }) => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 11 }}>
+        {coStudent.photo
+          ? <img src={coStudent.photo} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: `1.5px solid ${RHS_GREEN}` }}
+              onError={e => { e.currentTarget.style.display = 'none' }} />
+          : <div style={{ width: 40, height: 40, borderRadius: '50%', background: RHS_GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
+              {coStudent.name.split(' ').map(n => n[0]).slice(0,2).join('')}
+            </div>
+        }
+        <div>
+          <p style={{ fontSize: 14, fontWeight: 600, color: '#1a1a18', lineHeight: 1.2 }}>{coStudent.name}</p>
+          <p style={{ fontSize: 10, color: '#aaa' }}>{sub}</p>
+        </div>
+      </div>
+    )
+
     if (coStage === 'found') return (
       <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f5f9f6', padding: '12px 13px' }}>
-        {/* Student identity */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 11 }}>
-          {coStudent.photo
-            ? <img src={coStudent.photo} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: `1.5px solid ${RHS_GREEN}` }}
-                onError={e => { e.currentTarget.style.display = 'none' }} />
-            : <div style={{ width: 40, height: 40, borderRadius: '50%', background: RHS_GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>
-                {coStudent.name.split(' ').map(n => n[0]).slice(0,2).join('')}
-              </div>
-          }
-          <div>
-            <p style={{ fontSize: 14, fontWeight: 600, color: '#1a1a18', lineHeight: 1.2 }}>{coStudent.name}</p>
-            <p style={{ fontSize: 10, color: '#aaa' }}>Where are you going?</p>
-          </div>
-        </div>
+        {StudentHeader({ sub: 'Where are you going?' })}
         {/* Reason grid */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 9 }}>
           {CO_REASONS.filter(r => r !== 'Other').map(r => (
-            <button key={r} onClick={() => setCoReason(r)}
+            <button key={r} onClick={() => selectReason(r)}
               style={{
-                fontSize: 11, padding: '5px 10px', borderRadius: 6, border: `1.5px solid ${coReason === r ? RHS_GREEN : '#dde8e2'}`,
-                background: coReason === r ? RHS_GREEN : 'white', color: coReason === r ? 'white' : '#444',
+                fontSize: 11, padding: '5px 10px', borderRadius: 6,
+                border: `1.5px solid ${coReason === r ? RHS_GREEN : '#dde8e2'}`,
+                background: coReason === r ? RHS_GREEN : 'white',
+                color: coReason === r ? 'white' : '#444',
                 cursor: 'pointer', fontWeight: coReason === r ? 600 : 400,
               }}>{r}</button>
           ))}
-          <button onClick={() => setCoReason('Other')}
+          <button onClick={() => selectReason('Other')}
             style={{
-              fontSize: 11, padding: '5px 10px', borderRadius: 6, border: `1.5px solid ${coReason === 'Other' ? RHS_GREEN : '#dde8e2'}`,
-              background: coReason === 'Other' ? RHS_GREEN : 'white', color: coReason === 'Other' ? 'white' : '#444',
-              cursor: 'pointer',
+              fontSize: 11, padding: '5px 10px', borderRadius: 6,
+              border: `1.5px solid ${coReason === 'Other' ? RHS_GREEN : '#dde8e2'}`,
+              background: coReason === 'Other' ? RHS_GREEN : 'white',
+              color: coReason === 'Other' ? 'white' : '#444', cursor: 'pointer',
             }}>Other</button>
         </div>
         {coReason === 'Other' && (
-          <input
-            value={coOther}
-            onChange={e => setCoOther(e.target.value)}
-            placeholder="Where are you going?"
-            autoFocus
-            style={{
-              width: '100%', fontSize: 12, padding: '7px 10px', borderRadius: 6,
+          <input value={coOther} onChange={e => setCoOther(e.target.value)}
+            placeholder="Where are you going?" autoFocus
+            style={{ width: '100%', fontSize: 12, padding: '7px 10px', borderRadius: 6,
               border: '1.5px solid #c0d8c8', background: 'white', outline: 'none',
-              marginBottom: 8, boxSizing: 'border-box',
-            }}
+              marginBottom: 8, boxSizing: 'border-box' }}
           />
         )}
         <div style={{ display: 'flex', gap: 7 }}>
@@ -1205,16 +1240,121 @@ function PassHistoryCard({
           </button>
           <button onClick={doCheckout}
             disabled={!coReason || (coReason === 'Other' && !coOther.trim())}
-            style={{
-              flex: 2, fontSize: 13, fontWeight: 600, padding: '8px', borderRadius: 7, border: 'none',
+            style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '8px', borderRadius: 7, border: 'none',
               background: coReason && !(coReason === 'Other' && !coOther.trim()) ? RHS_GREEN : '#e0ddd8',
-              color: 'white', cursor: coReason ? 'pointer' : 'default',
-            }}>
+              color: 'white', cursor: coReason ? 'pointer' : 'default' }}>
             Check Out
           </button>
         </div>
       </div>
     )
+
+    // ── Library warning ────────────────────────────────────────────────────────
+    if (coStage === 'libraryWarn') return (
+      <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#fffbeb', padding: '12px 13px' }}>
+        {StudentHeader({ sub: 'Library' })}
+        <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '10px 12px', marginBottom: 11 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 4 }}>📚 Library Pass Required</p>
+          <p style={{ fontSize: 12, color: '#78350f', lineHeight: 1.5 }}>
+            You need a <strong>signed hall pass from your teacher</strong> to enter the library.
+            Make sure your teacher has signed off before heading over.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 7 }}>
+          <button onClick={() => { setCoReason(''); setCoStage('found') }}
+            style={{ flex: 1, fontSize: 12, padding: '8px', borderRadius: 7, border: '1px solid #e0ddd8', background: 'white', color: '#888', cursor: 'pointer' }}>
+            ← Go Back
+          </button>
+          <button onClick={doCheckout}
+            style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '8px', borderRadius: 7, border: 'none', background: RHS_GREEN, color: 'white', cursor: 'pointer' }}>
+            I have a signed pass — Check Out
+          </button>
+        </div>
+      </div>
+    )
+
+    // ── Destination teacher (Errand / On Assignment) ──────────────────────────
+    if (coStage === 'destInfo') {
+      const filtered = coDestTeacherSearch.trim().length > 0
+        ? coDestTeacherList.filter(t =>
+            t.full_name.toLowerCase().includes(coDestTeacherSearch.toLowerCase()) ||
+            String(t.room).includes(coDestTeacherSearch))
+        : coDestTeacherList
+      const canCheckOut = !!coDestTeacher
+
+      return (
+        <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f5f9f6', padding: '12px 13px' }}>
+          {StudentHeader({ sub: coReason + ' — who are you heading to?' })}
+
+          {/* Teacher search */}
+          <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#888', marginBottom: 5 }}>
+            Destination Teacher
+          </p>
+          {coDestTeacher ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#e8f5ee', borderRadius: 7,
+              padding: '7px 10px', marginBottom: 8 }}>
+              <i className="ti ti-user-check" style={{ fontSize: 14, color: RHS_GREEN }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#1a1a18', flex: 1 }}>
+                {coDestTeacher.full_name} · Room {coDestTeacher.room}
+              </span>
+              <button onClick={() => { setCoDestTeacher(null); setCoDestTeacherSearch('') }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 12 }}>✕</button>
+            </div>
+          ) : (
+            <>
+              <input value={coDestTeacherSearch}
+                onChange={e => setCoDestTeacherSearch(e.target.value)}
+                placeholder="Search teacher name or room…"
+                autoFocus
+                style={{ width: '100%', fontSize: 12, padding: '7px 10px', borderRadius: 6,
+                  border: '1.5px solid #c0d8c8', background: 'white', outline: 'none',
+                  marginBottom: 4, boxSizing: 'border-box' }}
+              />
+              {coDestTeacherSearch.trim().length > 0 && (
+                <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid #e0ddd8',
+                  borderRadius: 6, background: 'white', marginBottom: 8 }}>
+                  {filtered.length === 0 ? (
+                    <p style={{ fontSize: 11, color: '#aaa', padding: '8px 10px' }}>No teachers found</p>
+                  ) : filtered.slice(0, 8).map(t => (
+                    <button key={t.id} onClick={() => { setCoDestTeacher(t); setCoDestTeacherSearch('') }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left',
+                        padding: '7px 10px', background: 'none', border: 'none', cursor: 'pointer',
+                        borderBottom: '0.5px solid #f0eeea', fontSize: 12, color: '#1a1a18' }}>
+                      <span style={{ flex: 1 }}>{t.full_name}</span>
+                      <span style={{ fontSize: 10, color: '#aaa' }}>Rm {t.room}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Optional note */}
+          <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#888', marginBottom: 5 }}>
+            Reason / Note <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+          </p>
+          <input value={coDestNote} onChange={e => setCoDestNote(e.target.value)}
+            placeholder={coReason === 'On Assignment' ? 'e.g. picking up assignment, borrowing materials…' : 'e.g. returning book, delivering message…'}
+            style={{ width: '100%', fontSize: 12, padding: '7px 10px', borderRadius: 6,
+              border: '1.5px solid #c0d8c8', background: 'white', outline: 'none',
+              marginBottom: 9, boxSizing: 'border-box' }}
+          />
+
+          <div style={{ display: 'flex', gap: 7 }}>
+            <button onClick={() => setCoStage('found')}
+              style={{ flex: 1, fontSize: 12, padding: '8px', borderRadius: 7, border: '1px solid #e0ddd8', background: 'white', color: '#888', cursor: 'pointer' }}>
+              ← Back
+            </button>
+            <button onClick={doCheckout} disabled={!canCheckOut}
+              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '8px', borderRadius: 7, border: 'none',
+                background: canCheckOut ? RHS_GREEN : '#e0ddd8', color: 'white',
+                cursor: canCheckOut ? 'pointer' : 'default' }}>
+              Check Out — Notify {coDestTeacher ? coDestTeacher.full_name.split(' ').pop() : 'Teacher'}
+            </button>
+          </div>
+        </div>
+      )
+    }
 
     if (coStage === 'alreadyOut') {
       const op = coStudent.openPass
@@ -2433,22 +2573,6 @@ function WireContent() {
               {statusText()}
             </span>
           </div>
-          {selfCheckoutEnabled && periodInfo?.status === 'period' && (
-            <a
-              href={(checkoutStatus === 'ok' || checkoutStatus === 'warning20') ? checkoutUrl : undefined}
-              style={{
-                color: (checkoutStatus === 'ok' || checkoutStatus === 'warning20') ? RHS_GREEN : 'rgba(255,255,255,0.35)',
-                background: (checkoutStatus === 'ok' || checkoutStatus === 'warning20') ? 'white' : 'rgba(255,255,255,0.12)',
-                fontSize: 11, fontWeight: 500, padding: '4px 11px', borderRadius: 6,
-                textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4,
-                pointerEvents: (checkoutStatus === 'ok' || checkoutStatus === 'warning20') ? 'auto' : 'none',
-                letterSpacing: '0.03em',
-              }}
-            >
-              <i className="ti ti-door-exit" aria-hidden="true" style={{ fontSize: 12 }} />
-              Self Check-Out
-            </a>
-          )}
         </div>
       </div>
 
