@@ -685,9 +685,21 @@ function LunchCard({ menu, nextBellLabel }) {
 const CO_REASONS = ['Restroom','Library','Office','Counselor','Lockers','Errand','On Assignment','Career Counselor','School Store','Other']
 
 function PassHistoryCard({
-  student, activePass, weekPassCount, weekPassTotal,
+  uid, student, activePass, weekPassCount, weekPassTotal,
   selfCheckoutEnabled, checkoutUrl, checkoutStatus, roomParam, teacher,
 }) {
+  // ── Stats visibility toggle (privacy — student chooses when to show) ─────
+  const SHOW_KEY = uid ? `passable_show_stats_${uid}` : null
+  const [showStats, setShowStats] = useState(() => {
+    if (typeof window === 'undefined' || !SHOW_KEY) return false
+    return localStorage.getItem(SHOW_KEY) === 'true'
+  })
+  function toggleStats() {
+    const next = !showStats
+    setShowStats(next)
+    if (SHOW_KEY) localStorage.setItem(SHOW_KEY, next ? 'true' : 'false')
+  }
+
   // ── Inline self-checkout flow state ──────────────────────────────────────
   const [coStage,   setCoStage]   = useState('idle')  // idle | found | alreadyOut | working | done | error
   const [coInput,   setCoInput]   = useState('')
@@ -928,7 +940,58 @@ function PassHistoryCard({
     return null
   }
 
+  // ── Toggle switch UI helper ───────────────────────────────────────────────
+  const StatsToggle = ({ label }) => (
+    <button
+      onClick={toggleStats}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+      }}
+    >
+      {/* pill track */}
+      <span style={{
+        width: 36, height: 20, borderRadius: 10, display: 'flex', alignItems: 'center',
+        background: showStats ? RHS_GREEN : '#d1d5db',
+        padding: '2px', boxSizing: 'border-box', flexShrink: 0,
+        transition: 'background 0.2s',
+      }}>
+        <span style={{
+          width: 16, height: 16, borderRadius: '50%', background: 'white',
+          transform: showStats ? 'translateX(16px)' : 'translateX(0)',
+          transition: 'transform 0.2s', display: 'block',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+        }} />
+      </span>
+      <span style={{ fontSize: 11, color: '#888' }}>{label}</span>
+    </button>
+  )
+
   if (!student) {
+    // Personalized page (uid in URL) but student not loaded yet — loading state
+    if (uid) {
+      return (
+        <Card>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '8px 13px', borderBottom: '0.5px solid #eeece8',
+          }}>
+            <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.11em', textTransform: 'uppercase', color: '#999' }}>
+              PassAble Pass Status
+            </span>
+            <i className="ti ti-grip-vertical" aria-hidden="true" style={{ fontSize: 13, color: '#ddd', cursor: 'grab' }} />
+          </div>
+          <CardBody>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: 0.4 }}>
+              <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#e5e7eb', flexShrink: 0 }} />
+              <p style={{ fontSize: 11, color: '#aaa' }}>Loading your pass status…</p>
+            </div>
+          </CardBody>
+        </Card>
+      )
+    }
+
+    // Shared display (no uid) — generic state
     return (
       <Card>
         <div style={{
@@ -938,25 +1001,22 @@ function PassHistoryCard({
           <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.11em', textTransform: 'uppercase', color: '#999' }}>
             PassAble Pass Status
           </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            {selfCheckoutEnabled && <span style={{ fontSize: 10, color: '#bbb' }}>enter ID to check out</span>}
-            <i className="ti ti-grip-vertical" aria-hidden="true" style={{ fontSize: 13, color: '#ddd', cursor: 'grab' }} />
-          </span>
+          <i className="ti ti-grip-vertical" aria-hidden="true" style={{ fontSize: 13, color: '#ddd', cursor: 'grab' }} />
         </div>
         {selfCheckoutEnabled ? (
           <InlineCheckout />
         ) : (
           <CardBody>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: 0.5 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, opacity: 0.45 }}>
               <div style={{
                 width: 48, height: 48, borderRadius: '50%',
                 background: '#f0f8f4', border: '1px dashed #a0c8b0',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}>
-                <i className="ti ti-qrcode" aria-hidden="true" style={{ fontSize: 20, color: RHS_GREEN }} />
+                <i className="ti ti-id-badge-2" aria-hidden="true" style={{ fontSize: 20, color: RHS_GREEN }} />
               </div>
               <p style={{ fontSize: 12, color: '#888', lineHeight: 1.5 }}>
-                Scan your QR badge or NFC sticker to see your pass history
+                Open your personal PassAble link to see your pass status
               </p>
             </div>
           </CardBody>
@@ -978,21 +1038,23 @@ function PassHistoryCard({
 
   return (
     <Card>
+      {/* Header row: title + stats toggle + drag handle */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '8px 13px', borderBottom: '0.5px solid #eeece8',
+      }}>
+        <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.11em', textTransform: 'uppercase', color: '#999' }}>
+          {activePass && showStats ? 'PassAble · Pass Active' : 'PassAble Pass Status'}
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <StatsToggle label={showStats ? 'Stats on' : 'Show stats'} />
+          <i className="ti ti-grip-vertical" aria-hidden="true" style={{ fontSize: 13, color: '#ddd', cursor: 'grab' }} />
+        </span>
+      </div>
+
+      {/* Stats body — only visible when toggled on */}
+      {showStats && (
       <div onClick={() => setExpanded(o => !o)} style={{ cursor: 'pointer' }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '8px 13px', borderBottom: '0.5px solid #eeece8',
-        }}>
-          <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.11em', textTransform: 'uppercase', color: '#999' }}>
-            {activePass ? 'PassAble · Pass Active' : 'PassAble Pass Status'}
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 10, color: '#bbb' }}>{activePass ? 'Out of class' : 'In class'}</span>
-            <i className={`ti ${expanded ? 'ti-chevron-up' : 'ti-door-exit'}`} aria-hidden="true"
-               style={{ fontSize: 12, color: '#ccc' }} />
-            <i className="ti ti-grip-vertical" aria-hidden="true" style={{ fontSize: 13, color: '#ddd', cursor: 'grab' }} />
-          </span>
-        </div>
         <CardBody>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {activePass ? (
@@ -1035,7 +1097,10 @@ function PassHistoryCard({
           </div>
         </CardBody>
       </div>
-      {expanded && <CheckoutPopup />}
+      )}
+
+      {/* Checkout popup — always accessible regardless of stats toggle */}
+      {expanded && showStats && <CheckoutPopup />}
     </Card>
   )
 }
@@ -1539,13 +1604,19 @@ function WireContent() {
       let resolvedTeacher = null
       let resolvedStudent = null
 
-      // 1. Look up student by UID
+      // 1. Look up student by UID — try student `id` first (personalized wire URL),
+      //    then fall back to `nfc_uid` (legacy NFC tap flow)
       if (uid) {
-        const { data: stu } = await supabase
-          .from('students')
-          .select('*')
-          .eq('nfc_uid', uid)
-          .single()
+        let stu = null
+        const { data: byId } = await supabase
+          .from('students').select('*').eq('id', uid).maybeSingle()
+        if (byId) {
+          stu = byId
+        } else {
+          const { data: byNfc } = await supabase
+            .from('students').select('*').eq('nfc_uid', uid).maybeSingle()
+          stu = byNfc || null
+        }
         if (stu) {
           resolvedStudent = stu
           setStudent(stu)
@@ -1885,7 +1956,7 @@ function WireContent() {
     switch (id) {
       case 'weather':     return <WeatherCard key={id} weather={d} useCelsius={useCelsius} onToggleUnit={() => setUseCelsius(u => !u)} />
       case 'lunch':       return <LunchCard key={id} menu={d} nextBellLabel={lunchBellLabel()} />
-      case 'passHistory': return <PassHistoryCard key={id} student={student} activePass={activePass} weekPassCount={weekPassCount} weekPassTotal={weekPassTotal} selfCheckoutEnabled={selfCheckoutEnabled} checkoutUrl={checkoutUrl} checkoutStatus={checkoutStatus} roomParam={roomParam} teacher={teacher} />
+      case 'passHistory': return <PassHistoryCard key={id} uid={uid} student={student} activePass={activePass} weekPassCount={weekPassCount} weekPassTotal={weekPassTotal} selfCheckoutEnabled={selfCheckoutEnabled} checkoutUrl={checkoutUrl} checkoutStatus={checkoutStatus} roomParam={roomParam} teacher={teacher} />
       case 'fortune':     return <FortuneCard key={id} fortune={d} />
       case 'cowboyCode':  return <CowboyCodeCard key={id} trait={d} />
       case 'wisdom':      return <WisdomCard key={id} woy={_woy} />
