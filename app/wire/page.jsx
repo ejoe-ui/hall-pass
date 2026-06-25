@@ -727,6 +727,123 @@ function LunchCard({ menu, nextBellLabel }) {
 
 const CO_REASONS = ['Restroom','Library','Office','Counselor','Lockers','Errand','On Assignment','Career Counselor','School Store','Other']
 
+// ── QR Scanner — teacher holds phone to Chromebook camera ────────────────────
+// Defined outside PassHistoryCard so it's a stable component type (no remount on parent re-render)
+function ScannerPane({ onResult }) {
+  const videoRef = useRef(null)
+  const [status, setStatus] = useState('starting') // starting | ready | error
+  const [errMsg,  setErrMsg]  = useState('')
+
+  useEffect(() => {
+    let stream   = null
+    let active   = true
+    let animId   = null
+
+    async function ensureJsQR() {
+      if (window.jsQR) return true
+      return new Promise(res => {
+        const s = document.createElement('script')
+        s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js'
+        s.onload  = () => res(true)
+        s.onerror = () => res(false)
+        document.head.appendChild(s)
+      })
+    }
+
+    async function start() {
+      // Chromebook front camera faces the teacher who holds their phone up
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 } },
+        })
+      } catch {
+        setStatus('error'); setErrMsg('Camera access denied — use code entry instead'); return
+      }
+      if (!active) { stream.getTracks().forEach(t => t.stop()); return }
+      videoRef.current.srcObject = stream
+      await videoRef.current.play().catch(() => {})
+      setStatus('ready')
+
+      // ── BarcodeDetector (native on Chrome / ChromeOS) ──────────────────
+      if ('BarcodeDetector' in window) {
+        const det = new BarcodeDetector({ formats: ['qr_code'] })
+        const tick = async () => {
+          if (!active) return
+          try {
+            const codes = await det.detect(videoRef.current)
+            if (codes.length) { onResult(codes[0].rawValue); return }
+          } catch {}
+          animId = requestAnimationFrame(tick)
+        }
+        animId = requestAnimationFrame(tick)
+        return
+      }
+
+      // ── jsQR canvas fallback ────────────────────────────────────────────
+      const loaded = await ensureJsQR()
+      if (!loaded) {
+        setStatus('error'); setErrMsg('QR scanning unavailable — use code entry'); return
+      }
+      const canvas = document.createElement('canvas')
+      const ctx    = canvas.getContext('2d')
+      const tick   = () => {
+        if (!active) return
+        const v = videoRef.current
+        if (v && v.readyState >= 2 && v.videoWidth) {
+          canvas.width  = v.videoWidth
+          canvas.height = v.videoHeight
+          ctx.drawImage(v, 0, 0)
+          const img  = ctx.getImageData(0, 0, canvas.width, canvas.height)
+          const code = window.jsQR(img.data, img.width, img.height)
+          if (code) { onResult(code.data); return }
+        }
+        animId = requestAnimationFrame(tick)
+      }
+      animId = requestAnimationFrame(tick)
+    }
+
+    start()
+    return () => {
+      active = false
+      if (stream)  stream.getTracks().forEach(t => t.stop())
+      if (animId)  cancelAnimationFrame(animId)
+    }
+  }, [])
+
+  if (status === 'error') return (
+    <p style={{ fontSize: 11, color: '#dc2626', padding: '6px 0' }}>{errMsg}</p>
+  )
+
+  return (
+    <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden',
+      background: '#111', width: '100%', aspectRatio: '4/3' }}>
+      <video ref={videoRef} muted playsInline
+        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+
+      {/* Starting overlay */}
+      {status === 'starting' && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+          justifyContent: 'center', background: '#1a1a18' }}>
+          <p style={{ fontSize: 11, color: '#555' }}>Starting camera…</p>
+        </div>
+      )}
+
+      {/* Targeting frame + dim surround */}
+      {status === 'ready' && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+          justifyContent: 'center', pointerEvents: 'none' }}>
+          <div style={{
+            width: 110, height: 110,
+            boxShadow: '0 0 0 1000px rgba(0,0,0,0.38)',
+            border: '2.5px solid rgba(255,255,255,0.85)',
+            borderRadius: 10,
+          }} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PassHistoryCard({
   uid, student, activePass, weekPassCount, weekPassTotal,
   selfCheckoutEnabled, checkoutUrl, checkoutStatus, roomParam, teacher,
@@ -755,6 +872,7 @@ function PassHistoryCard({
   const [coMsg,     setCoMsg]     = useState('')
   const [coCountdown, setCoCountdown] = useState(5)
   const [coAuthInput, setCoAuthInput] = useState('')
+  const [coAuthMode,  setCoAuthMode]  = useState('qr')   // 'qr' | 'code'
   const coInputRef = useRef(null)
   const coAuthRef  = useRef(null)
 
@@ -810,8 +928,32 @@ function PassHistoryCard({
   function resetCo() {
     setCoStage('idle'); setCoInput(''); setCoStudent(null)
     setCoReason(''); setCoOther(''); setCoMsg(''); setCoCountdown(5)
-    setCoAuthInput('')
+    setCoAuthInput(''); setCoAuthMode('qr')
     setTimeout(() => coInputRef.current?.focus(), 50)
+  }
+
+  // Called by ScannerPane when a QR is detected
+  function handleQRScan(rawValue) {
+    try {
+      let unlockParam = null
+      try {
+        const u = new URL(rawValue)
+        unlockParam = u.searchParams.get('unlock')
+      } catch {
+        unlockParam = rawValue.trim() // bare code, not a URL
+      }
+      if (!unlockParam) return
+
+      const teacherCode = teacher?.unlock_code || ''
+      if (!teacherCode || unlockParam === teacherCode) {
+        // Match (or no code configured — still let through)
+        setCoStudent({ id: student.id, name: student.full_name, photo: studentPhoto, period: student.period, openPass: null })
+        setCoStage('found')
+      } else {
+        setCoMsg('Wrong QR — are you scanning your teacher\'s code?')
+        setCoStage('authFail')
+      }
+    } catch { /* ignore unrecognized QR content */ }
   }
 
   function verifyAuthCode() {
@@ -897,51 +1039,88 @@ function PassHistoryCard({
 
   // ── Inline checkout panel (shown when selfCheckoutEnabled) ────────────────
   const InlineCheckout = () => {
-    // ── Teacher auth step (personalized wire page only) ────────────────────
+    // ── Teacher auth step: QR scan (primary) or 4-digit code (backup) ────
     if (coStage === 'authEntry' || coStage === 'authFail') return (
-      <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f5f9f6', padding: '14px 13px' }}>
-        <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase',
-          color: RHS_GREEN, marginBottom: 6 }}>🔐 Teacher Checkout Code</p>
-        {coStage === 'authFail' && (
-          <p style={{ fontSize: 11, color: '#dc2626', marginBottom: 6 }}>
-            Wrong code — ask your teacher for the current code
+      <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f5f9f6', padding: '13px 13px 10px' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em',
+            textTransform: 'uppercase', color: RHS_GREEN }}>
+            🔐 Teacher Authorization
           </p>
-        )}
-        <p style={{ fontSize: 11, color: '#888', marginBottom: 9 }}>
-          Enter the 4-digit code displayed in your teacher's dashboard
-        </p>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <input
-            ref={coAuthRef}
-            value={coAuthInput}
-            onChange={e => setCoAuthInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
-            onKeyDown={e => { if (e.key === 'Enter' && coAuthInput.length === 4) verifyAuthCode() }}
-            placeholder="· · · ·"
-            inputMode="numeric"
-            maxLength={4}
-            autoComplete="off"
-            style={{
-              flex: 1, fontSize: 22, fontWeight: 700, textAlign: 'center', letterSpacing: '0.35em',
-              padding: '8px 10px', borderRadius: 7,
-              border: `1.5px solid ${coStage === 'authFail' ? '#fca5a5' : '#c0d8c8'}`,
-              background: 'white', color: '#1a1a18', outline: 'none',
-            }}
-          />
-          <button
-            onClick={verifyAuthCode}
-            disabled={coAuthInput.length !== 4}
-            style={{
-              background: coAuthInput.length === 4 ? RHS_GREEN : '#e0ddd8',
-              color: 'white', fontSize: 13, fontWeight: 600,
-              padding: '8px 16px', borderRadius: 7, border: 'none',
-              cursor: coAuthInput.length === 4 ? 'pointer' : 'default',
-            }}
-          >Go</button>
+          {/* Mode toggle */}
+          <div style={{ display: 'flex', gap: 0, borderRadius: 6, overflow: 'hidden',
+            border: '1px solid #d0e6d8', fontSize: 10 }}>
+            <button onClick={() => { setCoAuthMode('qr'); setCoStage('authEntry') }}
+              style={{ padding: '3px 8px', border: 'none', cursor: 'pointer',
+                background: coAuthMode === 'qr' ? RHS_GREEN : 'white',
+                color: coAuthMode === 'qr' ? 'white' : '#666', fontWeight: 600 }}>
+              📷 QR
+            </button>
+            <button onClick={() => { setCoAuthMode('code'); setCoStage('authEntry'); setTimeout(() => coAuthRef.current?.focus(), 80) }}
+              style={{ padding: '3px 8px', border: 'none', cursor: 'pointer',
+                background: coAuthMode === 'code' ? RHS_GREEN : 'white',
+                color: coAuthMode === 'code' ? 'white' : '#666', fontWeight: 600 }}>
+              # Code
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => { setExpanded(false); setCoStage('idle'); setCoAuthInput('') }}
+
+        {coAuthMode === 'qr' ? (
+          /* ── QR scan panel ─────────────────────────────────────── */
+          <>
+            <p style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+              Ask your teacher to open their QR on their phone, then hold it up to the camera
+            </p>
+            <ScannerPane onResult={handleQRScan} />
+            {coStage === 'authFail' && (
+              <p style={{ fontSize: 11, color: '#dc2626', marginTop: 7 }}>
+                {coMsg || 'QR not recognized — try again or use code entry'}
+              </p>
+            )}
+          </>
+        ) : (
+          /* ── Code entry backup ─────────────────────────────────── */
+          <>
+            <p style={{ fontSize: 11, color: '#888', marginBottom: 8 }}>
+              Enter the 4-digit code from your teacher's dashboard
+            </p>
+            {coStage === 'authFail' && (
+              <p style={{ fontSize: 11, color: '#dc2626', marginBottom: 6 }}>
+                Wrong code — check with your teacher
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                ref={coAuthRef}
+                value={coAuthInput}
+                onChange={e => setCoAuthInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                onKeyDown={e => { if (e.key === 'Enter' && coAuthInput.length === 4) verifyAuthCode() }}
+                placeholder="· · · ·"
+                inputMode="numeric"
+                maxLength={4}
+                autoComplete="off"
+                style={{
+                  flex: 1, fontSize: 22, fontWeight: 700, textAlign: 'center', letterSpacing: '0.35em',
+                  padding: '8px 10px', borderRadius: 7,
+                  border: `1.5px solid ${coStage === 'authFail' ? '#fca5a5' : '#c0d8c8'}`,
+                  background: 'white', color: '#1a1a18', outline: 'none',
+                }}
+              />
+              <button onClick={verifyAuthCode} disabled={coAuthInput.length !== 4}
+                style={{
+                  background: coAuthInput.length === 4 ? RHS_GREEN : '#e0ddd8',
+                  color: 'white', fontSize: 13, fontWeight: 600,
+                  padding: '8px 16px', borderRadius: 7, border: 'none',
+                  cursor: coAuthInput.length === 4 ? 'pointer' : 'default',
+                }}>Go</button>
+            </div>
+          </>
+        )}
+
+        <button onClick={() => { setExpanded(false); setCoStage('idle'); setCoAuthInput(''); setCoAuthMode('qr') }}
           style={{ fontSize: 11, color: '#bbb', background: 'none', border: 'none',
-            cursor: 'pointer', marginTop: 10, padding: 0 }}>
+            cursor: 'pointer', marginTop: 10, padding: 0, display: 'block' }}>
           Cancel
         </button>
       </div>
