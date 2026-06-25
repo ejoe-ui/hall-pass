@@ -2146,6 +2146,23 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
                     {kioskReturnSaved && <span className="text-xs" style={{ color: RHS_GREEN }}>✓ Saved</span>}
                   </div>
                   <div className="text-xs text-gray-400 mt-2">{kioskReturnRequired ? 'Students must scan at kiosk to return' : "Students see an \"I'm Back\" button on their device"}</div>
+
+                  {/* Wire page self-checkout toggle */}
+                  <div className="border-t border-gray-100 mt-3 pt-3">
+                    <div className="flex items-center justify-center gap-2">
+                      <span className="text-xs text-gray-700">Wire page self-checkout:</span>
+                      <button
+                        onClick={toggleWireCheckout}
+                        disabled={wireCheckoutSaving}
+                        className="px-3 py-1 rounded-full text-xs font-semibold transition-colors disabled:opacity-50"
+                        style={{ background: wireCheckoutEnabled ? RHS_GREEN : '#e5e7eb', color: wireCheckoutEnabled ? 'white' : '#6b7280', border: 'none', cursor: 'pointer' }}>
+                        {wireCheckoutSaving ? '…' : wireCheckoutEnabled ? 'ON' : 'OFF'}
+                      </button>
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      {wireCheckoutEnabled ? 'Students can self-checkout from their personal wire page' : 'Students cannot self-checkout from the wire page'}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -2454,21 +2471,6 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
               {showObjectives  && <p className="text-xs text-gray-400 mt-0.5">Students see this on the <strong>Cowboy Wire</strong> board in your room — automatically switches to the active period.</p>}
             </div>
             <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-              {/* Wire self-checkout toggle */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-gray-400 whitespace-nowrap">Wire checkout</span>
-                <button
-                  onClick={toggleWireCheckout}
-                  disabled={wireCheckoutSaving}
-                  className="px-2.5 py-1 rounded-full text-xs font-semibold transition-colors disabled:opacity-50"
-                  style={{
-                    background: wireCheckoutEnabled ? RHS_GREEN : '#e5e7eb',
-                    color: wireCheckoutEnabled ? 'white' : '#6b7280',
-                    border: 'none', cursor: 'pointer', minWidth: 36,
-                  }}>
-                  {wireCheckoutSaving ? '…' : wireCheckoutEnabled ? 'ON' : 'OFF'}
-                </button>
-              </div>
               <a href={`/wire?room=${teacherRoom}`} target="_blank" rel="noopener noreferrer"
                 className="text-xs px-2.5 py-1 rounded-lg border text-gray-500 hover:bg-gray-50 whitespace-nowrap" style={{ textDecoration: 'none' }}>
                 Open Wire ↗
