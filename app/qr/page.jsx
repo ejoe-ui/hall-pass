@@ -117,15 +117,22 @@ export default function QRPage() {
   async function generatePhotoUrls(studentList) {
     const withPhotos = (studentList || []).filter(s => s?.photo_file)
     if (withPhotos.length === 0) return
-    const urls  = {}
-    const BATCH = 50
-    for (let i = 0; i < withPhotos.length; i += BATCH) {
-      const batch = withPhotos.slice(i, i + BATCH)
-      const { data } = await supabase.storage
-        .from('lifetouch-raw')
-        .createSignedUrls(batch.map(s => s.photo_file), 3600)
-      if (data) data.forEach((item, j) => { if (item.signedUrl) urls[batch[j].id] = item.signedUrl })
-    }
+    const urls = {}
+    // Try lifetouch-raw first (source of truth), fall back to student-photos bucket.
+    // Use individual signed URL calls — matches the pattern that works in wire/self-checkout pages.
+    await Promise.all(withPhotos.map(async s => {
+      try {
+        const { data: rd } = await supabase.storage
+          .from('lifetouch-raw')
+          .createSignedUrl(s.photo_file, 3600)
+        if (rd?.signedUrl) { urls[s.id] = rd.signedUrl; return }
+        // Fallback: student-photos bucket (legacy)
+        const { data: fd } = await supabase.storage
+          .from('student-photos')
+          .createSignedUrl(s.photo_file, 3600)
+        if (fd?.signedUrl) urls[s.id] = fd.signedUrl
+      } catch { /* no photo for this student */ }
+    }))
     setPhotoUrls(urls)
   }
 
