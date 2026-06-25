@@ -193,46 +193,76 @@ export default function QRPage() {
         <!-- DIVIDER -->
         <div style="width:1pt;background:#e5e7eb;flex-shrink:0;"></div>
         <!-- RIGHT: instructions -->
-        <div style="flex:1;display:flex;flex-direction:column;gap:0.18in;">
+        <div style="flex:1;display:flex;flex-direction:column;gap:0.14in;">
+          <!-- Header -->
           <div style="display:flex;align-items:center;gap:8pt;padding-bottom:0.1in;border-bottom:1.5pt solid #006938;">
             <img src="/RHSCOWBOYlogo.png" style="width:0.35in;height:0.35in;object-fit:contain;" />
             <div>
               <p style="font-size:14pt;font-weight:800;color:#006938;margin:0;letter-spacing:-0.02em;">PassAble MultiPass</p>
-              <p style="font-size:8pt;color:#6b7280;margin:0;">Your hall pass is on your Chromebook</p>
+              <p style="font-size:9pt;color:#6b7280;margin:0;">Three ways to check out — always check back in at the kiosk</p>
             </div>
           </div>
-          <div style="display:flex;gap:0.25in;flex:1;">
-            <div style="flex:1;">
-              <p style="font-size:9pt;font-weight:800;color:#006938;margin:0 0 6pt;text-transform:uppercase;letter-spacing:0.05em;">✅ Checking Out</p>
-              <ol style="margin:0;padding-left:14pt;font-size:8pt;color:#374151;line-height:1.7;">
-                <li>Open your personal PassAble link (scan your QR or tap your NFC badge)</li>
-                <li>Find the <strong>PassAble Pass Status</strong> card on your page</li>
-                <li>Tap <strong>Request Check-Out</strong></li>
-                <li>Get teacher approval — scan their QR code or enter the code they give you</li>
-                <li>Pick your destination and tap <strong>Check Out</strong></li>
-                <li>Your screen turns red — you're checked out. Go!</li>
+          <!-- Three checkout methods -->
+          <div style="display:flex;gap:0;flex:1;">
+
+            <!-- 1: Kiosk -->
+            <div style="flex:1;padding-right:0.15in;border-right:0.75pt solid #e5e7eb;">
+              <p style="font-size:9pt;font-weight:800;color:#006938;margin:0 0 3pt;text-transform:uppercase;letter-spacing:0.04em;">🖥️ Kiosk</p>
+              <p style="font-size:8pt;color:#6b7280;margin:0 0 5pt;font-style:italic;">Primary method</p>
+              <ol style="margin:0;padding-left:13pt;font-size:9pt;color:#374151;line-height:1.6;">
+                <li>Walk to the classroom kiosk</li>
+                <li>Scan your NFC badge or QR code</li>
+                <li>Select your destination</li>
+                <li>Tap <strong>Check Out</strong> — done!</li>
               </ol>
             </div>
-            <div style="flex:1;">
-              <p style="font-size:9pt;font-weight:800;color:#374151;margin:0 0 6pt;text-transform:uppercase;letter-spacing:0.05em;">🔁 Checking Back In</p>
-              <ol style="margin:0;padding-left:14pt;font-size:8pt;color:#374151;line-height:1.7;">
-                <li>When you return, go to the classroom kiosk</li>
-                <li>Scan your NFC badge or QR code</li>
-                <li>Tap <strong>Check In</strong></li>
-                <li>Your Chromebook screen returns to normal automatically</li>
+
+            <!-- 2: Teacher -->
+            <div style="flex:1;padding-left:0.15in;padding-right:0.15in;border-right:0.75pt solid #e5e7eb;">
+              <p style="font-size:9pt;font-weight:800;color:#374151;margin:0 0 3pt;text-transform:uppercase;letter-spacing:0.04em;">👩‍🏫 Teacher</p>
+              <p style="font-size:8pt;color:#6b7280;margin:0 0 5pt;font-style:italic;">Teacher checks you out</p>
+              <ol style="margin:0;padding-left:13pt;font-size:9pt;color:#374151;line-height:1.6;">
+                <li>Ask your teacher to check you out</li>
+                <li>They select your name and reason on their end</li>
+                <li>You're good to go — no kiosk needed to leave</li>
+                <li>Still check back in at the kiosk when you return</li>
               </ol>
-              <p style="font-size:9pt;font-weight:800;color:#b45309;margin:12pt 0 6pt;text-transform:uppercase;letter-spacing:0.05em;">⚠ Good to Know</p>
-              <ul style="margin:0;padding-left:14pt;font-size:8pt;color:#374151;line-height:1.7;">
-                <li>You <strong>cannot</strong> check back in from your Chromebook — only at the kiosk or through your teacher</li>
-                <li>Your teacher can see where you are and when you left in real time</li>
-                <li>Passes are tracked. Use them responsibly.</li>
-                <li>Keep your link and NFC badge to yourself — do not let others use them</li>
+            </div>
+
+            <!-- 3: Wire page self-checkout -->
+            <div style="flex:1.1;padding-left:0.15in;">
+              <p style="font-size:9pt;font-weight:800;color:#2563eb;margin:0 0 3pt;text-transform:uppercase;letter-spacing:0.04em;">📱 Your Wire Page</p>
+              <p style="font-size:8pt;color:#6b7280;margin:0 0 5pt;font-style:italic;">Self-checkout on your Chromebook</p>
+              <ol style="margin:0;padding-left:13pt;font-size:9pt;color:#374151;line-height:1.6;">
+                <li>Open your link (scan QR or tap NFC badge)</li>
+                <li>Find <strong>PassAble Pass Status</strong> → tap <strong>Request Check-Out</strong></li>
+                <li>Get teacher approval: scan their QR code on screen, or type the code they give you</li>
+                <li>Choose destination → tap <strong>Check Out</strong></li>
+                <li>Screen turns red — you're checked out. Go!</li>
+              </ol>
+            </div>
+          </div>
+
+          <!-- Bottom strip: check-in + tips -->
+          <div style="display:flex;gap:0.2in;border-top:1pt solid #e5e7eb;padding-top:0.1in;">
+            <div style="flex:1.1;">
+              <p style="font-size:9pt;font-weight:800;color:#374151;margin:0 0 4pt;text-transform:uppercase;letter-spacing:0.04em;">🔁 Checking Back In (all three methods)</p>
+              <p style="font-size:9pt;color:#374151;margin:0;line-height:1.5;">Return to class → go to the <strong>classroom kiosk</strong> → scan your NFC badge or QR code → tap <strong>Check In</strong>. Your Chromebook screen resets automatically.</p>
+            </div>
+            <div style="flex:1;">
+              <p style="font-size:9pt;font-weight:800;color:#b45309;margin:0 0 4pt;text-transform:uppercase;letter-spacing:0.04em;">⚠ Important</p>
+              <ul style="margin:0;padding-left:12pt;font-size:9pt;color:#374151;line-height:1.5;">
+                <li>You <strong>cannot</strong> check in from your Chromebook — kiosk only</li>
+                <li>Your teacher tracks all passes in real time</li>
+                <li>Passes are logged — use them responsibly</li>
+                <li>Your badge is personal — never share it</li>
               </ul>
             </div>
           </div>
-          <div style="border-top:1pt solid #e5e7eb;padding-top:6pt;display:flex;justify-content:space-between;align-items:center;">
-            <p style="font-size:7pt;color:#9ca3af;margin:0;">RHS PassAble · Room ${room} · ${teacherName}</p>
-            <p style="font-size:7pt;color:#9ca3af;margin:0;">Questions? Ask your teacher.</p>
+
+          <div style="border-top:1pt solid #e5e7eb;padding-top:5pt;display:flex;justify-content:space-between;align-items:center;">
+            <p style="font-size:7.5pt;color:#9ca3af;margin:0;">RHS PassAble · Room ${room} · ${teacherName}</p>
+            <p style="font-size:7.5pt;color:#9ca3af;margin:0;">Questions? Ask your teacher.</p>
           </div>
         </div>
       </div>`
@@ -541,45 +571,78 @@ export default function QRPage() {
                           <div style={{ width: 1, background: '#e5e7eb', flexShrink: 0 }} />
 
                           {/* Right column */}
-                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 9 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, paddingBottom: 8, borderBottom: `1.5px solid ${RHS_GREEN}` }}>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {/* Header */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7, paddingBottom: 7, borderBottom: `1.5px solid ${RHS_GREEN}` }}>
                               <img src="/RHSCOWBOYlogo.png" style={{ width: 20, height: 20, objectFit: 'contain' }} />
                               <div>
                                 <p style={{ fontSize: 12, fontWeight: 800, color: RHS_GREEN, margin: 0 }}>PassAble MultiPass</p>
-                                <p style={{ fontSize: 7.5, color: '#6b7280', margin: 0 }}>Your hall pass is on your Chromebook</p>
+                                <p style={{ fontSize: 8, color: '#6b7280', margin: 0 }}>Three ways to check out — always check back in at the kiosk</p>
                               </div>
                             </div>
-                            <div style={{ display: 'flex', gap: 14, flex: 1 }}>
-                              <div style={{ flex: 1 }}>
-                                <p style={{ fontSize: 7.5, fontWeight: 800, color: RHS_GREEN, margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>✅ Checking Out</p>
-                                <ol style={{ margin: 0, paddingLeft: 13, fontSize: 7.5, color: '#374151', lineHeight: 1.65 }}>
-                                  <li>Open your personal PassAble link (scan QR or tap NFC badge)</li>
-                                  <li>Find the <strong>PassAble Pass Status</strong> card</li>
-                                  <li>Tap <strong>Request Check-Out</strong></li>
-                                  <li>Get teacher approval — scan their QR or enter the code they give you</li>
-                                  <li>Pick your destination → tap <strong>Check Out</strong></li>
-                                  <li>Screen turns red — you're checked out. Go!</li>
+
+                            {/* Three methods */}
+                            <div style={{ display: 'flex', gap: 0, flex: 1 }}>
+
+                              {/* Kiosk */}
+                              <div style={{ flex: 1, paddingRight: 10, borderRight: '1px solid #e5e7eb' }}>
+                                <p style={{ fontSize: 8.5, fontWeight: 800, color: RHS_GREEN, margin: '0 0 2px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>🖥️ Kiosk</p>
+                                <p style={{ fontSize: 7.5, color: '#6b7280', margin: '0 0 4px', fontStyle: 'italic' }}>Primary method</p>
+                                <ol style={{ margin: 0, paddingLeft: 12, fontSize: 8.5, color: '#374151', lineHeight: 1.55 }}>
+                                  <li>Walk to the classroom kiosk</li>
+                                  <li>Scan NFC badge or QR code</li>
+                                  <li>Select destination</li>
+                                  <li>Tap <strong>Check Out</strong> — done!</li>
                                 </ol>
                               </div>
-                              <div style={{ flex: 1 }}>
-                                <p style={{ fontSize: 7.5, fontWeight: 800, color: '#374151', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>🔁 Checking Back In</p>
-                                <ol style={{ margin: 0, paddingLeft: 13, fontSize: 7.5, color: '#374151', lineHeight: 1.65 }}>
-                                  <li>Return to class, go to the kiosk</li>
-                                  <li>Scan your NFC badge or QR code</li>
-                                  <li>Tap <strong>Check In</strong></li>
-                                  <li>Your Chromebook screen resets automatically</li>
+
+                              {/* Teacher */}
+                              <div style={{ flex: 1, paddingLeft: 10, paddingRight: 10, borderRight: '1px solid #e5e7eb' }}>
+                                <p style={{ fontSize: 8.5, fontWeight: 800, color: '#374151', margin: '0 0 2px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>👩‍🏫 Teacher</p>
+                                <p style={{ fontSize: 7.5, color: '#6b7280', margin: '0 0 4px', fontStyle: 'italic' }}>Teacher checks you out</p>
+                                <ol style={{ margin: 0, paddingLeft: 12, fontSize: 8.5, color: '#374151', lineHeight: 1.55 }}>
+                                  <li>Ask your teacher to check you out</li>
+                                  <li>They select your name and reason</li>
+                                  <li>You're good to go — no kiosk to leave</li>
+                                  <li>Still check back in at the kiosk on return</li>
                                 </ol>
-                                <p style={{ fontSize: 7.5, fontWeight: 800, color: '#b45309', margin: '8px 0 4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>⚠ Good to Know</p>
-                                <ul style={{ margin: 0, paddingLeft: 13, fontSize: 7.5, color: '#374151', lineHeight: 1.65 }}>
-                                  <li>You <strong>cannot</strong> check in from your Chromebook — only the kiosk or your teacher</li>
-                                  <li>Your teacher sees where you are in real time</li>
-                                  <li>Passes are tracked — use them responsibly</li>
-                                  <li>Keep your badge to yourself</li>
+                              </div>
+
+                              {/* Wire page */}
+                              <div style={{ flex: 1.1, paddingLeft: 10 }}>
+                                <p style={{ fontSize: 8.5, fontWeight: 800, color: '#2563eb', margin: '0 0 2px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>📱 Your Wire Page</p>
+                                <p style={{ fontSize: 7.5, color: '#6b7280', margin: '0 0 4px', fontStyle: 'italic' }}>Self-checkout on your Chromebook</p>
+                                <ol style={{ margin: 0, paddingLeft: 12, fontSize: 8.5, color: '#374151', lineHeight: 1.55 }}>
+                                  <li>Open your link (QR / NFC badge)</li>
+                                  <li>Find <strong>PassAble Pass Status</strong> → tap <strong>Request Check-Out</strong></li>
+                                  <li>Scan teacher's QR or enter the code they give you</li>
+                                  <li>Choose destination → tap <strong>Check Out</strong></li>
+                                  <li>Screen turns red — checked out. Go!</li>
+                                </ol>
+                              </div>
+                            </div>
+
+                            {/* Bottom: check-in + tips */}
+                            <div style={{ display: 'flex', gap: 14, borderTop: '1px solid #e5e7eb', paddingTop: 7 }}>
+                              <div style={{ flex: 1.1 }}>
+                                <p style={{ fontSize: 8.5, fontWeight: 800, color: '#374151', margin: '0 0 3px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>🔁 Checking Back In (all methods)</p>
+                                <p style={{ fontSize: 8.5, color: '#374151', margin: 0, lineHeight: 1.5 }}>
+                                  Return to class → go to the <strong>classroom kiosk</strong> → scan your NFC badge or QR code → tap <strong>Check In</strong>. Your Chromebook screen resets automatically.
+                                </p>
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <p style={{ fontSize: 8.5, fontWeight: 800, color: '#b45309', margin: '0 0 3px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>⚠ Important</p>
+                                <ul style={{ margin: 0, paddingLeft: 12, fontSize: 8.5, color: '#374151', lineHeight: 1.5 }}>
+                                  <li>You <strong>cannot</strong> check in from your Chromebook — kiosk only</li>
+                                  <li>Teacher tracks all passes in real time</li>
+                                  <li>Passes are logged — use them responsibly</li>
+                                  <li>Your badge is personal — never share it</li>
                                 </ul>
                               </div>
                             </div>
+
                             <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 4, display: 'flex', justifyContent: 'space-between' }}>
-                              <p style={{ fontSize: 6.5, color: '#9ca3af', margin: 0 }}>RHS PassAble · Room {room} · {teacherName}</p>
+                              <p style={{ fontSize: 7, color: '#9ca3af', margin: 0 }}>RHS PassAble · Room {room} · {teacherName}</p>
                               <button
                                 onClick={() => printInstructionSheets([s])}
                                 className="no-print text-xs text-gray-400 hover:text-gray-600 underline"
