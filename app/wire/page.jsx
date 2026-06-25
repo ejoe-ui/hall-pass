@@ -713,6 +713,24 @@ function PassHistoryCard({
   const [coCountdown, setCoCountdown] = useState(5)
   const coInputRef = useRef(null)
 
+  // ── Student photo (signed URL from lifetouch-raw) ─────────────────────────
+  const [studentPhoto, setStudentPhoto] = useState(null)
+  useEffect(() => {
+    if (!student?.photo_file) return
+    let cancelled = false
+    supabase.storage.from('lifetouch-raw').createSignedUrl(student.photo_file, 3600)
+      .then(({ data }) => { if (!cancelled && data?.signedUrl) setStudentPhoto(data.signedUrl) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [student?.photo_file])
+
+  // ── Auto-lookup when checkout popup opens for identified student ───────────
+  useEffect(() => {
+    if (expanded && student?.id && selfCheckoutEnabled && coStage === 'idle') {
+      coLookup(student.id)
+    }
+  }, [expanded])
+
   // passes are always open during a class period — first/last 15 are verbal warnings only
   const duringPeriod = checkoutStatus !== null && !['before','after','break','passing'].includes(checkoutStatus === null ? '' : '')
 
@@ -1028,6 +1046,18 @@ function PassHistoryCard({
     )
   }
 
+  // ── Checkout popup for identified student (auto-populated, no ID entry) ────
+  const CheckoutPopup = () => {
+    if (!selfCheckoutEnabled) return (
+      <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f9fafb', padding: '12px 13px', textAlign: 'center' }}>
+        <p style={{ fontSize: 11, color: '#aaa' }}>Self-checkout is not currently enabled by your teacher</p>
+      </div>
+    )
+    // InlineCheckout handles all stages; we auto-trigger coLookup via useEffect above
+    // so by the time the popup is visible it's already in 'found', 'alreadyOut', 'working', or 'done'
+    return <InlineCheckout />
+  }
+
   // Active pass ring
   const elapsed = activePass
     ? Math.floor((Date.now() - new Date(activePass.time_out).getTime()) / 60000)
@@ -1076,6 +1106,21 @@ function PassHistoryCard({
                   <span style={{ fontSize: 10, fontWeight: 500, color: ringColor, fontVariantNumeric: 'tabular-nums' }}>
                     {elapsed != null ? `${elapsed}m` : '—'}
                   </span>
+                </div>
+              </div>
+            ) : studentPhoto ? (
+              <div style={{ position: 'relative', width: 52, height: 52, flexShrink: 0 }}>
+                <img src={studentPhoto} alt="" style={{
+                  width: 52, height: 52, borderRadius: '50%', objectFit: 'cover',
+                  border: `2px solid #c8e6d4`,
+                }} onError={() => setStudentPhoto(null)} />
+                <div style={{
+                  position: 'absolute', bottom: 0, right: 0,
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: RHS_GREEN, border: '2px solid white',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <i className="ti ti-check" style={{ fontSize: 9, color: 'white' }} />
                 </div>
               </div>
             ) : (
