@@ -40,6 +40,16 @@ const SELF_CHECKOUT_BASE = '/self-checkout'
 const RHS_GREEN = '#006938'
 const RHS_DARK  = '#004d29'
 
+// ── Teacher list (static — mirrors teacher dashboard; no RLS issues) ──────────
+// When Supabase anon RLS policy is added, fetchTeachers() will override with real UUIDs.
+const WIRE_TEACHERS_STATIC = [
+  'Aguiniga', 'Anders', 'Banuelos', 'Bettencourt', 'Bianchi', 'Bishop',
+  'Carrion', 'Castro', 'Ceballos', 'Chavez', 'Chavira', 'Cozad', 'Cuiriz', 'De La Pena',
+  'Edlund', 'Farris', 'Garibaldi', 'Gerling', 'Gjoshe', 'Gonzalez',
+  'Hughes', 'Jessup', 'Joe', 'Kang', 'Kellogg', 'Mendoza Sanchez', 'Mullane',
+  'Nemeth', 'Reyes', 'Simpson', 'Sunamoto', 'Tiller', 'Warden', 'Weibert', 'Welch', 'Yehl',
+].map((name, i) => ({ id: `static-${i}`, full_name: name, room: null }))
+
 // ── Cowboy Code (rotates weekly) ──────────────────────────────────────────────
 const COWBOY_CODE = [
   { trait: 'Integrity',      definition: 'Do the right thing even when no one is watching.' },
@@ -999,7 +1009,14 @@ function PassHistoryCard({
     setCoStage('working')
     try {
       const reason = coReason === 'Other' ? coOther.trim() || 'Other' : coReason
-      const destId = coDestTeacher?.id || null
+      // If id starts with 'static-', it's from the hardcoded list (no real UUID yet).
+      // Once anon RLS policy is added, real UUIDs will be used automatically.
+      const isStaticId = coDestTeacher?.id?.toString().startsWith('static-')
+      const destId = coDestTeacher && !isStaticId ? coDestTeacher.id : null
+      // Combine teacher name + user note for destination_note
+      const teacherPrefix = coDestTeacher ? `Teacher: ${coDestTeacher.full_name}` : ''
+      const userNote = coDestNote.trim()
+      const combinedNote = [teacherPrefix, userNote].filter(Boolean).join(' · ') || null
 
       // Insert the pass — destination_teacher_id links to the teacher notification system
       // Teacher dashboards query: passes WHERE destination_teacher_id = myId AND time_in IS NULL
@@ -1011,10 +1028,10 @@ function PassHistoryCard({
         time_out:              new Date().toISOString(),
         period:                coStudent.period,
         destination_teacher_id: destId,
-        destination_note:      coDestNote.trim() || null,
+        destination_note:      combinedNote,
       })
 
-      const destLabel = coDestTeacher ? ` → Room ${coDestTeacher.room} (${coDestTeacher.full_name})` : ''
+      const destLabel = coDestTeacher ? ` → ${coDestTeacher.full_name}${coDestTeacher.room ? ` (Room ${coDestTeacher.room})` : ''}` : ''
       setCoMsg(`✓ ${coStudent.name} checked out — ${reason}${destLabel}`)
       setCoStage('done')
       startCountdown()
@@ -2207,25 +2224,28 @@ function WireContent() {
   }, [uid, roomParam, periodInfo?.current?.value])
 
   // ── All teachers (for destination picker in self-checkout) ────────────────
-  // Try teachers table first (requires anon RLS policy); fall back to cw2_classrooms
+  // Seed immediately with static list so dropdown is never empty.
+  // If Supabase teachers table is readable (anon RLS policy added), override with real UUIDs.
   useEffect(() => {
+    setAllTeachers(WIRE_TEACHERS_STATIC)  // instant — no blank dropdown
     async function fetchTeachers() {
       const { data: fromTeachers } = await supabase
         .from('teachers').select('id, full_name, room').order('full_name')
       if (fromTeachers?.length > 0) { setAllTeachers(fromTeachers); return }
-      // Fallback: cw2_classrooms (always readable by anon)
+      // Fallback: cw2_classrooms (may also have real UUIDs)
       const { data: fromClassrooms } = await supabase
         .from('cw2_classrooms')
         .select('id, teacher_name, room')
         .eq('is_active', true)
         .order('teacher_name')
-      if (fromClassrooms) {
+      if (fromClassrooms?.length > 0) {
         setAllTeachers(fromClassrooms.map(c => ({
           id: c.id,
           full_name: c.teacher_name,
           room: c.room,
         })))
       }
+      // If both return empty, static list from above stays in place
     }
     fetchTeachers()
   }, [])
@@ -2423,6 +2443,7 @@ function WireContent() {
         ? `Passes open · no passes very soon`
         : `Passes open · ${minsUntilClose} min until no passes`
     }
+    if (status === 'after') return 'School day complete · no passes'
     if (checkoutStatus === 'ok') {
       // Window closes when 15 min remain
       const minsUntilClose = Math.max(0, (minutesLeftInCurrent ?? 0) - 15)
@@ -2436,6 +2457,7 @@ function WireContent() {
   function statusRight() {
     if (!periodInfo || !periodInfo.current) return ''
     const { status, current } = periodInfo
+    if (status === 'after') return ''
     if ((checkoutStatus === 'first15' || checkoutStatus === 'ok' || checkoutStatus === 'warning20') && current?.end) {
       const [h, m] = current.end.split(':').map(Number)
       return `Next Bell at ${h % 12 || 12}:${m.toString().padStart(2,'0')} ${h >= 12 ? 'PM' : 'AM'}`
