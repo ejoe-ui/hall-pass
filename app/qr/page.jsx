@@ -211,7 +211,7 @@ export default function QRPage() {
               <p style="font-size:8pt;color:#6b7280;margin:0 0 5pt;font-style:italic;">Primary method</p>
               <ol style="margin:0;padding-left:13pt;font-size:9pt;color:#374151;line-height:1.6;">
                 <li>Walk to the classroom kiosk</li>
-                <li>Scan your NFC badge or QR code</li>
+                <li>Scan your NFC badge or QR code, or select your name from the dropdown</li>
                 <li>Select your destination</li>
                 <li>Tap <strong>Check Out</strong> — done!</li>
               </ol>
@@ -549,8 +549,8 @@ export default function QRPage() {
                               <p style={{ fontSize: 8, color: '#6b7280', margin: '2px 0 0' }}>{activePeriodLabel} · Room {room}</p>
                             </div>
                             {qrCodes[s.id] && (
-                              <div style={{ textAlign: 'center' }}>
-                                <img src={qrCodes[s.id]} alt="" style={{ width: 70, height: 70 }} />
+                              <div style={{ width: '100%', textAlign: 'center' }}>
+                                <img src={qrCodes[s.id]} alt="" style={{ width: 70, height: 70, display: 'block', margin: '0 auto' }} />
                                 <p style={{ fontSize: 6.5, color: '#6b7280', margin: '2px 0 0', wordBreak: 'break-all' }}>
                                   {BASE_URL}/wire?uid={s.id}
                                 </p>
