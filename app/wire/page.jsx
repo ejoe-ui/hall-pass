@@ -702,7 +702,7 @@ function LunchCard({ menu, nextBellLabel }) {
   )
 }
 
-const CO_REASONS = ['Restroom','Library','Office','Counselor','Lockers','Errand','On Assignment','Career Counselor','School Store','Other']
+const CO_REASONS = ['Restroom','Library','Office','Counselor','Lockers','Errand','On Assignment','Career Counselor','Other']
 
 // ── QR Scanner — teacher holds phone to Chromebook camera ────────────────────
 // Defined outside PassHistoryCard so it's a stable component type (no remount on parent re-render)
@@ -1275,59 +1275,38 @@ function PassHistoryCard({
 
     // ── Destination teacher (Errand / On Assignment) ──────────────────────────
     if (coStage === 'destInfo') {
-      const filtered = coDestTeacherSearch.trim().length > 0
-        ? coDestTeacherList.filter(t =>
-            t.full_name.toLowerCase().includes(coDestTeacherSearch.toLowerCase()) ||
-            String(t.room).includes(coDestTeacherSearch))
-        : coDestTeacherList
       const canCheckOut = !!coDestTeacher
 
       return (
         <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f5f9f6', padding: '12px 13px' }}>
           {StudentHeader({ sub: coReason + ' — who are you heading to?' })}
 
-          {/* Teacher search */}
+          {/* Teacher dropdown — exact match, no typos possible */}
           <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#888', marginBottom: 5 }}>
             Destination Teacher
           </p>
-          {coDestTeacher ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#e8f5ee', borderRadius: 7,
-              padding: '7px 10px', marginBottom: 8 }}>
-              <i className="ti ti-user-check" style={{ fontSize: 14, color: RHS_GREEN }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#1a1a18', flex: 1 }}>
-                {coDestTeacher.full_name} · Room {coDestTeacher.room}
-              </span>
-              <button onClick={() => { setCoDestTeacher(null); setCoDestTeacherSearch('') }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 12 }}>✕</button>
-            </div>
-          ) : (
-            <>
-              <input value={coDestTeacherSearch}
-                onChange={e => setCoDestTeacherSearch(e.target.value)}
-                placeholder="Search teacher name or room…"
-                autoFocus
-                style={{ width: '100%', fontSize: 12, padding: '7px 10px', borderRadius: 6,
-                  border: '1.5px solid #c0d8c8', background: 'white', outline: 'none',
-                  marginBottom: 4, boxSizing: 'border-box' }}
-              />
-              {coDestTeacherSearch.trim().length > 0 && (
-                <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid #e0ddd8',
-                  borderRadius: 6, background: 'white', marginBottom: 8 }}>
-                  {filtered.length === 0 ? (
-                    <p style={{ fontSize: 11, color: '#aaa', padding: '8px 10px' }}>No teachers found</p>
-                  ) : filtered.slice(0, 8).map(t => (
-                    <button key={t.id} onClick={() => { setCoDestTeacher(t); setCoDestTeacherSearch('') }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left',
-                        padding: '7px 10px', background: 'none', border: 'none', cursor: 'pointer',
-                        borderBottom: '0.5px solid #f0eeea', fontSize: 12, color: '#1a1a18' }}>
-                      <span style={{ flex: 1 }}>{t.full_name}</span>
-                      <span style={{ fontSize: 10, color: '#aaa' }}>Rm {t.room}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+          <select
+            value={coDestTeacher?.id || ''}
+            onChange={e => {
+              const t = coDestTeacherList.find(x => x.id === e.target.value) || null
+              setCoDestTeacher(t)
+            }}
+            autoFocus
+            style={{
+              width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 6,
+              border: `1.5px solid ${coDestTeacher ? RHS_GREEN : '#c0d8c8'}`,
+              background: 'white', color: coDestTeacher ? '#1a1a18' : '#aaa',
+              outline: 'none', marginBottom: 8, boxSizing: 'border-box',
+              appearance: 'none', cursor: 'pointer',
+            }}
+          >
+            <option value="">— Select a teacher —</option>
+            {coDestTeacherList.map(t => (
+              <option key={t.id} value={t.id}>
+                {t.full_name}{t.room ? ` · Room ${t.room}` : ''}
+              </option>
+            ))}
+          </select>
 
           {/* Optional note */}
           <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#888', marginBottom: 5 }}>
