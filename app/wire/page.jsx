@@ -823,7 +823,7 @@ function ScannerPane({ onResult }) {
 
 function PassHistoryCard({
   uid, student, activePass, weekPassCount, weekPassTotal,
-  selfCheckoutEnabled, checkoutUrl, checkoutStatus, roomParam, teacher,
+  selfCheckoutEnabled, checkoutUrl, checkoutStatus, roomParam, teacher, allTeachers = [],
 }) {
   // ── Stats visibility toggle (privacy — student chooses when to show) ─────
   const SHOW_KEY = uid ? `passable_show_stats_${uid}` : null
@@ -851,10 +851,10 @@ function PassHistoryCard({
   const [coCountdown, setCoCountdown] = useState(5)
   const [coAuthInput, setCoAuthInput] = useState('')
   const [coAuthMode,  setCoAuthMode]  = useState('qr')   // 'qr' | 'code'
-  // Destination teacher (for Errand / On Assignment)
+  // Destination teacher (for Errand / On Assignment) — list comes from WireContent prop
   const [coDestTeacher,       setCoDestTeacher]       = useState(null)   // {id, full_name, room}
   const [coDestTeacherSearch, setCoDestTeacherSearch] = useState('')
-  const [coDestTeacherList,   setCoDestTeacherList]   = useState([])
+  const coDestTeacherList = allTeachers   // use the prop, no local fetch needed
   const [coDestNote,          setCoDestNote]          = useState('')
   const coInputRef = useRef(null)
   const coAuthRef  = useRef(null)
@@ -915,12 +915,6 @@ function PassHistoryCard({
     setCoDestTeacher(null); setCoDestTeacherSearch(''); setCoDestNote('')
     setTimeout(() => coInputRef.current?.focus(), 50)
   }
-
-  // Load all teachers for destination picker (once when component mounts)
-  useEffect(() => {
-    supabase.from('teachers').select('id, full_name, room').order('full_name')
-      .then(({ data }) => { if (data) setCoDestTeacherList(data) })
-  }, [])
 
   // Handle reason selection — route to special stages for Library / Errand / On Assignment
   function selectReason(r) {
@@ -2076,8 +2070,9 @@ function WireContent() {
   }, [scheduleObj])
 
   // ── Teacher + student lookup ───────────────────────────────────────────────
-  const [teacher,  setTeacher]  = useState(null)
-  const [student,  setStudent]  = useState(null)
+  const [teacher,     setTeacher]     = useState(null)
+  const [allTeachers, setAllTeachers] = useState([])
+  const [student,     setStudent]     = useState(null)
   const [activePass, setActivePass] = useState(null)
   const [weekPassCount, setWeekPassCount] = useState(null)
   const [weekPassTotal, setWeekPassTotal] = useState(null)
@@ -2210,6 +2205,12 @@ function WireContent() {
     }
     load()
   }, [uid, roomParam, periodInfo?.current?.value])
+
+  // ── All teachers (for destination picker in self-checkout) ────────────────
+  useEffect(() => {
+    supabase.from('teachers').select('id, full_name, room').order('full_name')
+      .then(({ data }) => { if (data) setAllTeachers(data) })
+  }, [])
 
   // ── Weather ────────────────────────────────────────────────────────────────
   const [weather, setWeather] = useState(null)
@@ -2470,7 +2471,7 @@ function WireContent() {
     switch (id) {
       case 'weather':     return <WeatherCard key={id} weather={d} useCelsius={useCelsius} onToggleUnit={() => setUseCelsius(u => !u)} />
       case 'lunch':       return <LunchCard key={id} menu={d} nextBellLabel={lunchBellLabel()} />
-      case 'passHistory': return <PassHistoryCard key={id} uid={uid} student={student} activePass={activePass} weekPassCount={weekPassCount} weekPassTotal={weekPassTotal} selfCheckoutEnabled={selfCheckoutEnabled} checkoutUrl={checkoutUrl} checkoutStatus={checkoutStatus} roomParam={roomParam} teacher={teacher} />
+      case 'passHistory': return <PassHistoryCard key={id} uid={uid} student={student} activePass={activePass} weekPassCount={weekPassCount} weekPassTotal={weekPassTotal} selfCheckoutEnabled={selfCheckoutEnabled} checkoutUrl={checkoutUrl} checkoutStatus={checkoutStatus} roomParam={roomParam} teacher={teacher} allTeachers={allTeachers} />
       case 'fortune':     return <FortuneCard key={id} fortune={d} />
       case 'cowboyCode':  return <CowboyCodeCard key={id} trait={d} />
       case 'wisdom':      return <WisdomCard key={id} woy={_woy} />
