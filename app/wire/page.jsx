@@ -561,7 +561,7 @@ function ObjectivesCard({ objectives, loading }) {
 // PERIOD HERO (top of right col, always shown)
 // ════════════════════════════════════════════════════════════════════════════════
 
-function PeriodHeroCard({ periodInfo, checkoutStatus, selfCheckoutEnabled, checkoutUrl }) {
+function PeriodHeroCard({ periodInfo }) {
   if (!periodInfo) return null
   const { status, current, minutesLeftInCurrent } = periodInfo
 
@@ -595,54 +595,24 @@ function PeriodHeroCard({ periodInfo, checkoutStatus, selfCheckoutEnabled, check
     sublabel    = 'See you tomorrow!'
   }
 
-  const showCheckout = selfCheckoutEnabled && status === 'period'
-  const checkoutGray = !isPassOpen
-
   return (
     <Card>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px' }}>
-        <div>
-          <p style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: RHS_GREEN, marginBottom: 3 }}>
-            {periodLabel}
-          </p>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-            <span style={{ fontSize: 42, fontWeight: 500, color: '#1a1a18', lineHeight: 1, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
-              {timeDisplay}
-            </span>
-            {status === 'period' && (
-              <span style={{ fontSize: 13, color: '#888', marginLeft: 2 }}>min left</span>
-            )}
-            {(status === 'break' || status === 'before') && (
-              <span style={{ fontSize: 13, color: '#888', marginLeft: 2 }}>min</span>
-            )}
-          </div>
-          {sublabel && <p style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>{sublabel}</p>}
+      <div style={{ padding: '12px 14px' }}>
+        <p style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: RHS_GREEN, marginBottom: 3 }}>
+          {periodLabel}
+        </p>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+          <span style={{ fontSize: 42, fontWeight: 500, color: '#1a1a18', lineHeight: 1, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+            {timeDisplay}
+          </span>
+          {status === 'period' && (
+            <span style={{ fontSize: 13, color: '#888', marginLeft: 2 }}>min left</span>
+          )}
+          {(status === 'break' || status === 'before') && (
+            <span style={{ fontSize: 13, color: '#888', marginLeft: 2 }}>min</span>
+          )}
         </div>
-        {showCheckout && (
-          <div style={{ textAlign: 'right' }}>
-            <a
-              href={checkoutGray ? undefined : checkoutUrl}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                background: checkoutGray ? '#f0eeea' : RHS_GREEN,
-                color: checkoutGray ? '#bbb' : 'white',
-                fontSize: 11, fontWeight: 500, padding: '8px 14px', borderRadius: 7,
-                border: checkoutGray ? '0.5px solid #e0ddd8' : 'none',
-                textDecoration: 'none',
-                pointerEvents: checkoutGray ? 'none' : 'auto',
-                letterSpacing: '0.03em',
-              }}
-            >
-              <i className="ti ti-door-exit" aria-hidden="true" style={{ fontSize: 13 }} />
-              Self Check-Out
-            </a>
-            {checkoutGray && (
-              <p style={{ fontSize: 10, color: '#bbb', marginTop: 4 }}>
-                {isFirst15 ? 'Not yet — first 15 min' : isLast15 ? 'Closed — last 15 min' : 'Unavailable'}
-              </p>
-            )}
-          </div>
-        )}
+        {sublabel && <p style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>{sublabel}</p>}
       </div>
     </Card>
   )
@@ -2504,12 +2474,7 @@ function WireContent() {
 
         {/* RIGHT — Configurable column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <PeriodHeroCard
-            periodInfo={periodInfo}
-            checkoutStatus={checkoutStatus}
-            selfCheckoutEnabled={selfCheckoutEnabled}
-            checkoutUrl={checkoutUrl}
-          />
+          <PeriodHeroCard periodInfo={periodInfo} />
           {prefs.order.map(id => renderSlot(id))}
         </div>
 
