@@ -1375,9 +1375,9 @@ function PassHistoryCard({
         <p style={{ fontSize: 11, color: '#aaa' }}>Self-checkout is not currently enabled by your teacher</p>
       </div>
     )
-    // Flow: tap stats → authEntry (enter teacher code) → found (reason grid) → done
+    // Flow: tap stats → authEntry (teacher QR/code) → found (reason grid) → done
     // If already on a pass: tap → alreadyOut (check in option)
-    return <InlineCheckout />
+    return InlineCheckout()
   }
 
   // Active pass ring
@@ -1469,8 +1469,8 @@ function PassHistoryCard({
       </div>
       )}
 
-      {/* Checkout popup — always accessible regardless of stats toggle */}
-      {expanded && showStats && <CheckoutPopup />}
+      {/* Checkout popup — called as function (not component) so ScannerPane doesn't remount on clock ticks */}
+      {expanded && showStats && CheckoutPopup()}
     </Card>
   )
 }
