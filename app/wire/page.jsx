@@ -1921,6 +1921,16 @@ function WireContent() {
   const roomParam = searchParams.get('room') || ''
   const uid = normalizeUid(rawUid)
 
+  // ── Tabler Icons CSS (injected once — not in layout for this route) ──────
+  useEffect(() => {
+    if (document.querySelector('[data-tabler-icons]')) return
+    const link = document.createElement('link')
+    link.rel  = 'stylesheet'
+    link.href = 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css'
+    link.setAttribute('data-tabler-icons', '1')
+    document.head.appendChild(link)
+  }, [])
+
   // ── Clock ──────────────────────────────────────────────────────────────────
   const [now, setNow] = useState(null) // null until mounted (avoids hydration mismatch)
   useEffect(() => {
