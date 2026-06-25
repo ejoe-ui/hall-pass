@@ -424,6 +424,49 @@ function CalendarCard({ events }) {
   )
 }
 
+// ── Birthday Card (left column, unlocked) ────────────────────────────────────
+function BirthdayCard({ birthdays }) {
+  if (!birthdays?.length) return null
+  const today   = new Date()
+  const todayMM = today.getMonth() + 1
+  const todayDD = today.getDate()
+  const todays    = birthdays.filter(b => b.month === todayMM && b.day === todayDD)
+  const tomorrows = birthdays.filter(b => !(b.month === todayMM && b.day === todayDD))
+
+  return (
+    <Card>
+      <CardHeader label="🎂 Birthdays" />
+      <CardBody compact>
+        {todays.length > 0 && (
+          <>
+            <p style={{ fontSize: 9, fontWeight: 700, color: '#d97706', textTransform: 'uppercase',
+              letterSpacing: '0.08em', marginBottom: 5 }}>Today 🎉</p>
+            {todays.map((b, i) => (
+              <p key={i} style={{ fontSize: 12, fontWeight: 600, color: '#1a1a18',
+                padding: '2px 0', borderBottom: i < todays.length - 1 ? '0.5px solid #f0eeea' : 'none' }}>
+                {b.name}
+              </p>
+            ))}
+            {tomorrows.length > 0 && <div style={{ marginBottom: 8 }} />}
+          </>
+        )}
+        {tomorrows.length > 0 && (
+          <>
+            <p style={{ fontSize: 9, fontWeight: 700, color: '#888', textTransform: 'uppercase',
+              letterSpacing: '0.08em', marginBottom: 5 }}>Tomorrow</p>
+            {tomorrows.map((b, i) => (
+              <p key={i} style={{ fontSize: 12, color: '#555',
+                padding: '2px 0', borderBottom: i < tomorrows.length - 1 ? '0.5px solid #f0eeea' : 'none' }}>
+                {b.name}
+              </p>
+            ))}
+          </>
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
 function ObjectivesCard({ objectives, loading }) {
   if (loading) return (
     <Card locked>
@@ -711,7 +754,9 @@ function PassHistoryCard({
   const [coOther,   setCoOther]   = useState('')
   const [coMsg,     setCoMsg]     = useState('')
   const [coCountdown, setCoCountdown] = useState(5)
+  const [coAuthInput, setCoAuthInput] = useState('')
   const coInputRef = useRef(null)
+  const coAuthRef  = useRef(null)
 
   // ── Student photo — try lifetouch-raw, fall back to student-photos ──────────
   const [studentPhoto, setStudentPhoto] = useState(null)
@@ -748,15 +793,15 @@ function PassHistoryCard({
   // ── Auto-populate checkout for identified student (no extra DB call) ───────
   useEffect(() => {
     if (!expanded || !student?.id || coStage !== 'idle') return
-    // We already have the student + their active pass from props — skip coLookup
-    setCoStudent({
-      id:      student.id,
-      name:    student.full_name,
-      photo:   studentPhoto,
-      period:  student.period,
-      openPass: activePass || null,
-    })
-    setCoStage(activePass ? 'alreadyOut' : 'found')
+    if (activePass) {
+      // Already on a pass — jump straight to alreadyOut (no auth needed to check back in)
+      setCoStudent({ id: student.id, name: student.full_name, photo: studentPhoto, period: student.period, openPass: activePass })
+      setCoStage('alreadyOut')
+    } else {
+      // Needs teacher auth code before checkout
+      setCoStage('authEntry')
+      setTimeout(() => coAuthRef.current?.focus(), 80)
+    }
   }, [expanded])
 
   // passes are always open during a class period — first/last 15 are verbal warnings only
@@ -765,7 +810,27 @@ function PassHistoryCard({
   function resetCo() {
     setCoStage('idle'); setCoInput(''); setCoStudent(null)
     setCoReason(''); setCoOther(''); setCoMsg(''); setCoCountdown(5)
+    setCoAuthInput('')
     setTimeout(() => coInputRef.current?.focus(), 50)
+  }
+
+  function verifyAuthCode() {
+    if (coAuthInput.length !== 4) return
+    const teacherCode = teacher?.session_code || ''
+    if (!teacherCode) {
+      // No code set — teacher hasn't enabled a session; still let through
+      setCoStudent({ id: student.id, name: student.full_name, photo: studentPhoto, period: student.period, openPass: null })
+      setCoStage('found')
+      setCoAuthInput('')
+      return
+    }
+    if (coAuthInput === teacherCode) {
+      setCoStudent({ id: student.id, name: student.full_name, photo: studentPhoto, period: student.period, openPass: null })
+      setCoStage('found')
+      setCoAuthInput('')
+    } else {
+      setCoStage('authFail')
+    }
   }
 
   async function coLookup(rawId) {
@@ -832,6 +897,56 @@ function PassHistoryCard({
 
   // ── Inline checkout panel (shown when selfCheckoutEnabled) ────────────────
   const InlineCheckout = () => {
+    // ── Teacher auth step (personalized wire page only) ────────────────────
+    if (coStage === 'authEntry' || coStage === 'authFail') return (
+      <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f5f9f6', padding: '14px 13px' }}>
+        <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase',
+          color: RHS_GREEN, marginBottom: 6 }}>🔐 Teacher Checkout Code</p>
+        {coStage === 'authFail' && (
+          <p style={{ fontSize: 11, color: '#dc2626', marginBottom: 6 }}>
+            Wrong code — ask your teacher for the current code
+          </p>
+        )}
+        <p style={{ fontSize: 11, color: '#888', marginBottom: 9 }}>
+          Enter the 4-digit code displayed in your teacher's dashboard
+        </p>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input
+            ref={coAuthRef}
+            value={coAuthInput}
+            onChange={e => setCoAuthInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            onKeyDown={e => { if (e.key === 'Enter' && coAuthInput.length === 4) verifyAuthCode() }}
+            placeholder="· · · ·"
+            inputMode="numeric"
+            maxLength={4}
+            autoComplete="off"
+            style={{
+              flex: 1, fontSize: 22, fontWeight: 700, textAlign: 'center', letterSpacing: '0.35em',
+              padding: '8px 10px', borderRadius: 7,
+              border: `1.5px solid ${coStage === 'authFail' ? '#fca5a5' : '#c0d8c8'}`,
+              background: 'white', color: '#1a1a18', outline: 'none',
+            }}
+          />
+          <button
+            onClick={verifyAuthCode}
+            disabled={coAuthInput.length !== 4}
+            style={{
+              background: coAuthInput.length === 4 ? RHS_GREEN : '#e0ddd8',
+              color: 'white', fontSize: 13, fontWeight: 600,
+              padding: '8px 16px', borderRadius: 7, border: 'none',
+              cursor: coAuthInput.length === 4 ? 'pointer' : 'default',
+            }}
+          >Go</button>
+        </div>
+        <button
+          onClick={() => { setExpanded(false); setCoStage('idle'); setCoAuthInput('') }}
+          style={{ fontSize: 11, color: '#bbb', background: 'none', border: 'none',
+            cursor: 'pointer', marginTop: 10, padding: 0 }}>
+          Cancel
+        </button>
+      </div>
+    )
+
     if (coStage === 'idle' || coStage === 'error') return (
       <div style={{ borderTop: '0.5px solid #e8f0ec', background: '#f5f9f6', padding: '12px 13px' }}>
         <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: RHS_GREEN, marginBottom: 8 }}>
@@ -1081,8 +1196,8 @@ function PassHistoryCard({
         <p style={{ fontSize: 11, color: '#aaa' }}>Self-checkout is not currently enabled by your teacher</p>
       </div>
     )
-    // InlineCheckout handles all stages; we auto-trigger coLookup via useEffect above
-    // so by the time the popup is visible it's already in 'found', 'alreadyOut', 'working', or 'done'
+    // Flow: tap stats → authEntry (enter teacher code) → found (reason grid) → done
+    // If already on a pass: tap → alreadyOut (check in option)
     return <InlineCheckout />
   }
 
@@ -2147,6 +2262,7 @@ function WireContent() {
           <ScheduleCard periodInfo={periodInfo} scheduleType={scheduleType} />
           <ObjectivesCard objectives={objectives} loading={objectivesLoading} />
           <CalendarCard events={calendarEvents} />
+          <BirthdayCard birthdays={cwBirthdays} />
         </div>
 
         {/* RIGHT — Configurable column */}
