@@ -21,7 +21,7 @@
 */
 
 'use client'
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
+import { useState, useEffect, useRef, useCallback, Suspense, memo } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import {
@@ -713,16 +713,35 @@ function PassHistoryCard({
   const [coCountdown, setCoCountdown] = useState(5)
   const coInputRef = useRef(null)
 
-  // ── Student photo (signed URL from lifetouch-raw) ─────────────────────────
+  // ── Student photo — try lifetouch-raw, fall back to student-photos ──────────
   const [studentPhoto, setStudentPhoto] = useState(null)
   const [photoErr,     setPhotoErr]     = useState(false)
   useEffect(() => {
-    if (!student?.photo_file) return
+    const file = student?.photo_file
+    if (!file) return
     let cancelled = false
-    setPhotoErr(false)
-    supabase.storage.from('lifetouch-raw').createSignedUrl(student.photo_file, 3600)
-      .then(({ data }) => { if (!cancelled && data?.signedUrl) setStudentPhoto(data.signedUrl) })
-      .catch(() => {})
+    // Don't reset photoErr here — only reset if we actually get a URL
+    async function load() {
+      try {
+        const { data: r } = await supabase.storage
+          .from('lifetouch-raw').createSignedUrl(file, 3600)
+        if (!cancelled && r?.signedUrl) {
+          setPhotoErr(false)
+          setStudentPhoto(r.signedUrl)
+          return
+        }
+      } catch {}
+      // Fallback: student-photos bucket
+      try {
+        const { data: r } = await supabase.storage
+          .from('student-photos').createSignedUrl(file, 3600)
+        if (!cancelled && r?.signedUrl) {
+          setPhotoErr(false)
+          setStudentPhoto(r.signedUrl)
+        }
+      } catch {}
+    }
+    load()
     return () => { cancelled = true }
   }, [student?.photo_file])
 
