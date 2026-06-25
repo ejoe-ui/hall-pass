@@ -1814,11 +1814,24 @@ function ConfigPanel({ prefs, setPrefs, open, setOpen }) {
   function toggle(id) {
     const reg = COMPONENT_REGISTRY.find(c => c.id === id)
     if (!reg || reg.alwaysOn) return
-    setPrefs(p => ({
-      ...p,
-      enabled: { ...p.enabled, [id]: !p.enabled[id] },
-    }))
+    setPrefs(p => ({ ...p, enabled: { ...p.enabled, [id]: !p.enabled[id] } }))
   }
+
+  function move(id, dir) {
+    setPrefs(p => {
+      const order = [...p.order]
+      const i = order.indexOf(id)
+      if (i < 0) return p
+      const j = i + dir
+      if (j < 0 || j >= order.length) return p
+      ;[order[i], order[j]] = [order[j], order[i]]
+      return { ...p, order }
+    })
+  }
+
+  const orderedCards = prefs.order
+    .map(id => COMPONENT_REGISTRY.find(c => c.id === id))
+    .filter(Boolean)
 
   return (
     <>
@@ -1854,66 +1867,65 @@ function ConfigPanel({ prefs, setPrefs, open, setOpen }) {
               Your display
             </p>
             <p style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>
-              Toggle cards on or off · locked items always show
+              Toggle cards · drag to reorder
             </p>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: 8, gap: 2 }}>
-            {/* Locked items */}
-            {['Schedule','Calendar','Objectives'].map(label => (
-              <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 4px' }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: '#e8f5ee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <i className={`ti ${label === 'Schedule' ? 'ti-calendar-week' : label === 'Calendar' ? 'ti-calendar-event' : 'ti-notebook'}`}
-                     aria-hidden="true" style={{ fontSize: 15, color: RHS_GREEN }} />
-                </div>
-                <span style={{ fontSize: 9, color: RHS_GREEN, textAlign: 'center', lineHeight: 1.3 }}>{label}</span>
-                <div style={{ width: 28, height: 14, background: '#e0ece6', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <i className="ti ti-lock" aria-hidden="true" style={{ fontSize: 9, color: RHS_GREEN }} />
-                </div>
+
+          {/* Locked left-column cards */}
+          <div style={{ padding: '6px 14px', borderBottom: '0.5px solid #f0eeea' }}>
+            <p style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#ccc', marginBottom: 4 }}>
+              Always on
+            </p>
+            {['Schedule','Calendar & Events','Objectives'].map(label => (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                <i className={`ti ${label === 'Schedule' ? 'ti-calendar-week' : label.startsWith('Cal') ? 'ti-calendar-event' : 'ti-notebook'}`}
+                   aria-hidden="true" style={{ fontSize: 14, color: RHS_GREEN, width: 18, textAlign: 'center' }} />
+                <span style={{ fontSize: 11, color: '#888', flex: 1 }}>{label}</span>
+                <i className="ti ti-lock" aria-hidden="true" style={{ fontSize: 11, color: '#ccc' }} />
               </div>
             ))}
-            {/* Configurable items */}
-            {COMPONENT_REGISTRY.map(c => {
+          </div>
+
+          {/* Configurable right-column cards with toggle + reorder */}
+          <div style={{ padding: '6px 14px 10px' }}>
+            <p style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#ccc', marginBottom: 4 }}>
+              Your cards · tap to toggle · arrows to reorder
+            </p>
+            {orderedCards.map((c, idx) => {
               const isOn = prefs.enabled[c.id]
               return (
-                <button
-                  key={c.id}
-                  onClick={() => toggle(c.id)}
-                  style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                    padding: '8px 4px', background: 'none', border: 'none', cursor: c.alwaysOn ? 'default' : 'pointer',
-                    borderRadius: 8,
-                  }}
-                >
-                  <div style={{
-                    width: 32, height: 32, borderRadius: 8,
-                    background: isOn ? '#f0f8f4' : '#f5f5f5',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <i className={`ti ${c.icon}`} aria-hidden="true"
-                       style={{ fontSize: 15, color: isOn ? RHS_GREEN : '#ccc' }} />
-                  </div>
-                  <span style={{ fontSize: 9, color: isOn ? '#555' : '#bbb', textAlign: 'center', lineHeight: 1.3 }}>
-                    {c.label}
-                  </span>
-                  {c.alwaysOn ? (
-                    <div style={{ width: 28, height: 14, background: '#e0ece6', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <i className="ti ti-lock" aria-hidden="true" style={{ fontSize: 9, color: RHS_GREEN }} />
-                    </div>
-                  ) : (
-                    <div style={{
-                      width: 28, height: 14, borderRadius: 7, position: 'relative',
-                      background: isOn ? RHS_GREEN : '#ddd',
-                      transition: 'background 0.15s',
-                    }}>
-                      <div style={{
-                        position: 'absolute', top: 2,
-                        left: isOn ? 'calc(100% - 12px)' : 2,
-                        width: 10, height: 10, borderRadius: '50%', background: 'white',
-                        transition: 'left 0.15s',
-                      }} />
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: idx < orderedCards.length - 1 ? '0.5px solid #f8f7f5' : 'none' }}>
+                  <i className={`ti ${c.icon}`} aria-hidden="true"
+                     style={{ fontSize: 14, color: isOn ? RHS_GREEN : '#ccc', width: 18, textAlign: 'center' }} />
+                  <button
+                    onClick={() => toggle(c.id)}
+                    style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: c.alwaysOn ? 'default' : 'pointer', padding: 0 }}
+                  >
+                    <span style={{ fontSize: 11, color: isOn ? '#222' : '#bbb' }}>{c.label}</span>
+                  </button>
+                  {/* Toggle pill */}
+                  {!c.alwaysOn && (
+                    <div
+                      onClick={() => toggle(c.id)}
+                      style={{ width: 28, height: 14, borderRadius: 7, position: 'relative', cursor: 'pointer',
+                        background: isOn ? RHS_GREEN : '#ddd', transition: 'background 0.15s', flexShrink: 0 }}
+                    >
+                      <div style={{ position: 'absolute', top: 2, left: isOn ? 'calc(100% - 12px)' : 2,
+                        width: 10, height: 10, borderRadius: '50%', background: 'white', transition: 'left 0.15s' }} />
                     </div>
                   )}
-                </button>
+                  {/* Reorder buttons */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
+                    <button onClick={() => move(c.id, -1)} disabled={idx === 0}
+                      style={{ background: 'none', border: 'none', cursor: idx === 0 ? 'default' : 'pointer', padding: '1px 3px', lineHeight: 1 }}>
+                      <i className="ti ti-chevron-up" style={{ fontSize: 10, color: idx === 0 ? '#e0ddd8' : '#999' }} />
+                    </button>
+                    <button onClick={() => move(c.id, 1)} disabled={idx === orderedCards.length - 1}
+                      style={{ background: 'none', border: 'none', cursor: idx === orderedCards.length - 1 ? 'default' : 'pointer', padding: '1px 3px', lineHeight: 1 }}>
+                      <i className="ti ti-chevron-down" style={{ fontSize: 10, color: idx === orderedCards.length - 1 ? '#e0ddd8' : '#999' }} />
+                    </button>
+                  </div>
+                </div>
               )
             })}
           </div>
@@ -2130,6 +2142,32 @@ function WireContent() {
     const id = setInterval(fetchWeather, 600000) // every 10 min
     return () => clearInterval(id)
   }, [])
+
+  // ── Active pass polling (30s) — keeps red/green status live mid-period ──────
+  useEffect(() => {
+    if (!student?.id) return
+    async function pollPass() {
+      const weekStart = new Date()
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay())
+      weekStart.setHours(0, 0, 0, 0)
+      const { data: passes } = await supabase
+        .from('passes')
+        .select('*')
+        .eq('student_id', student.id)
+        .gte('time_out', weekStart.toISOString())
+        .order('time_out', { ascending: false })
+      if (passes) {
+        setActivePass(passes.find(p => !p.time_in) || null)
+        setWeekPassCount(passes.length)
+        setWeekPassTotal(
+          passes.filter(p => p.time_in)
+            .reduce((acc, p) => acc + Math.round((new Date(p.time_in) - new Date(p.time_out)) / 60000), 0)
+        )
+      }
+    }
+    const id = setInterval(pollPass, 30000)
+    return () => clearInterval(id)
+  }, [student?.id])
 
   // ── Calendar (via /api/calendar → RHS Events iCal) ────────────────────────
   const [calendarEvents, setCalendarEvents] = useState([])
@@ -2375,9 +2413,7 @@ function WireContent() {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-          <div style={{ width: 34, height: 34, background: 'rgba(255,255,255,0.18)', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <i className="ti ti-shield-star" aria-hidden="true" style={{ color: 'white', fontSize: 18 }} />
-          </div>
+          <img src="/cowboy-logo.png" alt="RHS Cowboy" style={{ width: 42, height: 42, objectFit: 'contain', flexShrink: 0 }} />
           <div>
             <div style={{ color: 'white', fontSize: 14, fontWeight: 500 }}>
               Riverdale High School · {teacher ? `Room ${teacher.room} · ${teacher.full_name || ''}` : roomParam ? `Room ${roomParam}` : 'Cowboy Wire'}
