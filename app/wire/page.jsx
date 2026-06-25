@@ -715,20 +715,29 @@ function PassHistoryCard({
 
   // ── Student photo (signed URL from lifetouch-raw) ─────────────────────────
   const [studentPhoto, setStudentPhoto] = useState(null)
+  const [photoErr,     setPhotoErr]     = useState(false)
   useEffect(() => {
     if (!student?.photo_file) return
     let cancelled = false
+    setPhotoErr(false)
     supabase.storage.from('lifetouch-raw').createSignedUrl(student.photo_file, 3600)
       .then(({ data }) => { if (!cancelled && data?.signedUrl) setStudentPhoto(data.signedUrl) })
       .catch(() => {})
     return () => { cancelled = true }
   }, [student?.photo_file])
 
-  // ── Auto-lookup when checkout popup opens for identified student ───────────
+  // ── Auto-populate checkout for identified student (no extra DB call) ───────
   useEffect(() => {
-    if (expanded && student?.id && selfCheckoutEnabled && coStage === 'idle') {
-      coLookup(student.id)
-    }
+    if (!expanded || !student?.id || coStage !== 'idle') return
+    // We already have the student + their active pass from props — skip coLookup
+    setCoStudent({
+      id:      student.id,
+      name:    student.full_name,
+      photo:   studentPhoto,
+      period:  student.period,
+      openPass: activePass || null,
+    })
+    setCoStage(activePass ? 'alreadyOut' : 'found')
   }, [expanded])
 
   // passes are always open during a class period — first/last 15 are verbal warnings only
@@ -1108,12 +1117,12 @@ function PassHistoryCard({
                   </span>
                 </div>
               </div>
-            ) : studentPhoto ? (
+            ) : (studentPhoto && !photoErr) ? (
               <div style={{ position: 'relative', width: 52, height: 52, flexShrink: 0 }}>
                 <img src={studentPhoto} alt="" style={{
                   width: 52, height: 52, borderRadius: '50%', objectFit: 'cover',
                   border: `2px solid #c8e6d4`,
-                }} onError={() => setStudentPhoto(null)} />
+                }} onError={() => setPhotoErr(true)} />
                 <div style={{
                   position: 'absolute', bottom: 0, right: 0,
                   width: 16, height: 16, borderRadius: '50%',
