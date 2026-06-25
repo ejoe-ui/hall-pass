@@ -700,6 +700,9 @@ function PassHistoryCard({
     if (SHOW_KEY) localStorage.setItem(SHOW_KEY, next ? 'true' : 'false')
   }
 
+  // ── Checkout popup expand state ───────────────────────────────────────────
+  const [expanded, setExpanded] = useState(false)
+
   // ── Inline self-checkout flow state ──────────────────────────────────────
   const [coStage,   setCoStage]   = useState('idle')  // idle | found | alreadyOut | working | done | error
   const [coInput,   setCoInput]   = useState('')
