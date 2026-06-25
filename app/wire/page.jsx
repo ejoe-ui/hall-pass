@@ -419,6 +419,18 @@ function CalendarCard({ events }) {
             </div>
           )
         })}
+        <a
+          href="https://calendar.google.com/calendar/embed?src=rjusd.org_3stf3viha1tl799q7u41j8a75g%40group.calendar.google.com&ctz=America%2FLos_Angeles"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'block', marginTop: 8, fontSize: 10, fontWeight: 600,
+            color: RHS_GREEN, textDecoration: 'none', textAlign: 'right',
+            letterSpacing: '0.03em',
+          }}
+        >
+          View full calendar →
+        </a>
       </CardBody>
     </Card>
   )
