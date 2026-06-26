@@ -2,13 +2,12 @@
   PassAble — RHS Hall Pass System
   FILE:    app/self-checkout/page.jsx
   ROUTE:   /self-checkout
+  URL:     https://hall-pass-lime.vercel.app/self-checkout
   PURPOSE: Student-facing self-checkout — enter session code, look up by ID or QR scan,
            select reason (with same conditional inputs as kiosk), check out / check in.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (teachers, students, passes, settings)
-  UPDATED: 2026-06-22 — green header; code fallback chain; numeric keypad on ID screen;
-           opt-in QR scanner; full reason inputs (On Assignment, Errand, Other);
-           fixed photo bucket (lifetouch-raw); kiosk-return polling → green thank-you screen
+  UPDATED: 2026-06-25 — updated reason list (Class Assignment, IT / Tech Support, removed Other + School Store); added destination_note + pass_notifications insert for teacher alerts
 */
 
 'use client'
