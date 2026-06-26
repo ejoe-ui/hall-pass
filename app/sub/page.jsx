@@ -484,15 +484,14 @@ export default function Sub() {
             const badge = getFrequentFlyerBadge(pass.student_id)
             return (
               <div key={pass.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-gray-100 flex items-center justify-center border-2"
-                  style={{ borderColor: elapsedColor(mins) }}>
-                  {photoUrls[pass.student_id]
-                    ? <img src={photoUrls[pass.student_id]} alt="" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling?.style && (e.currentTarget.nextSibling.style.display = 'flex') }} />
-                    : <span className="text-xs font-medium text-white flex items-center justify-center w-full h-full"
-                        style={{ backgroundColor: RHS_GREEN }}>
-                        {student?.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
-                      </span>
-                  }
+                <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 relative border-2"
+                  style={{ borderColor: elapsedColor(mins), backgroundColor: RHS_GREEN }}>
+                  <span className="absolute inset-0 flex items-center justify-center text-xs font-medium text-white">
+                    {student?.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                  </span>
+                  {photoUrls[pass.student_id] && (
+                    <img src={photoUrls[pass.student_id]} alt="" className="absolute inset-0 w-full h-full object-cover" onError={e => e.currentTarget.style.display = 'none'} />
+                  )}
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -538,13 +537,13 @@ export default function Sub() {
               <div className="text-xs font-medium text-gray-500 mb-2">Check out a student</div>
               {selectedStudentPreview && (
                 <div className="flex items-center gap-3 mb-3 p-2 bg-white rounded-xl border border-gray-200">
-                  <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-gray-100">
-                    {photoUrls[selectedStudentPreview.id]
-                      ? <img src={photoUrls[selectedStudentPreview.id]} alt="" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling?.style && (e.currentTarget.nextSibling.style.display = 'flex') }} />
-                      : <div className="w-full h-full flex items-center justify-center text-sm font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
-                          {selectedStudentPreview.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
-                        </div>
-                    }
+                  <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 relative" style={{ backgroundColor: RHS_GREEN }}>
+                    <div className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white">
+                      {selectedStudentPreview.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
+                    </div>
+                    {photoUrls[selectedStudentPreview.id] && (
+                      <img src={photoUrls[selectedStudentPreview.id]} alt="" className="absolute inset-0 w-full h-full object-cover" onError={e => e.currentTarget.style.display = 'none'} />
+                    )}
                   </div>
                   <div>
                     <div className="text-sm font-semibold text-gray-800">{selectedStudentPreview.full_name}</div>
