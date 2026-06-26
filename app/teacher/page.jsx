@@ -1054,12 +1054,15 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
 
   async function saveSubCode() {
     if (newSubCode.length !== 4 || isNaN(newSubCode)) return
+    // Prefix with room number (2 digits, zero-padded) to guarantee uniqueness across teachers
+    const roomPrefix = String(teacherRoom || '00').slice(0, 2).padStart(2, '0')
+    const fullCode = roomPrefix + newSubCode
     if (currentTeacher?.id) {
-      await supabase.from('teachers').update({ sub_code: newSubCode }).eq('id', currentTeacher.id)
+      await supabase.from('teachers').update({ sub_code: fullCode }).eq('id', currentTeacher.id)
     } else {
-      await supabase.from('settings').update({ value: newSubCode }).eq('key', 'sub_code')
+      await supabase.from('settings').update({ value: fullCode }).eq('key', 'sub_code')
     }
-    setSubCode(newSubCode); setNewSubCode(''); setSubCodeSaved(true)
+    setSubCode(fullCode); setNewSubCode(''); setSubCodeSaved(true)
     setTimeout(() => setSubCodeSaved(false), 3000)
   }
 
@@ -1607,8 +1610,8 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
           { title: 'Settings', items: [
             { q: "How do I access Settings?", keys: "settings open show hide access find scroll",
               a: <>Scroll to the bottom of your dashboard and click {settingsBtn}. All your options will expand below. Click <strong>🔒 Hide Settings</strong> to collapse them when you're done.</> },
-            { q: "What's the Sub Code?", keys: "sub code substitute teacher login classroom 4 digit",
-              a: <>A 4-digit code tied to your classroom that a substitute teacher can use to log in without your password. Set it in {settingsBtn} so your sub can track passes while you're out.</> },
+            { q: "What's the Sub Code?", keys: "sub code substitute teacher login classroom 6 digit",
+              a: <>A 6-digit code tied to your classroom — your room number followed by 4 digits you choose (e.g., Room 27 → 270491). A substitute teacher enters this at hall-pass-lime.vercel.app/sub to access your classroom without your password. Set it in {settingsBtn}.</> },
             { q: "How do I set a schedule override?", keys: "schedule override minimum day block early release foggy wrong schedule",
               a: <>If today's schedule isn't being detected correctly, scroll to {settingsBtn} and find <strong>Today's Schedule Override</strong>. Pick the correct schedule from the dropdown and hit <strong>Set</strong>. An amber banner will appear at the top of the page confirming it's active. The override is scoped to your room only and clears automatically at midnight. Your admin can also set a school-wide override from the admin panel if needed.</> },
             { q: "What's Block First & Last 15 Min?", keys: "block 15 minutes first last period red status bar warn",
@@ -2256,10 +2259,15 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
-              <div className="mb-3"><p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Substitute Code</p><p className="text-xs text-gray-400">Current code: <span className="font-mono">{subCode}</span></p></div>
-              <div className="flex gap-2">
-                <input type="number" maxLength={4} placeholder="New 4-digit sub code" value={newSubCode} onChange={e => setNewSubCode(e.target.value.slice(0, 4))} className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
-                <button onClick={saveSubCode} disabled={newSubCode.length !== 4} className={`px-4 py-2 text-sm font-medium rounded-lg ${subCodeSaved ? 'bg-green-50 border border-green-200 text-green-700' : 'text-white disabled:opacity-30'}`} style={!subCodeSaved ? { backgroundColor: RHS_GREEN } : {}}>{subCodeSaved ? '✓ Saved' : 'Save Code'}</button>
+              <div className="mb-3">
+                <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Substitute Code</p>
+                <p className="text-xs text-gray-400">Current code: <span className="font-mono">{subCode || '—'}</span></p>
+                <p className="text-xs text-gray-400 mt-0.5">6-digit code = your room number + 4 digits you choose. Subs enter this to access your classroom.</p>
+              </div>
+              <div className="flex gap-2 items-center">
+                <span className="text-sm font-mono font-bold text-gray-500 flex-shrink-0">{String(teacherRoom || '00').slice(0,2).padStart(2,'0')} –</span>
+                <input type="number" placeholder="4 digits" value={newSubCode} onChange={e => setNewSubCode(e.target.value.slice(0, 4))} className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
+                <button onClick={saveSubCode} disabled={newSubCode.length !== 4} className={`px-4 py-2 text-sm font-medium rounded-lg flex-shrink-0 ${subCodeSaved ? 'bg-green-50 border border-green-200 text-green-700' : 'text-white disabled:opacity-30'}`} style={!subCodeSaved ? { backgroundColor: RHS_GREEN } : {}}>{subCodeSaved ? '✓ Saved' : 'Save Code'}</button>
               </div>
             </div>
 
