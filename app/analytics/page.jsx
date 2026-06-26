@@ -8,11 +8,10 @@
            Admin view shows all rooms school-wide; teacher view is scoped to their room.
            Admin can drill into a specific teacher by navigating from that teacher's Relay Station.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
+  URL:     https://hall-pass-lime.vercel.app/analytics
   BACKEND: Supabase (passes, students, teachers)
   AUTH:    Inherits session from Relay Station / Admin panel. Redirects to /teacher if not signed in.
-  UPDATED: 2026-06-23 — Career Counselor added to REASONS/REASON_COLORS; students fetch scoped to
-           pass IDs only (no full-table scan); dead /student/[id] links removed from Frequent Flyers;
-           is_admin fallback note added in loadCurrentTeacher
+  UPDATED: 2026-06-25 — reason list updated: Class Assignment (was On Assignment), IT / Tech Support added, School Store + Other removed; REASON_COLORS updated to match
 */
 'use client'
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react'
@@ -21,12 +20,12 @@ import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
 
-// Matches all reasons used in kiosk and self-checkout (Career Counselor added)
-const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Career Counselor', 'Lockers', 'Errand', 'On Assignment', 'School Store', 'Other']
+// Canonical reason list — must match all checkout pages (teacher, kiosk, self-checkout, wire, sub)
+const REASONS = ['Restroom', 'Library', 'Lockers', 'Office', 'Counselor', 'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support']
 const REASON_COLORS = {
-  'Restroom': '#3B82F6', 'Library': '#8B5CF6', 'Office': '#F59E0B', 'Counselor': '#EC4899',
-  'Career Counselor': '#14B8A6',
-  'Lockers': '#06B6D4', 'Errand': '#10B981', 'On Assignment': '#F97316', 'School Store': '#6366F1', 'Other': '#94A3B8',
+  'Restroom': '#3B82F6', 'Library': '#8B5CF6', 'Lockers': '#06B6D4',
+  'Office': '#F59E0B', 'Counselor': '#EC4899', 'Career Counselor': '#14B8A6',
+  'Errand': '#10B981', 'Class Assignment': '#F97316', 'IT / Tech Support': '#A855F7',
 }
 
 function BarChart({ data, maxVal, color }) {
