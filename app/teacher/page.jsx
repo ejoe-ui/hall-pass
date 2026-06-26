@@ -1793,6 +1793,9 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
               ))}
             </div>
           )}
+          <span className="text-sm font-mono text-green-200 tabular-nums">
+            {new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
           <a href={`/analytics?teacher_id=${currentTeacher?.id || ''}`} className="text-sm text-green-200 hover:text-white">Analytics</a>
           {currentTeacher?.is_admin && <a href="/admin" className="text-sm text-green-200 hover:text-white">Admin</a>}
           <button onClick={() => setShowHelp(true)} className="text-sm text-green-200 hover:text-white">? Help</button>
