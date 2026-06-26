@@ -481,6 +481,7 @@ function TeacherInner() {
   const [savingPassword, setSavingPassword] = useState(false)
   const [printPasses, setPrintPasses] = useState(false)
   const [printPassesSaved, setPrintPassesSaved] = useState(false)
+  const [transferNotifications, setTransferNotifications] = useState(true)
   const [rotating, setRotating] = useState(false)
   const [teacherDnloList, setTeacherDnloList] = useState([])
   const [rotated, setRotated] = useState(false)
@@ -548,6 +549,7 @@ function TeacherInner() {
     if (currentTeacher.print_passes !== undefined) setPrintPasses(!!currentTeacher.print_passes)
     if (currentTeacher.sub_code) setSubCode(currentTeacher.sub_code)
     if (currentTeacher.block_first_last_15 !== undefined) setBlockMinsEnabled(!!currentTeacher.block_first_last_15)
+    if (currentTeacher.transfer_notifications !== undefined) setTransferNotifications(currentTeacher.transfer_notifications !== false)
   }, [currentTeacher])
 
   useEffect(() => {
@@ -1278,7 +1280,7 @@ function TeacherInner() {
         {overLimit.length > 0 && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm">! {overLimit.map(p => students[p.student_id]?.full_name?.split(' ')[0]).join(', ')} {overLimit.length === 1 ? 'has' : 'have'} been out over {TIME_LIMIT} min</div>}
 
         {/* ── Incoming Students (Errand / On Assignment heading this way) ── */}
-        {incomingPasses.length > 0 && (
+        {transferNotifications && incomingPasses.length > 0 && (
           <div className="bg-blue-50 border border-blue-200 rounded-xl mb-6">
             <div className="flex items-center justify-between px-4 py-3 border-b border-blue-100">
               <div className="flex items-center gap-2">
@@ -1556,6 +1558,21 @@ function TeacherInner() {
                 </button>
               </div>
               {printPassesSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="flex items-center justify-between">
+                <div><p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Student Transfer Notifications</p><p className="text-xs text-gray-400">Get notified on your dashboard when another teacher sends a student your way</p></div>
+                <button onClick={async () => {
+                  const newVal = !transferNotifications
+                  setTransferNotifications(newVal)
+                  if (currentTeacher?.id) {
+                    await supabase.from('teachers').update({ transfer_notifications: newVal }).eq('id', currentTeacher.id)
+                  }
+                }} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${transferNotifications ? 'bg-green-600' : 'bg-gray-200'}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${transferNotifications ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 mb-6 p-4">
