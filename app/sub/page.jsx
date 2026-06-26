@@ -8,7 +8,7 @@
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (teachers, students, student_periods, passes, settings, pass_notifications)
   AUTH:    4-digit sub_code stored per-teacher in teachers.sub_code
-  UPDATED: 2026-06-25 — updated reason list (Class Assignment, IT / Tech Support, removed Other + School Store); added teacher destination picker + pass_notifications for Class Assignment + Errand
+  UPDATED: 2026-06-25 — updated reason list (Class Assignment, IT / Tech Support, removed Other + School Store); added teacher destination picker + pass_notifications for Class Assignment + Errand; fixed photo loading to use student-photos bucket with batch createSignedUrls (matches teacher dashboard)
 */
 
 'use client'
@@ -167,17 +167,17 @@ export default function Sub() {
     if (studs) {
       setAllStudents(studs)
       const map = {}; studs.forEach(s => map[s.id] = s); setStudents(map)
+      // Batch-load signed URLs from student-photos bucket (same as teacher dashboard)
       const urls = {}
-      for (const s of studs) {
-        // Prefer photo_file (lifetouch-raw signed URL) over photo_url which may be stale
-        if (s.photo_file) {
-          const { data } = await supabase.storage.from('lifetouch-raw').createSignedUrl(s.photo_file, 3600)
-          if (data?.signedUrl) urls[s.id] = data.signedUrl
-        }
-        if (!urls[s.id] && s.photo_url) {
-          urls[s.id] = s.photo_url
-        }
+      const withPhotos = studs.filter(s => s.photo_file)
+      if (withPhotos.length > 0) {
+        const { data: signedData } = await supabase.storage
+          .from('student-photos')
+          .createSignedUrls(withPhotos.map(s => s.photo_file), 3600)
+        if (signedData) signedData.forEach((item, i) => { if (item.signedUrl) urls[withPhotos[i].id] = item.signedUrl })
       }
+      // Fall back to photo_url for students not in storage bucket
+      studs.forEach(s => { if (!urls[s.id] && s.photo_url) urls[s.id] = s.photo_url })
       setPhotoUrls(urls)
     }
     if (recentPasses) {
