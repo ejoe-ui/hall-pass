@@ -7,7 +7,7 @@
            hall pass checkout/return, self-checkout mode with room-specific session code.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (teachers, students, student_periods, passes, settings, pass_notifications)
-  AUTH:    4-digit sub_code stored per-teacher in teachers.sub_code
+  AUTH:    6-digit sub_code stored per-teacher in teachers.sub_code (format: room[2] + personal[4])
   UPDATED: 2026-06-25 — updated reason list (Class Assignment, IT / Tech Support, removed Other + School Store); added teacher destination picker + pass_notifications for Class Assignment + Errand; fixed photo loading to use student-photos bucket with batch createSignedUrls (matches teacher dashboard)
 */
 
@@ -103,7 +103,7 @@ export default function Sub() {
   function handlePin(digit) {
     const next = codeInput + digit
     setCodeInput(next)
-    if (next.length === 4) {
+    if (next.length === 6) {
       const matched = allTeachers.find(t => t.sub_code && t.sub_code === next)
       if (matched) {
         setCurrentTeacher(matched)
@@ -304,7 +304,7 @@ export default function Sub() {
       <h1 className="text-2xl font-bold mb-1" style={{ color: RHS_GREEN }}>Substitute Login</h1>
       <p className="text-gray-400 text-sm mb-6">Enter your substitute code</p>
       <div className={`text-4xl tracking-widest mb-6 font-mono ${codeError ? 'text-red-500' : 'text-gray-800'}`}>
-        {codeInput.length > 0 ? '●'.repeat(codeInput.length) : '○○○○'}
+        {'●'.repeat(codeInput.length) + '○'.repeat(Math.max(0, 6 - codeInput.length))}
       </div>
       <div className="grid grid-cols-3 gap-3 w-56 mb-4">
         {[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map((d, i) => (
