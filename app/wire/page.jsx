@@ -950,8 +950,8 @@ function PassHistoryCard({
       }
       if (!unlockParam) return
 
-      const teacherCode = teacher?.unlock_code || ''
-      if (!teacherCode || unlockParam === teacherCode) {
+      const teacherCode = teacher?.unlock_code != null ? String(teacher.unlock_code).trim() : ''
+      if (!teacherCode || unlockParam.trim() === teacherCode) {
         // Match (or no code configured — still let through)
         setCoStudent({ id: student.id, name: student.full_name, photo: studentPhoto, period: student.period, openPass: null })
         setCoStage('found')
@@ -964,7 +964,7 @@ function PassHistoryCard({
 
   function verifyAuthCode() {
     if (coAuthInput.length !== 4) return
-    const teacherCode = teacher?.session_code || ''
+    const teacherCode = teacher?.session_code != null ? String(teacher.session_code).trim() : ''
     if (!teacherCode) {
       // No code set — teacher hasn't enabled a session; still let through
       setCoStudent({ id: student.id, name: student.full_name, photo: studentPhoto, period: student.period, openPass: null })
@@ -972,7 +972,7 @@ function PassHistoryCard({
       setCoAuthInput('')
       return
     }
-    if (coAuthInput === teacherCode) {
+    if (coAuthInput.trim() === teacherCode) {
       setCoStudent({ id: student.id, name: student.full_name, photo: studentPhoto, period: student.period, openPass: null })
       setCoStage('found')
       setCoAuthInput('')
