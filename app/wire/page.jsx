@@ -18,7 +18,7 @@
            Calendar  → Google Apps Script endpoint (CW_CALENDAR_URL)
            Lunch     → CW2 menu endpoint (CW_MENU_URL)
   AUTH:    None — public page
-  UPDATED: 2026-06-25 — updated CO_REASONS (Class Assignment, IT / Tech Support, removed Other); shared destinations (Office/Counselor/Career Counselor/IT) show note-only flow; teacher notifications fire for Class Assignment + Errand with teacher
+  UPDATED: 2026-06-26 — fixed fetchTeachers to use correct 'name' column (was 'full_name') so real UUIDs load and notifications fire; removed student self-check-in (kiosk-only return now); CO_REASONS updated
 */
 
 'use client'
@@ -1391,16 +1391,13 @@ function PassHistoryCard({
               <p style={{ fontSize: 10, color: '#b45309' }}>{outLabel ? `Since ${outLabel}` : ''}{op?.reason ? ` · ${op.reason}` : ''}</p>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 7 }}>
-            <button onClick={resetCo}
-              style={{ flex: 1, fontSize: 12, padding: '8px', borderRadius: 7, border: '1px solid #e0ddd8', background: 'white', color: '#888', cursor: 'pointer' }}>
-              Cancel
-            </button>
-            <button onClick={doCheckIn}
-              style={{ flex: 2, fontSize: 13, fontWeight: 600, padding: '8px', borderRadius: 7, border: 'none', background: RHS_GREEN, color: 'white', cursor: 'pointer' }}>
-              Check Back In
-            </button>
-          </div>
+          <p style={{ fontSize: 11, color: '#92400e', marginBottom: 10, lineHeight: 1.4 }}>
+            To check back in, scan the kiosk at the classroom door when you return.
+          </p>
+          <button onClick={resetCo}
+            style={{ width: '100%', fontSize: 12, padding: '8px', borderRadius: 7, border: '1px solid #e0ddd8', background: 'white', color: '#888', cursor: 'pointer' }}>
+            Close
+          </button>
         </div>
       )
     }
@@ -2256,8 +2253,12 @@ function WireContent() {
     setAllTeachers(WIRE_TEACHERS_STATIC)  // instant — no blank dropdown
     async function fetchTeachers() {
       const { data: fromTeachers } = await supabase
-        .from('teachers').select('id, full_name, room').order('full_name')
-      if (fromTeachers?.length > 0) { setAllTeachers(fromTeachers); return }
+        .from('teachers').select('id, name, room').eq('is_active', true).order('name')
+      if (fromTeachers?.length > 0) {
+        // Map 'name' → 'full_name' to match internal usage throughout PassHistoryCard
+        setAllTeachers(fromTeachers.map(t => ({ id: t.id, full_name: t.name, room: t.room })))
+        return
+      }
       // Fallback: cw2_classrooms (may also have real UUIDs)
       const { data: fromClassrooms } = await supabase
         .from('cw2_classrooms')
