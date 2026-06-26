@@ -45,8 +45,8 @@ function fmtDate(ts) {
 }
 
 const REASONS = [
-  'Restroom', 'Library', 'Office', 'Counselor', 'Lockers',
-  'Errand', 'On Assignment', 'Career Counselor', 'Other',
+  'Restroom', 'Library', 'Lockers', 'Office', 'Counselor',
+  'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support',
 ]
 
 const TEACHERS = [
@@ -1249,7 +1249,7 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
       const newIds = passes.map(p => p.student_id)
       const returned = prevActiveIds.current.filter(id => !newIds.includes(id))
       if (returned.length > 0 && holds?.length > 0) playClearAlert()
-      const LABEL_REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'Career Counselor', 'Other']
+      const LABEL_REASONS = ['Restroom', 'Library', 'Lockers', 'Office', 'Counselor', 'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support']
       passes.filter(p => !prevActiveIds.current.includes(p.student_id)).forEach(p => {
         const base = p.reason?.split(' — ')[0]
         if (printPasses && LABEL_REASONS.includes(base)) window.open(`/pass/${p.id}/label`, '_blank')
@@ -1318,7 +1318,7 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
 
   async function handleTeacherCheckout() {
     if (!selected || !reason) return
-    if (reason === 'On Assignment' && !assignedTeacher) return
+    if (reason === 'Class Assignment' && !assignedTeacher) return
 
     // Block if student already has an active pass
     if (activePasses.some(p => p.student_id === selected)) {
@@ -1331,19 +1331,37 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
       await supabase.from('do_not_let_out').insert({ student_id: selected, reason: 'Teacher override on teacher page', scope: 'override_log', created_by: currentTeacher?.email || session?.user?.email || 'teacher', active: false }).catch(() => {})
     }
     let finalReason = reason
-    if (reason === 'On Assignment' && assignedTeacher) finalReason = purposeText.trim() ? `On Assignment — ${assignedTeacher} — ${purposeText.trim()}` : `On Assignment — ${assignedTeacher}`
-    else if (reason === 'Errand' && errandTeacher) finalReason = purposeText.trim() ? `Errand — ${errandTeacher} — ${purposeText.trim()}` : `Errand — ${errandTeacher}`
-    else if (reason === 'Errand' && purposeText.trim()) finalReason = `Errand — ${purposeText.trim()}`
-    else if (reason === 'Other' && purposeText.trim()) finalReason = `Other — ${purposeText.trim()}`
-    const { data: passData } = await supabase.from('passes').insert({ student_id: selected, reason: finalReason, room: selectedRoom || teacherRoom, period: activePeriod, teacher_id: currentTeacher?.id || null }).select().single()
+    // Shared destinations (no real teacher account yet — destination implied by reason)
+    const SHARED_DEST_REASONS = ['Office', 'Counselor', 'Career Counselor', 'IT / Tech Support']
+    let destNote = null
+    let destTeacherId = null
+    if (reason === 'Class Assignment' && assignedTeacher) {
+      finalReason = purposeText.trim() ? `Class Assignment — ${assignedTeacher} — ${purposeText.trim()}` : `Class Assignment — ${assignedTeacher}`
+      destNote = assignedTeacher
+    } else if (reason === 'Errand' && errandTeacher) {
+      finalReason = purposeText.trim() ? `Errand — ${errandTeacher} — ${purposeText.trim()}` : `Errand — ${errandTeacher}`
+      destNote = errandTeacher
+    } else if (reason === 'Errand' && purposeText.trim()) {
+      finalReason = `Errand — ${purposeText.trim()}`
+    } else if (SHARED_DEST_REASONS.includes(reason) && purposeText.trim()) {
+      finalReason = `${reason} — ${purposeText.trim()}`
+      destNote = reason
+    } else if (SHARED_DEST_REASONS.includes(reason)) {
+      destNote = reason
+    }
+    const { data: passData } = await supabase.from('passes').insert({
+      student_id: selected, reason: finalReason, room: selectedRoom || teacherRoom,
+      period: activePeriod, teacher_id: currentTeacher?.id || null,
+      destination_note: destNote,
+    }).select().single()
     // Only print if printable passes is enabled
-    const PRINT_REASONS = ['Restroom', 'Library', 'Office', 'Errand', 'On Assignment', 'Other']
+    const PRINT_REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support']
     if (printPasses && PRINT_REASONS.includes(finalReason.split(' — ')[0]) && passData?.id) {
       const studentName = allStudents.find(s => s.id === selected)?.full_name || 'Student'
       const timeIssued = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       printHallPass({ passId: passData.id, studentName, reason: finalReason, timeIssued, room: selectedRoom || teacherRoom })
     }
-    // Fire notification to receiving teacher if On Assignment or Errand with a teacher
+    // Fire notification to receiving teacher if Class Assignment or Errand with a teacher
     const destTeacher = assignedTeacher || errandTeacher
     if (destTeacher && passData?.id) {
       const studentName = allStudents.find(s => s.id === selected)?.full_name || 'Student'
@@ -2093,7 +2111,7 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
                 <option value="">— Reason —</option>
                 {REASONS.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
-              <button onClick={handleTeacherCheckout} disabled={!selected || !reason || (reason === 'On Assignment' && !assignedTeacher)} className="px-4 py-2 text-sm rounded-lg disabled:opacity-30 font-medium text-white" style={{ backgroundColor: selected && dnloList.includes(selected) ? '#dc2626' : RHS_GREEN }}>
+              <button onClick={handleTeacherCheckout} disabled={!selected || !reason || (reason === 'Class Assignment' && !assignedTeacher)} className="px-4 py-2 text-sm rounded-lg disabled:opacity-30 font-medium text-white" style={{ backgroundColor: selected && dnloList.includes(selected) ? '#dc2626' : RHS_GREEN }}>
                 {selected && dnloList.includes(selected) ? '⚠ Override' : 'Send'}
               </button>
             </div>
@@ -2111,9 +2129,9 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
               </div>
             )}
 
-            {reason === 'On Assignment' && (
+            {reason === 'Class Assignment' && (
               <div className="flex flex-col gap-2">
-                <select value={assignedTeacher} onChange={e => setAssignedTeacher(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}><option value="">— Select a teacher —</option>{TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}</select>
+                <select value={assignedTeacher} onChange={e => setAssignedTeacher(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}><option value="">— Select a teacher (required) —</option>{TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}</select>
                 <input type="text" placeholder="Purpose (e.g. picking up worksheets)" value={purposeText} onChange={e => setPurposeText(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
               </div>
             )}
@@ -2123,7 +2141,9 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
                 <select value={purposeText} onChange={e => setPurposeText(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}><option value="">— Select location (optional) —</option>{ERRAND_LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}</select>
               </div>
             )}
-            {reason === 'Other' && <input type="text" placeholder="Describe reason..." value={purposeText} onChange={e => setPurposeText(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800 mt-2" style={{ borderColor: RHS_GREEN }} />}
+            {['Office', 'Counselor', 'Career Counselor', 'IT / Tech Support'].includes(reason) && (
+              <input type="text" placeholder="Note (optional)" value={purposeText} onChange={e => setPurposeText(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800 mt-2" style={{ borderColor: RHS_GREEN }} />
+            )}
 
             <div className="mt-3 pt-3 border-t border-gray-200">
               <div className="flex gap-2 mb-2">
