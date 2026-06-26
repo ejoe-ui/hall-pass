@@ -2,14 +2,13 @@
   PassAble — RHS Hall Pass System
   FILE:    app/sub/page.jsx
   ROUTE:   /sub
+  URL:     https://hall-pass-lime.vercel.app/sub
   PURPOSE: Substitute teacher dashboard — PIN entry matches against per-teacher sub_code,
            hall pass checkout/return, self-checkout mode with room-specific session code.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
-  BACKEND: Supabase (teachers, students, student_periods, passes, settings)
+  BACKEND: Supabase (teachers, students, student_periods, passes, settings, pass_notifications)
   AUTH:    4-digit sub_code stored per-teacher in teachers.sub_code
-  UPDATED: 2026-06-23 — per-teacher sub code auth; per-teacher session_code; lifetouch-raw
-           photos; student_periods roster; dynamic period list from teacher row;
-           room-specific self-checkout URL; file header added; help modal added
+  UPDATED: 2026-06-25 — updated reason list (Class Assignment, IT / Tech Support, removed Other + School Store); added teacher destination picker + pass_notifications for Class Assignment + Errand
 */
 
 'use client'
@@ -18,7 +17,8 @@ import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
 const TIME_LIMIT = 10
-const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'School Store', 'Other']
+const REASONS = ['Restroom', 'Library', 'Lockers', 'Office', 'Counselor', 'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support']
+const SHARED_DEST_REASONS = ['Office', 'Counselor', 'Career Counselor', 'IT / Tech Support']
 
 export default function Sub() {
   const [unlocked, setUnlocked] = useState(false)
@@ -38,6 +38,9 @@ export default function Sub() {
   const [passCountMap, setPassCountMap] = useState({})
   const [selected, setSelected] = useState('')
   const [reason, setReason] = useState('')
+  const [assignedTeacher, setAssignedTeacher] = useState(null)  // { id, name } for Class Assignment
+  const [errandTeacher, setErrandTeacher] = useState(null)       // { id, name } for Errand (optional)
+  const [purposeText, setPurposeText] = useState('')
   const [now, setNow] = useState(Date.now())
   const [checkoutMode, setCheckoutMode] = useState('manual')
   const [selfCheckoutCode, setSelfCheckoutCode] = useState('')
@@ -192,11 +195,65 @@ export default function Sub() {
 
   async function handleCheckout() {
     if (!selected || !reason) return
-    await supabase.from('passes').insert({
-      student_id: selected, reason, room: teacherRoom,
+    if (reason === 'Class Assignment' && !assignedTeacher) return
+
+    let finalReason = reason
+    let destNote = null
+    let destTeacherId = null
+
+    if (reason === 'Class Assignment' && assignedTeacher) {
+      finalReason = purposeText.trim()
+        ? `Class Assignment — ${assignedTeacher.name} — ${purposeText.trim()}`
+        : `Class Assignment — ${assignedTeacher.name}`
+      destNote = assignedTeacher.name
+      destTeacherId = assignedTeacher.id
+    } else if (reason === 'Errand' && errandTeacher) {
+      finalReason = purposeText.trim()
+        ? `Errand — ${errandTeacher.name} — ${purposeText.trim()}`
+        : `Errand — ${errandTeacher.name}`
+      destNote = errandTeacher.name
+      destTeacherId = errandTeacher.id
+    } else if (reason === 'Errand' && purposeText.trim()) {
+      finalReason = `Errand — ${purposeText.trim()}`
+    } else if (SHARED_DEST_REASONS.includes(reason) && purposeText.trim()) {
+      finalReason = `${reason} — ${purposeText.trim()}`
+      destNote = reason
+    } else if (SHARED_DEST_REASONS.includes(reason)) {
+      destNote = reason
+    }
+
+    const { data: passData } = await supabase.from('passes').insert({
+      student_id: selected, reason: finalReason, room: teacherRoom,
       period: activePeriod, teacher_id: currentTeacher?.id || null,
-    })
-    setSelected(''); setReason(''); setSelectedStudentPreview(null)
+      destination_teacher_id: destTeacherId,
+      destination_note: destNote,
+    }).select().single()
+
+    // Fire notification to receiving teacher
+    const destTeacher = assignedTeacher || errandTeacher
+    if (destTeacher && passData?.id && destTeacherId) {
+      const { data: toTeacher } = await supabase
+        .from('teachers').select('id, name, receive_notifications')
+        .eq('id', destTeacherId).maybeSingle()
+      if (toTeacher && toTeacher.receive_notifications !== false) {
+        const studentName = allStudents.find(s => s.id === selected)?.full_name || 'Student'
+        await supabase.from('pass_notifications').insert({
+          pass_id: passData.id,
+          from_teacher_id: currentTeacher?.id || null,
+          to_teacher_id: toTeacher.id,
+          from_teacher_name: `Sub (${teacherName || 'Sub'})`,
+          to_teacher_name: toTeacher.name,
+          from_room: teacherRoom || '',
+          student_id: selected,
+          student_name: studentName,
+          reason: finalReason,
+          status: 'pending',
+        })
+      }
+    }
+
+    setSelected(''); setReason(''); setAssignedTeacher(null); setErrandTeacher(null); setPurposeText('')
+    setSelectedStudentPreview(null)
     loadData()
   }
 
@@ -505,18 +562,46 @@ export default function Sub() {
                   <option value="">— Student —</option>
                   {allStudents.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
                 </select>
-                <select value={reason} onChange={e => setReason(e.target.value)}
+                <select value={reason} onChange={e => { setReason(e.target.value); setAssignedTeacher(null); setErrandTeacher(null); setPurposeText('') }}
                   className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
                   style={{ borderColor: RHS_GREEN }}>
                   <option value="">— Reason —</option>
                   {REASONS.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
-                <button onClick={handleCheckout} disabled={!selected || !reason}
+                <button onClick={handleCheckout} disabled={!selected || !reason || (reason === 'Class Assignment' && !assignedTeacher)}
                   className="px-4 py-2 text-sm rounded-lg disabled:opacity-30 font-medium text-white"
                   style={{ backgroundColor: RHS_GREEN }}>
                   Send
                 </button>
               </div>
+              {reason === 'Class Assignment' && (
+                <div className="flex gap-2 mb-3">
+                  <select value={assignedTeacher?.id || ''} onChange={e => { const t = allTeachers.find(x => x.id === e.target.value) || null; setAssignedTeacher(t ? { id: t.id, name: t.name } : null) }}
+                    className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
+                    <option value="">— Select a teacher (required) —</option>
+                    {allTeachers.map(t => <option key={t.id} value={t.id}>{t.name}{t.room ? ` · Rm ${t.room}` : ''}</option>)}
+                  </select>
+                  <input type="text" placeholder="Purpose (optional)" value={purposeText} onChange={e => setPurposeText(e.target.value)}
+                    className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
+                </div>
+              )}
+              {reason === 'Errand' && (
+                <div className="flex gap-2 mb-3">
+                  <select value={errandTeacher?.id || ''} onChange={e => { const t = allTeachers.find(x => x.id === e.target.value) || null; setErrandTeacher(t ? { id: t.id, name: t.name } : null) }}
+                    className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
+                    <option value="">— Select a teacher (optional) —</option>
+                    {allTeachers.map(t => <option key={t.id} value={t.id}>{t.name}{t.room ? ` · Rm ${t.room}` : ''}</option>)}
+                  </select>
+                  <input type="text" placeholder="Purpose (optional)" value={purposeText} onChange={e => setPurposeText(e.target.value)}
+                    className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
+                </div>
+              )}
+              {SHARED_DEST_REASONS.includes(reason) && (
+                <div className="mb-3">
+                  <input type="text" placeholder="Note (optional)" value={purposeText} onChange={e => setPurposeText(e.target.value)}
+                    className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
+                </div>
+              )}
               <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
                 <span className="text-xs text-gray-600">Kiosk return required:</span>
                 <button onClick={() => saveKioskReturn(!kioskReturnRequired)}
