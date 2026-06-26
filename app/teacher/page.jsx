@@ -8,7 +8,8 @@
   BACKEND: Supabase (teachers, students, passes, pass_holds, do_not_let_out, settings)
   AUTH:    Password-based (passcode). Default = room number doubled (room 27 → "2727").
            First login shows a forced password change screen (must_change_password flag).
-  UPDATED: 2026-06-25 — restored as canonical teacher page; added Student Transfer Notifications toggle + incoming students panel; destination_teacher_id + destination_note columns added to passes table
+  URL:     https://hall-pass-lime.vercel.app/teacher
+  UPDATED: 2026-06-25 — restored as canonical teacher page; added Student Transfer Notifications toggle + incoming students panel; destination_teacher_id + destination_note columns added to passes table; updated reason list (Class Assignment, IT / Tech Support, removed Other); Errand purpose changed to free-text input
 */
 
 'use client'
@@ -2138,7 +2139,7 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
             {reason === 'Errand' && (
               <div className="flex flex-col gap-2">
                 <select value={errandTeacher} onChange={e => setErrandTeacher(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}><option value="">— Select a teacher (optional) —</option>{TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}</select>
-                <select value={purposeText} onChange={e => setPurposeText(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}><option value="">— Select location (optional) —</option>{ERRAND_LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}</select>
+                <input type="text" placeholder="Purpose (e.g. returning equipment, farm, car)" value={purposeText} onChange={e => setPurposeText(e.target.value)} className="w-full p-2 text-sm border-2 rounded-lg bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
               </div>
             )}
             {['Office', 'Counselor', 'Career Counselor', 'IT / Tech Support'].includes(reason) && (
