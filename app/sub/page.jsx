@@ -169,11 +169,13 @@ export default function Sub() {
       const map = {}; studs.forEach(s => map[s.id] = s); setStudents(map)
       const urls = {}
       for (const s of studs) {
-        if (s.photo_url) {
-          urls[s.id] = s.photo_url
-        } else if (s.photo_file) {
+        // Prefer photo_file (lifetouch-raw signed URL) over photo_url which may be stale
+        if (s.photo_file) {
           const { data } = await supabase.storage.from('lifetouch-raw').createSignedUrl(s.photo_file, 3600)
           if (data?.signedUrl) urls[s.id] = data.signedUrl
+        }
+        if (!urls[s.id] && s.photo_url) {
+          urls[s.id] = s.photo_url
         }
       }
       setPhotoUrls(urls)
@@ -485,7 +487,7 @@ export default function Sub() {
                 <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-gray-100 flex items-center justify-center border-2"
                   style={{ borderColor: elapsedColor(mins) }}>
                   {photoUrls[pass.student_id]
-                    ? <img src={photoUrls[pass.student_id]} alt="" className="w-full h-full object-cover" />
+                    ? <img src={photoUrls[pass.student_id]} alt="" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling?.style && (e.currentTarget.nextSibling.style.display = 'flex') }} />
                     : <span className="text-xs font-medium text-white flex items-center justify-center w-full h-full"
                         style={{ backgroundColor: RHS_GREEN }}>
                         {student?.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
@@ -538,7 +540,7 @@ export default function Sub() {
                 <div className="flex items-center gap-3 mb-3 p-2 bg-white rounded-xl border border-gray-200">
                   <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 bg-gray-100">
                     {photoUrls[selectedStudentPreview.id]
-                      ? <img src={photoUrls[selectedStudentPreview.id]} alt="" className="w-full h-full object-cover" />
+                      ? <img src={photoUrls[selectedStudentPreview.id]} alt="" className="w-full h-full object-cover" onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextSibling?.style && (e.currentTarget.nextSibling.style.display = 'flex') }} />
                       : <div className="w-full h-full flex items-center justify-center text-sm font-bold text-white" style={{ backgroundColor: RHS_GREEN }}>
                           {selectedStudentPreview.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('')}
                         </div>
