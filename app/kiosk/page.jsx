@@ -19,8 +19,8 @@ import { SCHEDULES, SCHEDULE_LABELS, fetchTodayScheduleType, getCurrentPeriodInf
 const RHS_GREEN = '#006938'
 
 const REASONS = [
-  'Restroom', 'Library', 'Office', 'Counselor', 'Lockers',
-  'Errand', 'On Assignment', 'Career Counselor', 'Other',
+  'Restroom', 'Library', 'Lockers', 'Office', 'Counselor',
+  'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support',
 ]
 
 const TEACHERS = [
@@ -380,7 +380,6 @@ function KioskInner() {
   const [students, setStudents] = useState([])
   const [selected, setSelected] = useState('')
   const [reason, setReason] = useState('')
-  const [otherText, setOtherText] = useState('')
   const [assignedTeacher, setAssignedTeacher] = useState('')
   const [errandTeacher, setErrandTeacher] = useState('')
   const [purposeText, setPurposeText] = useState('')
@@ -657,7 +656,7 @@ function KioskInner() {
 
 
   function handleReasonSelect(r) {
-    setReason(r); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText(''); setOtherText('')
+    setReason(r); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText('')
     if (r === 'Library') setShowLibraryAlert(true)
   }
 
@@ -698,25 +697,53 @@ function KioskInner() {
     setStage('select')
   }
 
+  async function sendKioskNotification(passId, studentId, studentName, toTeacherName, reason) {
+    const { data: toTeacher } = await supabase
+      .from('teachers').select('id, name, receive_notifications')
+      .ilike('name', `%${toTeacherName}%`).eq('is_active', true).maybeSingle()
+    if (!toTeacher || toTeacher.receive_notifications === false) return
+    const roomParam = searchParams.get('room') || ''
+    await supabase.from('pass_notifications').insert({
+      pass_id: passId || null,
+      from_teacher_id: kioskTeacherId || null,
+      to_teacher_id: toTeacher.id,
+      from_teacher_name: 'Kiosk',
+      to_teacher_name: toTeacher.name,
+      from_room: roomParam,
+      student_id: studentId || null,
+      student_name: studentName || 'Student',
+      reason: reason || '',
+      status: 'pending',
+    })
+  }
+
   async function handleCheckout() {
+    const SHARED_DEST_REASONS = ['Office', 'Counselor', 'Career Counselor', 'IT / Tech Support']
     let finalReason = reason
-    if (reason === 'On Assignment' && assignedTeacher) {
+    let destNote = null
+    if (reason === 'Class Assignment' && assignedTeacher) {
       finalReason = purposeText.trim()
-        ? `On Assignment — ${assignedTeacher} — ${purposeText.trim()}`
-        : `On Assignment — ${assignedTeacher}`
+        ? `Class Assignment — ${assignedTeacher} — ${purposeText.trim()}`
+        : `Class Assignment — ${assignedTeacher}`
+      destNote = assignedTeacher
     } else if (reason === 'Errand' && errandTeacher) {
       finalReason = purposeText.trim()
         ? `Errand — ${errandTeacher} — ${purposeText.trim()}`
         : `Errand — ${errandTeacher}`
+      destNote = errandTeacher
     } else if (reason === 'Errand' && purposeText.trim()) {
       finalReason = `Errand — ${purposeText.trim()}`
-    } else if (reason === 'Other' && otherText) {
-      finalReason = `Other — ${otherText}`
+    } else if (SHARED_DEST_REASONS.includes(reason) && purposeText.trim()) {
+      finalReason = `${reason} — ${purposeText.trim()}`
+      destNote = reason
+    } else if (SHARED_DEST_REASONS.includes(reason)) {
+      destNote = reason
     }
     const roomParam = searchParams.get('room') || '27'
     const passData = {
       student_id: selected, reason: finalReason, room: roomParam,
       period: activePeriod, teacher_id: kioskTeacherId, time_out: new Date().toISOString(),
+      destination_note: destNote,
     }
     const name = students.find(s => s.id === selected)?.full_name
     if (!isOnline) {
@@ -730,6 +757,11 @@ function KioskInner() {
       setMessage({ text: name, sub: finalReason })
       setNewPassId(data?.id || null)
       setStage('done')
+      // Fire notification to receiving teacher for Class Assignment or Errand with teacher
+      const destTeacher = assignedTeacher || errandTeacher
+      if (destTeacher && data?.id) {
+        sendKioskNotification(data.id, selected, name, destTeacher, finalReason)
+      }
       const { data: passes } = await supabase.from('passes').select('*').is('time_in', null).eq('period', activePeriod)
       if (passes) setActivePasses(passes)
     }
@@ -761,13 +793,11 @@ function KioskInner() {
     setSelected(''); setReason(''); setStage('select')
     setMessage(null); setCurrentPass(null); setWeekCount(0)
     setNewPassId(null); setAssignedTeacher(''); setErrandTeacher('')
-    setPurposeText(''); setOtherText(''); setShowLibraryAlert(false)
+    setPurposeText(''); setShowLibraryAlert(false)
   }
 
   const checkoutDisabled = !selected || !reason ||
-    (reason === 'On Assignment' && !assignedTeacher) ||
-    (reason === 'Errand' && !errandTeacher && !purposeText.trim()) ||
-    (reason === 'Other' && !otherText.trim())
+    (reason === 'Class Assignment' && !assignedTeacher)
 
   const periodLabel = teacherPeriods.find(p => p.value === activePeriod)?.label
   const studentName = students.find(s => s.id === selected)?.full_name
@@ -1032,11 +1062,11 @@ function KioskInner() {
           ))}
         </div>
 
-        {reason === 'On Assignment' && (
+        {reason === 'Class Assignment' && (
           <div className="w-full max-w-sm flex flex-col gap-2 mb-6">
             <select value={assignedTeacher} onChange={e => setAssignedTeacher(e.target.value)}
               className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
-              <option value="">— Select a teacher —</option>
+              <option value="">— Select a teacher (required) —</option>
               {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
             <input type="text" placeholder="Purpose (e.g. picking up worksheets)"
@@ -1056,14 +1086,14 @@ function KioskInner() {
               className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
           </div>
         )}
-        {reason === 'Other' && (
+        {['Office', 'Counselor', 'Career Counselor', 'IT / Tech Support'].includes(reason) && (
           <div className="w-full max-w-sm mb-6">
-            <input type="text" placeholder="Where are you going?"
-              value={otherText} onChange={e => setOtherText(e.target.value)}
-              className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} autoFocus />
+            <input type="text" placeholder="Note (optional)"
+              value={purposeText} onChange={e => setPurposeText(e.target.value)}
+              className="w-full p-3 text-lg border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
           </div>
         )}
-        {reason !== 'On Assignment' && reason !== 'Errand' && reason !== 'Other' && <div className="mb-6" />}
+        {!['Class Assignment', 'Errand', 'Office', 'Counselor', 'Career Counselor', 'IT / Tech Support'].includes(reason) && <div className="mb-6" />}
 
         <button onClick={handleCheckout} disabled={checkoutDisabled}
           className="px-8 py-4 text-white text-lg font-bold rounded-xl disabled:opacity-30 shadow-md"
