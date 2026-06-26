@@ -18,7 +18,7 @@ import { supabase } from '../../lib/supabase'
 
 const RHS_GREEN = '#006938'
 
-const REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Lockers', 'Errand', 'On Assignment', 'Career Counselor', 'School Store', 'Other']
+const REASONS = ['Restroom', 'Library', 'Lockers', 'Office', 'Counselor', 'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support']
 
 const TEACHERS = [
   'Castro', 'Simpson', 'Tiller',
@@ -116,7 +116,6 @@ function SelfCheckoutInner() {
   const [assignedTeacher, setAssignedTeacher] = useState('')
   const [errandTeacher, setErrandTeacher] = useState('')
   const [purposeText, setPurposeText] = useState('')
-  const [otherText, setOtherText] = useState('')
   const [passId, setPassId] = useState(null)
   const [checkoutTime, setCheckoutTime] = useState(null)
   const [checkoutReason, setCheckoutReason] = useState('')
@@ -207,7 +206,7 @@ function SelfCheckoutInner() {
   }
 
   function handleReasonSelect(r) {
-    setReason(r); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText(''); setOtherText('')
+    setReason(r); setAssignedTeacher(''); setErrandTeacher(''); setPurposeText('')
   }
 
   async function lookupStudent(id) {
@@ -249,24 +248,49 @@ function SelfCheckoutInner() {
   async function handleCheckout() {
     if (!reason) return
     setLoading(true)
+    const SHARED_DEST_REASONS = ['Office', 'Counselor', 'Career Counselor', 'IT / Tech Support']
     let finalReason = reason
-    if (reason === 'On Assignment' && assignedTeacher)
-      finalReason = purposeText.trim() ? `On Assignment — ${assignedTeacher} — ${purposeText.trim()}` : `On Assignment — ${assignedTeacher}`
-    else if (reason === 'Errand' && errandTeacher)
+    let destNote = null
+    if (reason === 'Class Assignment' && assignedTeacher) {
+      finalReason = purposeText.trim() ? `Class Assignment — ${assignedTeacher} — ${purposeText.trim()}` : `Class Assignment — ${assignedTeacher}`
+      destNote = assignedTeacher
+    } else if (reason === 'Errand' && errandTeacher) {
       finalReason = purposeText.trim() ? `Errand — ${errandTeacher} — ${purposeText.trim()}` : `Errand — ${errandTeacher}`
-    else if (reason === 'Errand' && purposeText.trim())
+      destNote = errandTeacher
+    } else if (reason === 'Errand' && purposeText.trim()) {
       finalReason = `Errand — ${purposeText.trim()}`
-    else if (reason === 'Other' && otherText)
-      finalReason = `Other — ${otherText}`
+    } else if (SHARED_DEST_REASONS.includes(reason) && purposeText.trim()) {
+      finalReason = `${reason} — ${purposeText.trim()}`
+      destNote = reason
+    } else if (SHARED_DEST_REASONS.includes(reason)) {
+      destNote = reason
+    }
 
     const now = new Date().toISOString()
     const { data, error: insertError } = await supabase.from('passes').insert({
       student_id: studentId, reason: finalReason, room: teacherRoom,
       period, teacher_id: teacherId, time_out: now,
+      destination_note: destNote,
     }).select().single()
 
     if (insertError) { setError('Could not create pass. Try again.'); setLoading(false); return }
     setPassId(data.id); setCheckoutTime(now); setCheckoutReason(finalReason)
+
+    // Fire notification for Class Assignment or Errand with a teacher
+    const destTeacher = assignedTeacher || errandTeacher
+    if (destTeacher && data?.id) {
+      const { data: toTeacher } = await supabase
+        .from('teachers').select('id, name, receive_notifications')
+        .ilike('name', `%${destTeacher}%`).eq('is_active', true).maybeSingle()
+      if (toTeacher && toTeacher.receive_notifications !== false) {
+        await supabase.from('pass_notifications').insert({
+          pass_id: data.id, from_teacher_id: teacherId || null, to_teacher_id: toTeacher.id,
+          from_teacher_name: 'Self-Checkout', to_teacher_name: toTeacher.name,
+          from_room: teacherRoom || '', student_id: studentId || null,
+          student_name: studentName || 'Student', reason: finalReason, status: 'pending',
+        })
+      }
+    }
 
     const weekStart = new Date()
     weekStart.setDate(weekStart.getDate() - 7); weekStart.setHours(0,0,0,0)
@@ -318,16 +342,14 @@ function SelfCheckoutInner() {
     if (window._passableUnload) { window.removeEventListener('beforeunload', window._passableUnload); delete window._passableUnload }
     setStage('code'); setEnteredCode(''); setStudentId(''); setStudentIdInput('')
     setStudentName(''); setStudentPhoto(''); setPeriod(''); setReason('')
-    setAssignedTeacher(''); setErrandTeacher(''); setPurposeText(''); setOtherText('')
+    setAssignedTeacher(''); setErrandTeacher(''); setPurposeText('')
     setPassId(null); setCheckoutTime(null); setCheckoutReason(''); setReturnedDuration(null)
     setStats(null); setError(''); setOpenPass(null)
     setShowQR(false)
   }
 
   const checkoutDisabled = !reason ||
-    (reason === 'On Assignment' && !assignedTeacher) ||
-    (reason === 'Errand' && !errandTeacher && !purposeText.trim()) ||
-    (reason === 'Other' && !otherText.trim())
+    (reason === 'Class Assignment' && !assignedTeacher)
 
   const Header = () => (
     <div className="w-full px-4 py-3 flex items-center gap-3" style={{ backgroundColor: RHS_GREEN }}>
@@ -459,11 +481,11 @@ function SelfCheckoutInner() {
           ))}
         </div>
 
-        {reason === 'On Assignment' && (
+        {reason === 'Class Assignment' && (
           <div className="w-full max-w-xs flex flex-col gap-2 mb-4">
             <select value={assignedTeacher} onChange={e => setAssignedTeacher(e.target.value)}
               className="w-full p-3 text-base border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }}>
-              <option value="">— Select a teacher —</option>
+              <option value="">— Select a teacher (required) —</option>
               {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
             <input type="text" placeholder="Purpose (e.g. picking up worksheets)"
@@ -483,11 +505,11 @@ function SelfCheckoutInner() {
               className="w-full p-3 text-base border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
           </div>
         )}
-        {reason === 'Other' && (
+        {['Office', 'Counselor', 'Career Counselor', 'IT / Tech Support'].includes(reason) && (
           <div className="w-full max-w-xs mb-4">
-            <input type="text" placeholder="Where are you going?"
-              value={otherText} onChange={e => setOtherText(e.target.value)}
-              className="w-full p-3 text-base border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} autoFocus />
+            <input type="text" placeholder="Note (optional)"
+              value={purposeText} onChange={e => setPurposeText(e.target.value)}
+              className="w-full p-3 text-base border-2 rounded-xl bg-white text-gray-800" style={{ borderColor: RHS_GREEN }} />
           </div>
         )}
 
