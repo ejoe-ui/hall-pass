@@ -2,11 +2,11 @@
   PassAble — RHS Hall Pass System
   FILE:    app/kiosk/page.jsx
   ROUTE:   /kiosk
+  URL:     https://hall-pass-lime.vercel.app/kiosk?room=27
   PURPOSE: Student-facing self-checkout kiosk — badge scan, name select, pass checkout/check-in.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (teachers, students, passes, student_periods, do_not_let_out, settings)
-  UPDATED: 2026-06-22 — imported schedule logic from lib/schedules.js; removed Change Period PIN;
-           added green header bar; block day period matching via covers[]
+  UPDATED: 2026-06-25 — updated reason list (Class Assignment, IT / Tech Support, removed Other + School Store); added destination_note + sendKioskNotification for teacher alerts
 */
 
 'use client'
