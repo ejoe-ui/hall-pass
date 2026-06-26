@@ -366,8 +366,16 @@ export default function Sub() {
 
               {[
                 {
+                  q: 'How do I log in?',
+                  a: `Enter your 6-digit sub code on the keypad. The code is your room number (2 digits) followed by a 4-digit personal code — for example, Room 27 would be 27XXXX. The teacher you're covering sets this code in their dashboard settings. Each room has a unique code so there's no overlap.`,
+                },
+                {
                   q: 'How do I check out a student?',
                   a: 'Use Manual Checkout at the bottom of the page. Pick the student\'s name and a reason from the dropdowns, then hit Send. They\'ll appear in the Students Out list immediately.',
+                },
+                {
+                  q: 'What happens when I select Class Assignment or Errand?',
+                  a: 'These reasons let you pick a destination teacher from a dropdown. For Class Assignment the teacher is required; for Errand it\'s optional. The receiving teacher gets a notification on their dashboard so they know the student is coming.',
                 },
                 {
                   q: 'How do I check a student back in?',
