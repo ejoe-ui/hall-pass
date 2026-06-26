@@ -8,7 +8,7 @@
   BACKEND: Supabase (teachers, students, passes, pass_holds, do_not_let_out, settings)
   AUTH:    Password-based (passcode). Default = room number doubled (room 27 → "2727").
            First login shows a forced password change screen (must_change_password flag).
-  UPDATED: 2026-06-22 — schedule logic extracted to lib/schedules.js; multi-room support: comma-separate rooms in teacher.room field, room picker in header
+  UPDATED: 2026-06-25 — restored as canonical teacher page; added Student Transfer Notifications toggle + incoming students panel; destination_teacher_id + destination_note columns added to passes table
 */
 
 'use client'
