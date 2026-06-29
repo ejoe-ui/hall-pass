@@ -4,18 +4,19 @@
   ROUTE:   /roster
   PURPOSE: Teacher-scoped student roster management. Add, edit, remove, and move
            students between periods. Period membership sourced from student_periods
-           table (not students.period). Supports manual photo upload.
+           table (not students.period). Supports manual photo upload and NFC card
+           assignment (decimal ID → hex UID → tap URL + QR code).
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (teachers, students, student_periods)
   STORAGE: student-photos bucket (numeric Lifetouch ID filenames e.g. 801888.jpg)
-  UPDATED: 2026-06-23 — added file header; reverted photo bucket to student-photos
-           in getPhotoUrl, getStorageUrl, and handlePhotoUpload;
-           removed dead /student/[id] link (no confirmed route)
+  UPDATED: 2026-06-29 — added NFC card management to Edit Student modal:
+           decimal input → hex UID → save to students.nfc_uid → QR code + copy URL
 */
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 import * as XLSX from 'xlsx'
+import QRCode from 'qrcode'
 
 const RHS_GREEN = '#006938'
 
@@ -51,6 +52,13 @@ export default function StudentsAdmin() {
   const [photoUrls, setPhotoUrls] = useState({})
   const photoRef = useRef()
 
+  // ── NFC state ─────────────────────────────────────────────────────────────
+  const [editNfcDecimal, setEditNfcDecimal] = useState('')
+  const [nfcSaving, setNfcSaving] = useState(false)
+  const [nfcSaved, setNfcSaved] = useState(false)
+  const [nfcQR, setNfcQR] = useState(null)
+  const [nfcCopied, setNfcCopied] = useState(false)
+
   // ── Import ────────────────────────────────────────────────────────────────
   const [activeView, setActiveView] = useState('manage') // 'manage' | 'import'
   const [importPreview, setImportPreview] = useState([])
@@ -62,13 +70,13 @@ export default function StudentsAdmin() {
   const [isDragging, setIsDragging] = useState(false)
   const [showImportHelp, setShowImportHelp] = useState(false)
   const [currentRoster, setCurrentRoster] = useState([])
-  const [allRoomPeriods, setAllRoomPeriods] = useState({}) // { student_id: period } for entire room
+  const [allRoomPeriods, setAllRoomPeriods] = useState({})
   const [removeSelected, setRemoveSelected] = useState(new Set())
-  const [roomMismatch, setRoomMismatch] = useState(null) // { detectedRoom, detectedTeacher }
+  const [roomMismatch, setRoomMismatch] = useState(null)
   const [mismatchConfirmed, setMismatchConfirmed] = useState(false)
-  const [clearConfirm, setClearConfirm] = useState(null) // null | 'period-X' | 'all'
+  const [clearConfirm, setClearConfirm] = useState(null)
   const [clearing, setClearing] = useState(false)
-  const [crossTeacherConflicts, setCrossTeacherConflicts] = useState([]) // [{ student_id, full_name, otherRoom, otherTeacherName }]
+  const [crossTeacherConflicts, setCrossTeacherConflicts] = useState([])
   const importFileRef = useRef()
 
   // ── Help panel ────────────────────────────────────────────────────────────
@@ -163,10 +171,46 @@ export default function StudentsAdmin() {
   }
 
   function getPhotoUrl(student) {
-    // photo_url is a direct URL; storage photos now use signed URLs from photoUrls map
     return student.photo_url || null
   }
 
+  // ── NFC helpers ───────────────────────────────────────────────────────────
+  // Convert decimal output from NFC reader → 8-char hex UID stored in DB
+  function decimalToHexUid(decimal) {
+    const num = parseInt(String(decimal).trim(), 10)
+    if (isNaN(num) || num < 0) return null
+    return num.toString(16).toUpperCase().padStart(8, '0')
+  }
+
+  function getNfcTapUrl(hexUid) {
+    return `https://hall-pass-lime.vercel.app/wire?uid=${hexUid}`
+  }
+
+  async function saveNfc() {
+    if (!editStudent || !editNfcDecimal.trim()) return
+    const hexUid = decimalToHexUid(editNfcDecimal)
+    if (!hexUid) return
+    setNfcSaving(true)
+    await supabase.from('students').update({ nfc_uid: hexUid }).eq('id', editStudent.id)
+    const tapUrl = getNfcTapUrl(hexUid)
+    const qrDataUrl = await QRCode.toDataURL(tapUrl, { width: 200, margin: 1 })
+    setNfcQR(qrDataUrl)
+    setEditStudent(prev => ({ ...prev, nfc_uid: hexUid }))
+    setEditNfcDecimal('')
+    setNfcSaving(false)
+    setNfcSaved(true)
+    setTimeout(() => setNfcSaved(false), 3000)
+  }
+
+  async function removeNfc() {
+    if (!editStudent) return
+    await supabase.from('students').update({ nfc_uid: null }).eq('id', editStudent.id)
+    setEditStudent(prev => ({ ...prev, nfc_uid: null }))
+    setNfcQR(null)
+    setEditNfcDecimal('')
+  }
+
+  // ── Student CRUD ──────────────────────────────────────────────────────────
   async function addStudent() {
     if (!firstName.trim() || !lastName.trim()) return
     setAdding(true)
@@ -246,6 +290,16 @@ export default function StudentsAdmin() {
     setEditLast(s.last_name || '')
     setEditDisplay(s.full_name || '')
     setEditId('')
+    // NFC state
+    setEditNfcDecimal('')
+    setNfcSaved(false)
+    setNfcCopied(false)
+    if (s.nfc_uid) {
+      QRCode.toDataURL(getNfcTapUrl(s.nfc_uid), { width: 200, margin: 1 }).then(setNfcQR)
+    } else {
+      setNfcQR(null)
+    }
+    // Photo state
     if (photoUrls[s.id]) {
       setPhotoUrl(photoUrls[s.id])
     } else if (s.photo_url) {
@@ -306,13 +360,11 @@ export default function StudentsAdmin() {
     if (!file || !editStudent) return
     setPhotoUploading(true)
     const path = `${editStudent.id}.jpg`
-    // Upload to student-photos bucket
     const { error: uploadError } = await supabase.storage
       .from('student-photos')
       .upload(path, file, { upsert: true, contentType: 'image/jpeg' })
     if (!uploadError) {
       await supabase.from('students').update({ photo_file: path }).eq('id', editStudent.id)
-      // Get signed URL for immediate display (private bucket)
       const { data } = await supabase.storage.from('student-photos').createSignedUrl(path, 3600)
       setPhotoUrl(data?.signedUrl || null)
       setEditStudent(prev => ({ ...prev, photo_file: path }))
@@ -329,12 +381,10 @@ export default function StudentsAdmin() {
           const wb = XLSX.read(e.target.result, { type: 'array' })
           const ws = wb.Sheets[wb.SheetNames[0]]
           const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
-          // Row index 2: Period (col 0), Teacher (col 15), Room (col 27)
           const classRow = rows[2] || []
           const detectedPeriod = String(classRow[0] || '').trim()
           const detectedTeacher = String(classRow[15] || '').trim()
           const detectedRoom = String(classRow[27] || '').trim()
-          // Student rows start at index 5; col B = Student ID, col E = Name, col L = Grade
           const students = []
           for (let i = 5; i < rows.length; i++) {
             const row = rows[i]
@@ -343,7 +393,6 @@ export default function StudentsAdmin() {
             const aeriesName = String(row[4] || '').trim()
             const grade = String(row[11] || '').trim()
             if (!studentId || !aeriesName || !/^\d+$/.test(studentId)) continue
-            // Parse "Last, First MI" → first, last, full_name ("First MI Last")
             const commaIdx = aeriesName.indexOf(',')
             let first, last, full_name
             if (commaIdx === -1) {
@@ -365,17 +414,15 @@ export default function StudentsAdmin() {
 
   async function fetchCurrentRoster(period) {
     if (!period || !room) return
-    // Fetch the target period's roster
     const { data: spRows } = await supabase
       .from('student_periods').select('student_id').eq('period', period).eq('room', room)
     const ids = spRows?.map(r => r.student_id) || []
-    if (ids.length === 0) { setCurrentRoster([]); }
+    if (ids.length === 0) { setCurrentRoster([]) }
     else {
       const { data: studs } = await supabase
         .from('students').select('id, full_name').in('id', ids)
       setCurrentRoster(studs || [])
     }
-    // Also fetch ALL period assignments for this room so we can detect moved/multi-period students
     const { data: allRows } = await supabase
       .from('student_periods').select('student_id, period').eq('room', room)
     const periodMap = {}
@@ -394,12 +441,9 @@ export default function StudentsAdmin() {
       const { students, detectedPeriod, detectedTeacher, detectedRoom } = await parseAeriesXlsx(file)
       setImportPreview(students)
       setDetectedMeta({ period: detectedPeriod, teacher: detectedTeacher, room: detectedRoom })
-      // Check if the file's room matches the logged-in teacher's room
       if (detectedRoom && String(detectedRoom).trim() !== String(room).trim()) {
         setRoomMismatch({ detectedRoom, detectedTeacher })
       }
-      // Auto-select the period that matches the detected period from the file
-      // e.g. detectedPeriod=5 should match teacher period "4&5" or "5"
       let matchedPeriod = null
       if (detectedPeriod && periods.length > 0) {
         const dp = String(detectedPeriod).trim()
@@ -413,8 +457,6 @@ export default function StudentsAdmin() {
       if (targetPeriod) setImportPeriod(targetPeriod)
       if (targetPeriod) await fetchCurrentRoster(targetPeriod)
 
-      // Check for cross-teacher conflicts: students in this file already claimed
-      // by a different teacher/room in the same period
       if (targetPeriod && students.length > 0) {
         const studentIds = students.map(s => s.id)
         const { data: conflictRows } = await supabase
@@ -479,9 +521,6 @@ export default function StudentsAdmin() {
     let added = 0, updated = 0, removed = 0, dupsRemoved = 0
     const errors = []
 
-    // 1. Sync all students from Aeries file (corrects names to Aeries spelling)
-    // Batch-fetch which IDs already exist so we can insert vs. update appropriately.
-    // (Upsert with onConflict:'id' requires a UNIQUE constraint — using select+insert/update instead.)
     const allImportIds = importPreview.map(s => s.id)
     const { data: existingStudentRows } = await supabase
       .from('students').select('id').in('id', allImportIds)
@@ -511,16 +550,12 @@ export default function StudentsAdmin() {
       }
       if (sErr) { errors.push(`${student.full_name}: ${sErr.message}`); continue }
 
-      // Add to student_periods if not already in this specific period
-      // IMPORTANT: filter by period so multi-period students (e.g. student aids)
-      // don't get their other period enrollments wiped during deduplication
       const { data: periodSp } = await supabase.from('student_periods')
         .select('id').eq('student_id', student.id).eq('room', room).eq('period', importPeriod)
       if (!periodSp || periodSp.length === 0) {
         await supabase.from('student_periods').insert({ student_id: student.id, period: importPeriod, room })
         added++
       } else {
-        // Deduplicate within this period only — other period enrollments are untouched
         if (periodSp.length > 1) {
           const idsToDelete = periodSp.slice(1).map(r => r.id)
           await supabase.from('student_periods').delete().in('id', idsToDelete)
@@ -530,7 +565,6 @@ export default function StudentsAdmin() {
       }
     }
 
-    // 2. Remove students checked for removal (not on Aeries list)
     for (const id of removeSelected) {
       await supabase.from('student_periods')
         .delete().eq('student_id', id).eq('room', room).eq('period', importPeriod)
@@ -576,6 +610,12 @@ export default function StudentsAdmin() {
       { q: 'How do I move a student to a different period?', a: 'Click the period dropdown next to their name and select the new period. The change saves immediately.' },
       { q: 'How do I remove a student from my class?', a: 'Click Remove next to their name. This removes them from your roster only — it does not delete their record from the system.' },
       { q: 'What does NFC mean next to a student\'s name?', a: 'NFC means the student has been assigned an NFC card. They can tap their card at the kiosk instead of searching for their name.' },
+    ]},
+    { title: 'NFC Cards', items: [
+      { q: 'How do I assign an NFC card to a student?', a: 'Click Edit next to the student\'s name. In the NFC Card section, scan the card with your USB NFC reader — it outputs a decimal number. Enter that number and click Assign. PassAble converts it to a hex UID and generates a tap URL and QR code automatically.' },
+      { q: 'What do I do with the QR code or URL after assigning?', a: 'Open NFC Tools (desktop or phone app), choose Write → URL, and paste the tap URL. Write it to the physical card. Once written, students tap the card at the Wire kiosk and PassAble looks them up by UID automatically.' },
+      { q: 'Can a student use their phone instead of a card?', a: 'Yes. Share the tap URL directly with the student — they can add it to their phone\'s NFC shortcuts or just open it in a browser bookmark.' },
+      { q: 'How do I replace a lost or reassigned card?', a: 'Click Edit → NFC Card section → enter the new decimal ID in the Replace field and click Replace. The old UID is overwritten immediately.' },
     ]},
     { title: 'Photos', items: [
       { q: 'How do student photos get added?', a: 'Your admin imports the Lifetouch photo batch for the whole school. After they do that, click Match the Photos from your dashboard to pull in photos for your class specifically.' },
@@ -653,9 +693,9 @@ export default function StudentsAdmin() {
         )
       })()}
 
-      {/* Edit Modal */}
+      {/* ── Edit Student Modal ── */}
       {editStudent && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-6">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full mx-4 shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -700,6 +740,103 @@ export default function StudentsAdmin() {
               </div>
             </div>
 
+            {/* ── NFC Card ── */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-700">📲 NFC Card</p>
+                {editStudent.nfc_uid && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono bg-gray-100 text-gray-500 px-2 py-0.5 rounded">
+                      {editStudent.nfc_uid}
+                    </span>
+                    <button onClick={removeNfc} className="text-xs text-red-400 hover:text-red-600">
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {editStudent.nfc_uid ? (
+                /* Has NFC — show QR + tap URL + replace option */
+                <div className="p-3 rounded-xl border border-green-200 bg-green-50">
+                  <div className="flex gap-3 items-start mb-3">
+                    {nfcQR && (
+                      <img src={nfcQR} alt="NFC tap QR" className="w-20 h-20 rounded-lg flex-shrink-0 border border-green-200" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-green-800 mb-1.5">✓ Card assigned</p>
+                      <div className="bg-white border border-green-200 rounded-lg px-2 py-1.5 mb-2">
+                        <p className="text-xs font-mono text-gray-500 truncate">{getNfcTapUrl(editStudent.nfc_uid)}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(getNfcTapUrl(editStudent.nfc_uid))
+                          setNfcCopied(true)
+                          setTimeout(() => setNfcCopied(false), 2000)
+                        }}
+                        className="text-xs px-3 py-1.5 rounded-lg font-medium text-white"
+                        style={{ backgroundColor: RHS_GREEN }}>
+                        {nfcCopied ? '✓ Copied' : 'Copy URL'}
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-green-700 mb-2.5">
+                    Paste URL into NFC Tools → Write → URL to program the card.
+                  </p>
+                  {/* Replace */}
+                  <div className="border-t border-green-200 pt-2.5">
+                    <p className="text-xs text-gray-500 mb-1.5">Replace with a different card:</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="New decimal ID from reader"
+                        value={editNfcDecimal}
+                        onChange={e => setEditNfcDecimal(e.target.value.replace(/\D/g, ''))}
+                        className="flex-1 p-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-800"
+                      />
+                      <button
+                        onClick={saveNfc}
+                        disabled={nfcSaving || !editNfcDecimal.trim()}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-30">
+                        {nfcSaving ? '...' : 'Replace'}
+                      </button>
+                    </div>
+                    {editNfcDecimal && decimalToHexUid(editNfcDecimal) && (
+                      <p className="text-xs text-gray-400 mt-1">→ UID: {decimalToHexUid(editNfcDecimal)}</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* No NFC — assign flow */
+                <div className="p-3 rounded-xl border border-gray-200 bg-gray-50">
+                  <p className="text-xs text-gray-500 mb-2">
+                    Scan the card with your USB NFC reader. Enter the decimal number it outputs, then click Assign.
+                  </p>
+                  <div className="flex gap-2 mb-1">
+                    <input
+                      type="text"
+                      placeholder="Decimal ID (e.g. 2056423425)"
+                      value={editNfcDecimal}
+                      onChange={e => setEditNfcDecimal(e.target.value.replace(/\D/g, ''))}
+                      className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
+                      style={{ borderColor: editNfcDecimal ? RHS_GREEN : '#e5e7eb' }}
+                    />
+                    <button
+                      onClick={saveNfc}
+                      disabled={nfcSaving || !editNfcDecimal.trim()}
+                      className="text-xs px-3 py-1.5 rounded-lg text-white font-medium disabled:opacity-30"
+                      style={{ backgroundColor: RHS_GREEN }}>
+                      {nfcSaving ? 'Saving...' : nfcSaved ? '✓ Saved' : 'Assign'}
+                    </button>
+                  </div>
+                  {editNfcDecimal && decimalToHexUid(editNfcDecimal) && (
+                    <p className="text-xs text-gray-400">→ UID: {decimalToHexUid(editNfcDecimal)}</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Name fields */}
             <div className="flex flex-col gap-3 mb-4">
               <div>
                 <label className="text-xs text-gray-500 font-medium mb-1 block">First Name</label>
@@ -722,6 +859,7 @@ export default function StudentsAdmin() {
                 <p className="text-xs text-gray-400 mt-1">Leave as-is or type a preferred name</p>
               </div>
             </div>
+
             <div className="flex gap-3">
               <button onClick={saveEdit} disabled={saving}
                 className="flex-1 py-3 text-white text-sm font-semibold rounded-xl disabled:opacity-30"
@@ -775,7 +913,6 @@ export default function StudentsAdmin() {
         {activeView === 'import' && (
           <div className="space-y-4">
 
-            {/* ⚠ One class per file warning */}
             <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex gap-3 items-start">
               <span className="text-red-500 text-lg mt-0.5 flex-shrink-0">⚠️</span>
               <div>
@@ -786,14 +923,12 @@ export default function StudentsAdmin() {
               </div>
             </div>
 
-            {/* Help link */}
             <button
               onClick={() => { setShowHelp(true); setHelpSearch('import'); setHelpPos({ x: null, y: null }) }}
               className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1.5">
               ❓ How this works
             </button>
 
-            {/* Drop zone */}
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <h2 className="text-sm font-semibold text-gray-800 mb-3">Upload Aeries Class Roster (.xlsx)</h2>
               <div
@@ -828,7 +963,6 @@ export default function StudentsAdmin() {
               </div>
             )}
 
-            {/* ⚠ Room mismatch warning */}
             {roomMismatch && !mismatchConfirmed && (
               <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4">
                 <div className="flex gap-3 items-start mb-3">
@@ -866,7 +1000,6 @@ export default function StudentsAdmin() {
               const missingStudents = currentRoster.filter(s => !importIds.has(s.id))
               return (
                 <div className="space-y-3">
-                  {/* File summary — no manual period selector, period is detected from file */}
                   <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center justify-between">
                     <p className="text-sm font-semibold text-gray-800">{importPreview.length} students in this file</p>
                     {importPeriod && (
@@ -877,7 +1010,6 @@ export default function StudentsAdmin() {
                     )}
                   </div>
 
-                  {/* Cross-teacher conflict warning */}
                   {crossTeacherConflicts.length > 0 && (
                     <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
                       <div className="flex items-center gap-2 mb-2">
@@ -886,7 +1018,7 @@ export default function StudentsAdmin() {
                           {crossTeacherConflicts.length} student{crossTeacherConflicts.length !== 1 ? 's' : ''} already enrolled in this period by another teacher
                         </p>
                       </div>
-                      <p className="text-xs text-orange-700 mb-3">These students will be added to your roster, but they'll also remain on the other teacher's roster until resolved. The admin dashboard will flag this as a scheduling conflict.</p>
+                      <p className="text-xs text-orange-700 mb-3">These students will be added to your roster, but they'll also remain on the other teacher's roster until resolved.</p>
                       <div className="flex flex-col gap-1.5">
                         {crossTeacherConflicts.map(c => (
                           <div key={c.student_id} className="flex items-center justify-between bg-white border border-orange-100 rounded-lg px-3 py-2">
@@ -898,7 +1030,6 @@ export default function StudentsAdmin() {
                     </div>
                   )}
 
-                  {/* New students to add */}
                   {newStudents.length > 0 && (
                     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                       <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
@@ -921,7 +1052,6 @@ export default function StudentsAdmin() {
                     </div>
                   )}
 
-                  {/* Already in class — names will sync */}
                   {existingStudents.length > 0 && (
                     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                       <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
@@ -944,7 +1074,6 @@ export default function StudentsAdmin() {
                     </div>
                   )}
 
-                  {/* Missing from Aeries — likely dropped/transferred */}
                   {missingStudents.length > 0 && (
                     <div className="bg-white rounded-xl border border-red-200 overflow-hidden">
                       <div className="px-4 py-2.5 border-b border-red-100 flex items-center justify-between">
@@ -962,7 +1091,6 @@ export default function StudentsAdmin() {
                       <p className="px-4 pt-2 text-xs text-gray-500">These students may have transferred or dropped. Check the box to remove them from this period.</p>
                       <div className="max-h-48 overflow-y-auto mt-1">
                         {missingStudents.map(s => {
-                          // allRoomPeriods[s.id] is now an array of all periods this student is in
                           const studentPeriods = allRoomPeriods[s.id] || []
                           const otherPeriods = studentPeriods.filter(p => p !== importPeriod)
                           const isInOtherPeriods = otherPeriods.length > 0
@@ -971,8 +1099,7 @@ export default function StudentsAdmin() {
                             .join(', ')
                           return (
                             <div key={s.id} className="flex items-center gap-3 px-4 py-2 border-b border-gray-50 last:border-0">
-                              <input type="checkbox" checked={removeSelected.has(s.id)} onChange={() => toggleRemove(s.id)}
-                                className="rounded" />
+                              <input type="checkbox" checked={removeSelected.has(s.id)} onChange={() => toggleRemove(s.id)} className="rounded" />
                               <span className="text-xs font-mono text-gray-400 w-16">{s.id}</span>
                               <span className={`text-sm flex-1 ${removeSelected.has(s.id) ? 'line-through text-gray-400' : 'text-gray-800'}`}>{s.full_name}</span>
                               {isInOtherPeriods ? (
@@ -1084,7 +1211,6 @@ export default function StudentsAdmin() {
               const url = photoUrls[s.id] || s.photo_url
               return (
                 <div key={s.id} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
-                  {/* Photo: prefer photo_url, fall back to student-photos storage, then initials */}
                   <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center text-xs font-medium text-white"
                     style={{ backgroundColor: RHS_GREEN }}>
                     {url
@@ -1093,7 +1219,6 @@ export default function StudentsAdmin() {
                     }
                   </div>
                   <div className="flex-1">
-                    {/* no confirmed /student/[id] route — plain span instead of link */}
                     <span className="text-sm font-medium" style={{ color: RHS_GREEN }}>
                       {s.full_name}
                     </span>
@@ -1144,8 +1269,6 @@ export default function StudentsAdmin() {
             <p className="text-xs text-red-500 ml-1">Use this at the start of a new school year to remove students before re-importing from Aeries.</p>
           </div>
           <div className="p-4 bg-white space-y-3">
-
-            {/* Per-period clear buttons */}
             <div>
               <p className="text-xs font-medium text-gray-500 mb-2">Clear one period:</p>
               <div className="flex flex-wrap gap-2">
@@ -1173,8 +1296,6 @@ export default function StudentsAdmin() {
                 ))}
               </div>
             </div>
-
-            {/* Clear all */}
             <div className="pt-2 border-t border-gray-100">
               <p className="text-xs font-medium text-gray-500 mb-2">Clear all periods at once:</p>
               {clearConfirm === 'all' ? (
@@ -1196,7 +1317,6 @@ export default function StudentsAdmin() {
                 </button>
               )}
             </div>
-
           </div>
         </div>
 
