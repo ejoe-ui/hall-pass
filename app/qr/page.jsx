@@ -4,12 +4,13 @@
   ROUTE:   /qr
   PURPOSE: Generate and print student QR badge cards, sticker labels (Spartan R011 3"×2"),
            and personalized instruction sheets (2-up) for student onboarding.
-           QR codes point to /wire?uid=STUDENTID (room-agnostic personal wire page).
+           QR codes point to /wire?uid=NFCUID (if card assigned) or /wire?uid=STUDENTID (fallback).
            Students scan their QR / tap their NFC badge to open their personal PassAble page.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (students, student_periods, teachers) + lifetouch-raw storage bucket
   UPDATED: 2026-06-24 — added instruction sheet template; QR URL → /wire?uid; photos → lifetouch-raw
            per-student search + reprint; instruction sheet is first template option
+  UPDATED: 2026-06-29 — QR/wire URLs use nfc_uid when assigned, fall back to Aeries student ID
 */
 'use client'
 import { useState, useEffect, useMemo } from 'react'
@@ -84,7 +85,7 @@ export default function QRPage() {
 
     const { data } = await supabase
       .from('students')
-      .select('id, full_name, photo_file')
+      .select('id, full_name, photo_file, nfc_uid')
       .in('id', studentIds)
       .order('first_name')
 
@@ -108,7 +109,7 @@ export default function QRPage() {
   async function generateQRCodes(studentList) {
     const codes = {}
     for (const s of studentList) {
-      const url = `${BASE_URL}/wire?uid=${s.id}`
+      const url = `${BASE_URL}/wire?uid=${s.nfc_uid || s.id}`
       codes[s.id] = await QRCode.toDataURL(url, { width: 220, margin: 1 })
     }
     setQrCodes(codes)
@@ -164,7 +165,7 @@ export default function QRPage() {
 
   // ── Instruction sheet HTML builder (shared by print + per-student reprint) ─
   function buildStudentSheetHtml(s) {
-    const wireUrl   = `${BASE_URL}/wire?uid=${s.id}`
+    const wireUrl   = `${BASE_URL}/wire?uid=${s.nfc_uid || s.id}`
     const photoHtml = photoUrls[s.id]
       ? `<img src="${photoUrls[s.id]}" style="width:1.1in;height:1.1in;object-fit:cover;border-radius:8pt;display:block;margin:0 auto;" />`
       : `<div style="width:1.1in;height:1.1in;border-radius:8pt;background:#f3f4f6;display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:28pt;font-weight:800;color:#9ca3af;">${s.full_name.split(' ').map(n=>n[0]).slice(0,2).join('')}</div>`
@@ -552,7 +553,7 @@ export default function QRPage() {
                               <div style={{ width: '100%', textAlign: 'center' }}>
                                 <img src={qrCodes[s.id]} alt="" style={{ width: 70, height: 70, display: 'block', margin: '0 auto' }} />
                                 <p style={{ fontSize: 6.5, color: '#6b7280', margin: '2px 0 0', wordBreak: 'break-all' }}>
-                                  {BASE_URL}/wire?uid={s.id}
+                                  {BASE_URL}/wire?uid={s.nfc_uid || s.id}
                                 </p>
                               </div>
                             )}
@@ -562,7 +563,7 @@ export default function QRPage() {
                                 Copy this URL into NFC Tools and write it to your badge sticker.
                               </p>
                               <p style={{ fontSize: 6, color: RHS_GREEN, fontWeight: 700, margin: '2px 0 0', wordBreak: 'break-all' }}>
-                                {BASE_URL}/wire?uid={s.id}
+                                {BASE_URL}/wire?uid={s.nfc_uid || s.id}
                               </p>
                             </div>
                           </div>
