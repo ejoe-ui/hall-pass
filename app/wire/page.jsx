@@ -2008,8 +2008,6 @@ function ConfigPanel({ prefs, setPrefs, open, setOpen }) {
           borderRadius: 12, border: '0.5px solid #e0ddd8',
           boxShadow: '0 4px 20px rgba(0,0,0,0.12)', zIndex: 99,
           overflow: 'hidden',
-          maxHeight: 'calc(100vh - 100px)',
-          display: 'flex', flexDirection: 'column',
         }}>
           <div style={{ padding: '10px 14px', borderBottom: '0.5px solid #f0eeea' }}>
             <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#888' }}>
@@ -2036,7 +2034,7 @@ function ConfigPanel({ prefs, setPrefs, open, setOpen }) {
           </div>
 
           {/* Configurable right-column cards with toggle + reorder */}
-          <div style={{ padding: '6px 14px 10px', overflowY: 'auto', flex: 1 }}>
+          <div style={{ padding: '6px 14px 10px', overflowY: 'auto', maxHeight: 'calc(100vh - 220px)' }}>
             <p style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#ccc', marginBottom: 4 }}>
               Your cards · tap to toggle · arrows to reorder
             </p>
