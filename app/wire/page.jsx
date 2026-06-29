@@ -185,14 +185,14 @@ const COMPONENT_REGISTRY = [
   { id: 'sports',      label: 'Sports',           icon: 'ti-trophy',         defaultOn: false, alwaysOn: false },
   { id: 'birthdays',   label: 'Birthdays',        icon: 'ti-cake',           defaultOn: true,  alwaysOn: false },
   { id: 'teacherMsg',  label: 'Teacher Messages', icon: 'ti-message-2',      defaultOn: false, alwaysOn: false },
-  { id: 'handbook',   label: 'Handbook Hub',     icon: 'ti-book',           defaultOn: false, alwaysOn: false },
+  { id: 'handbook',   label: 'Handbook Hub',     icon: 'ti-book',           defaultOn: true,  alwaysOn: false },
 ]
 
 // Default order for right column slots
 const DEFAULT_ORDER = [
-  'weather','lunch','passHistory','fortune','cowboyCode',
+  'handbook','weather','lunch','passHistory','fortune','cowboyCode',
   'wisdom','wordOfDay','historyDrop','bizFacts','funFacts',
-  'releases','sports','birthdays','teacherMsg','handbook',
+  'releases','sports','birthdays','teacherMsg',
 ]
 
 const PREFS_KEY = 'rhs-wire-prefs-v1'
