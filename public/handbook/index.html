@@ -1,1 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RHS Handbook Hub</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <nav class="topbar">
+      <div class="brand"><span class="brand-mark">R</span><span><strong>RHS Handbook Hub</strong><small>2025–2026</small></span></div>
+      <div class="top-actions">
+        <div class="helper-toggle" aria-label="Helper language toggle"><span>Helper view</span><button id="helperEnglish" class="lang-btn active" type="button">English Helper</button><button id="helperSpanish" class="lang-btn" type="button">Ayuda en Español</button></div>
+        <button id="printBtn" class="ghost">Print Section</button>
+        <a class="pdf-link" href="assets/RHS-Parent-Student-Handbook-2025-26.pdf" target="_blank" rel="noopener">Open Original PDF</a>
+      </div>
+    </nav>
+    <section class="hero-grid">
+      <div>
+        <p class="eyebrow">Official text · clear answers · no PDF treasure hunt</p>
+        <h1>Find handbook answers fast.</h1>
+        <p class="lede">Search the official RHS handbook, then use helper cards for plain-language explanations.</p>
+        <div class="search-wrap">
+          <input id="searchInput" type="search" placeholder="Search attendance, dress code, tardies, graduation, parking…" autocomplete="off" />
+          <button id="clearSearch" class="ghost small">Clear</button>
+        </div>
+        <div id="searchResults" class="search-results" aria-live="polite"></div>
+      </div>
+      <aside class="hero-card compact-disclaimer">
+        <h2>Official text controls.</h2>
+        <p>The approved handbook text stays separate. Helper answers and Spanish support are for convenience only.</p>
+        <details><summary>Why this matters</summary><p class="tiny">Helper answers are here to make the handbook easier to understand. They are not a replacement for the official rule. If something seems unclear or different, use the official handbook/PDF or ask the school office.</p></details>
+      </aside>
+    </section>
+  </header>
 
+  <main class="app-shell">
+    <aside class="sidebar">
+      <div class="mobile-row">
+        <label for="categoryFilter">Browse by topic</label>
+        <select id="categoryFilter"></select>
+      </div>
+      <div id="categoryList" class="category-list"></div>
+    </aside>
+
+    <section class="content">
+      <section class="quick-panel">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Popular scenario topics</p>
+            <h2>Common Student Questions</h2>
+          </div>
+          <button id="showAllBtn" class="ghost">Show All Sections</button>
+        </div>
+        <div id="howToUseCard" class="how-to-card" aria-live="polite"></div>
+        <div id="topicCards" class="topic-grid"></div>
+      </section>
+
+
+      <section id="sectionView" class="section-view" tabindex="-1"></section>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p><strong>Digital helper last updated: June 2026.</strong> Based on the RHS Parent/Student Handbook 2025–2026. Official PDF remains the final reference.</p>
+  </footer>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
