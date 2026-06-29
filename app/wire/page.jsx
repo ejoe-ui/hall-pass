@@ -2467,7 +2467,16 @@ function WireContent() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(PREFS_KEY)
-      if (saved) setPrefs({ ...getDefaultPrefs(), ...JSON.parse(saved) })
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        const defaults = getDefaultPrefs()
+        // Append any new components (added since user last visited) to end of saved order
+        const newItems = DEFAULT_ORDER.filter(id => !(parsed.order || []).includes(id))
+        const mergedOrder = [...(parsed.order || defaults.order), ...newItems]
+        // Merge enabled: saved values take priority, new items get their defaultOn value
+        const mergedEnabled = { ...defaults.enabled, ...(parsed.enabled || {}) }
+        setPrefs({ order: mergedOrder, enabled: mergedEnabled })
+      }
     } catch { /* ignore */ }
   }, [])
   useEffect(() => {
