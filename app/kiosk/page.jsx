@@ -6,7 +6,8 @@
   PURPOSE: Student-facing self-checkout kiosk — badge scan, name select, pass checkout/check-in.
   REPO:    hall-pass (hall-pass-lime.vercel.app)
   BACKEND: Supabase (teachers, students, passes, student_periods, do_not_let_out, settings)
-  UPDATED: 2026-06-25 — updated reason list (Class Assignment, IT / Tech Support, removed Other + School Store); added destination_note + sendKioskNotification for teacher alerts
+  UPDATED: 2026-06-29 — fixed normalizeUid (no truncation, uppercase); fixed NFC decimal→hex
+           conversion; removed unlocked gate from NFC listener (NFC is student-facing)
 */
 
 'use client'
@@ -210,9 +211,17 @@ const QUEUE_KEY = 'hall_pass_offline_queue'
 function loadQueue() { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]') } catch { return [] } }
 function saveQueue(q) { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)) }
 
+// FIX 2026-06-29: Preserve full UID without truncation; uppercase to match DB values.
+// USB NFC readers output decimal — convert to hex before calling this.
 function normalizeUid(uid) {
-  const clean = uid.trim().toLowerCase().replace(/[^0-9a-f]/g, '')
-  return clean.slice(-6)
+  return (uid || '').trim().toUpperCase().replace(/[^0-9A-F]/g, '')
+}
+
+// Convert decimal card ID (from USB NFC reader) to 8-char uppercase hex UID
+function decimalToHexUid(decimal) {
+  const num = parseInt(String(decimal).trim(), 10)
+  if (isNaN(num) || num <= 0) return null
+  return num.toString(16).toUpperCase().padStart(8, '0')
 }
 
 // ── Period status bar component ───────────────────────────────────────────────
@@ -540,24 +549,41 @@ function KioskInner() {
     if (code && code === unlockCode) setUnlocked(true)
   }, [unlockCode])
 
+  // ── USB NFC reader listener ───────────────────────────────────────────────
+  // The USB NFC reader behaves like a keyboard: it sends the card's decimal ID
+  // as rapid keystrokes followed by Enter. We buffer chars, then on Enter
+  // convert decimal → 8-char hex and match against students.nfc_uid.
+  //
+  // FIX 2026-06-29:
+  //   • Removed `unlocked` gate — NFC checkout is student-facing, not admin-only
+  //   • Added decimal → hex conversion (reader outputs decimal, DB stores hex)
+  //   • Fixed normalizeUid (no more .slice(-6) truncation, uses uppercase)
   useEffect(() => {
-    if (!unlocked || !activePeriod) return
+    if (!activePeriod) return  // only listen once a period is active
     function handleNfcKey(e) {
       const tag = document.activeElement?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
       if (e.key === 'Enter') {
-        const uid = nfcBufferRef.current.trim()
+        const raw = nfcBufferRef.current.trim()
         nfcBufferRef.current = ''
         clearTimeout(nfcTimerRef.current)
-        if (uid.length < 4) return
+        if (raw.length < 4) return
         if (students.length === 0) return
-        const normalizedUid = normalizeUid(uid)
-        const reversed = uid.match(/.{2}/g)?.reverse().join('') || uid
-        const normalizedReversed = normalizeUid(reversed)
+
+        // USB NFC reader outputs decimal (e.g. "28104").
+        // Convert to 8-char hex to match nfc_uid stored in DB (e.g. "00006DC8").
+        const isDecimal = /^\d+$/.test(raw)
+        let hexUid = raw.toUpperCase()
+        if (isDecimal) {
+          const converted = decimalToHexUid(raw)
+          if (converted) hexUid = converted
+        }
+
         const match = students.find(s => {
-          const stored = normalizeUid(s.nfc_uid || '')
-          return stored === normalizedUid || stored === normalizedReversed
+          const stored = (s.nfc_uid || '').toUpperCase().trim()
+          return stored.length > 0 && stored === hexUid
         })
+
         if (match) {
           const openPass = activePassesRef.current.find(p => p.student_id === match.id)
           if (openPass) {
@@ -599,7 +625,7 @@ function KioskInner() {
       window.removeEventListener('keydown', handleNfcKey)
       clearTimeout(nfcTimerRef.current)
     }
-  }, [unlocked, activePeriod, students])
+  }, [activePeriod, students])
 
   async function loadSettings() {
     const { data: settingsData } = await supabase.from('settings').select('key, value')
