@@ -185,13 +185,14 @@ const COMPONENT_REGISTRY = [
   { id: 'sports',      label: 'Sports',           icon: 'ti-trophy',         defaultOn: false, alwaysOn: false },
   { id: 'birthdays',   label: 'Birthdays',        icon: 'ti-cake',           defaultOn: true,  alwaysOn: false },
   { id: 'teacherMsg',  label: 'Teacher Messages', icon: 'ti-message-2',      defaultOn: false, alwaysOn: false },
+  { id: 'handbook',   label: 'Handbook Hub',     icon: 'ti-book',           defaultOn: false, alwaysOn: false },
 ]
 
 // Default order for right column slots
 const DEFAULT_ORDER = [
   'weather','lunch','passHistory','fortune','cowboyCode',
   'wisdom','wordOfDay','historyDrop','bizFacts','funFacts',
-  'releases','sports','birthdays','teacherMsg',
+  'releases','sports','birthdays','teacherMsg','handbook',
 ]
 
 const PREFS_KEY = 'rhs-wire-prefs-v1'
@@ -1926,6 +1927,32 @@ function TeacherMsgCard({ msg }) {
   )
 }
 
+// ── Handbook Hub ─────────────────────────────────────────────────────────────
+// Embeds the static RHS Handbook Hub from /public/handbook/index.html via iframe.
+// To deploy: copy the handbook zip contents into public/handbook/ in the repo.
+function HandbookCard() {
+  return (
+    <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e7eb', background: 'white' }}>
+      <div style={{ padding: '10px 13px 8px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <p style={{ fontSize: 9, fontWeight: 500, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: 2 }}>Reference</p>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>RHS Handbook Hub</p>
+        </div>
+        <a href="/handbook/index.html" target="_blank" rel="noopener"
+          style={{ fontSize: 10, color: RHS_GREEN, fontWeight: 500, textDecoration: 'none' }}>
+          Open full ↗
+        </a>
+      </div>
+      <iframe
+        src="/handbook/index.html"
+        title="RHS Student Handbook"
+        style={{ width: '100%', height: 560, border: 'none', display: 'block' }}
+        loading="lazy"
+      />
+    </div>
+  )
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // CONFIG PANEL (settings drawer)
 // ════════════════════════════════════════════════════════════════════════════════
@@ -2552,6 +2579,7 @@ function WireContent() {
       case 'sports':      return <SportsCard key={id} sports={d} />
       case 'birthdays':   return <BirthdaysCard key={id} birthdays={d} />
       case 'teacherMsg':  return <TeacherMsgCard key={id} msg={d} />
+      case 'handbook':    return <HandbookCard key={id} />
       default:            return null
     }
   }
