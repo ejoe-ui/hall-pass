@@ -229,7 +229,9 @@ function dayOfYear(d) {
   return Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000)
 }
 function normalizeUid(raw) {
-  return (raw || '').trim().toLowerCase().replace(/[^0-9a-f]/g, '').slice(-6)
+  // Preserves full UID — supports both 6-char Aeries student IDs and 8-char NFC hex UIDs.
+  // Uppercase to match nfc_uid values stored in DB (e.g. '00006DC8').
+  return (raw || '').trim().toUpperCase().replace(/[^0-9A-F]/g, '')
 }
 function weatherCodeToLabel(code) {
   if (code === 0) return 'Sunny'
