@@ -361,7 +361,8 @@ function ScheduleSelectWithPreview({ value, onChange, labels, schedules }) {
 // ── Main component ────────────────────────────────────────────────────────────
 function TeacherInner() {
   const searchParams = useSearchParams()
-
+  const fogTestMode = searchParams.get('fogtest') === '1'
+  
   // Auth
   const [session, setSession] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -539,7 +540,8 @@ function TeacherInner() {
   const [outgoingNotifs, setOutgoingNotifs] = useState([]) // my sent students — return updates
   const [receiveNotifications, setReceiveNotifications] = useState(true)
   const [notifSaved, setNotifSaved] = useState(false)
-
+  const [fogDelay, setFogDelay] = useState(null)
+  
   const prevHeldIds = useRef([])
   const prevActiveIds = useRef([])
   const inactivityTimerRef = useRef(null)
@@ -556,7 +558,22 @@ function TeacherInner() {
     const t = setInterval(detectSchedule, 60000)
     return () => clearInterval(t)
   }, [])
-
+// ── Fog delay check ────────────────────────────────────────────────────────
+  useEffect(() => {
+    async function checkFog() {
+      const d = new Date()
+      const hour = d.getHours(), day = d.getDay()
+      if (!fogTestMode && (day === 0 || day === 6 || hour < 5 || hour >= 10)) return
+      try {
+        const res = await fetch(fogTestMode ? '/api/fog-check?test=true' : '/api/fog-check')
+        setFogDelay(await res.json())
+      } catch {}
+    }
+    checkFog()
+    const id = setInterval(checkFog, 600000)
+    return () => clearInterval(id)
+  }, [fogTestMode])
+  
   // Re-detect when teacher logs in or switches rooms
   useEffect(() => {
     if (currentTeacher) detectSchedule()
@@ -1827,7 +1844,24 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
 
       {/* ── Period Status Bar ── */}
       <PeriodStatusBar periodInfo={periodInfo} checkoutStatus={checkoutStatus} blockMinsEnabled={blockMinsEnabled} />
-
+{/* ── Fog Delay Banner ── */}
+{fogDelay?.active && (
+  <div style={{ width: '100%', padding: '9px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#92400e', borderBottom: '2px solid #78350f' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span style={{ fontSize: 20 }}>🌫️</span>
+      <div>
+        <span style={{ color: 'white', fontWeight: 700, fontSize: 14 }}>Fog Delay — {fogDelay.plan}</span>
+        <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginLeft: 8 }}>Riverdale Joint Unified</span>
+        {fogDelay.updatedAt && <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 10, marginLeft: 8 }}>· Updated {fogDelay.updatedAt}</span>}
+      </div>
+    </div>
+    <a href="https://www.southwestjpa.org/?q=node/19" target="_blank" rel="noopener noreferrer"
+      style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: 500, textDecoration: 'none' }}>
+      Full schedule ↗
+    </a>
+  </div>
+)}
+      
       <div className="p-6 max-w-3xl mx-auto">
 
         {/* ── Empty roster nudge ── */}
