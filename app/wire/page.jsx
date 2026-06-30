@@ -2090,8 +2090,9 @@ function ConfigPanel({ prefs, setPrefs, open, setOpen }) {
 
 function WireContent() {
   const searchParams = useSearchParams()
-  const rawUid  = searchParams.get('uid') || ''
-  const roomParam = searchParams.get('room') || ''
+  const rawUid     = searchParams.get('uid') || ''
+  const roomParam  = searchParams.get('room') || ''
+  const fogTestMode = searchParams.get('fogtest') === '1'
   const uid = normalizeUid(rawUid)
 
   // ── Tabler Icons CSS (injected once — not in layout for this route) ──────
@@ -2457,6 +2458,30 @@ function WireContent() {
     return () => clearInterval(id)
   }, [cwTeacherMsg.length])
 
+  // ── Fog delay check ────────────────────────────────────────────────────────
+  // Checks /api/fog-check on load and every 10 min.
+  // Only fires between 5–10am on weekdays (or always in fogtest mode).
+  // Add ?fogtest=1 to the URL to simulate a fog delay without a real fog day.
+  const [fogDelay, setFogDelay] = useState(null)
+  useEffect(() => {
+    async function checkFog() {
+      const d    = new Date()
+      const hour = d.getHours()
+      const day  = d.getDay() // 0 = Sun, 6 = Sat
+      // Skip on weekends and outside 5–10am, unless in test mode
+      if (!fogTestMode && (day === 0 || day === 6 || hour < 5 || hour >= 10)) return
+      try {
+        const url = fogTestMode ? '/api/fog-check?test=true' : '/api/fog-check'
+        const res = await fetch(url)
+        const json = await res.json()
+        setFogDelay(json)
+      } catch { /* no banner if fetch fails */ }
+    }
+    checkFog()
+    const id = setInterval(checkFog, 600000) // re-check every 10 min
+    return () => clearInterval(id)
+  }, [fogTestMode])
+
   // ── Temperature unit ───────────────────────────────────────────────────────
   const [useCelsius, setUseCelsius] = useState(false)
 
@@ -2663,6 +2688,42 @@ function WireContent() {
           </div>
         </div>
       </div>
+
+      {/* ── FOG DELAY BANNER ───────────────────────────────────────────────── */}
+      {fogDelay?.active && (
+        <div style={{
+          background: '#92400e',
+          borderBottom: '2px solid #78350f',
+          padding: '9px 20px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 20, lineHeight: 1 }}>🌫️</span>
+            <div>
+              <span style={{ color: 'white', fontWeight: 700, fontSize: 14 }}>
+                Fog Delay — {fogDelay.plan}
+              </span>
+              <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginLeft: 8 }}>
+                Riverdale Joint Unified
+              </span>
+              {fogDelay.updatedAt && (
+                <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 10, marginLeft: 8 }}>
+                  · Updated {fogDelay.updatedAt}
+                </span>
+              )}
+            </div>
+          </div>
+          <a
+            href="https://www.southwestjpa.org/?q=node/19"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: 500, textDecoration: 'none', flexShrink: 0 }}
+          >
+            Full schedule ↗
+          </a>
+        </div>
+      )}
 
       {/* ── MAIN GRID ──────────────────────────────────────────────────────── */}
       <div style={{
