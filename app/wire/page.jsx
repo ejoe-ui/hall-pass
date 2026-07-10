@@ -80,7 +80,7 @@ const BUILTIN_FORTUNES = [
 // defaultOn: initial state for new visitors
 const COMPONENT_REGISTRY = [
   { id: 'weather',     label: 'Weather',          icon: 'ti-cloud',          defaultOn: true,  alwaysOn: false },
-  { id: 'lunch',       label: 'Lunch Menu',       icon: 'ti-tool-kitchen-2', defaultOn: true,  alwaysOn: false },
+  { id: 'lunch',       label: 'Lunch Menu',       icon: 'ti-soup',           defaultOn: true,  alwaysOn: false },
   { id: 'passHistory', label: 'Pass History',     icon: 'ti-id-badge-2',     defaultOn: true,  alwaysOn: false },
   { id: 'checkmate',   label: 'CheckMate Equipment', icon: 'ti-device-laptop', defaultOn: true,  alwaysOn: false },
   { id: 'fortune',     label: 'Fortune Cookie',   icon: 'ti-sparkles',       defaultOn: true,  alwaysOn: false },
