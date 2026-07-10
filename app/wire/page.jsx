@@ -1212,7 +1212,14 @@ function WireContent() {
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${WEATHER_LAT}&longitude=${WEATHER_LON}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`
         const res = await fetch(url)
         const json = await res.json()
-        setWeather(json.current)
+        // Open-Meteo uses suffixed field names (temperature_2m etc) — normalize for WeatherCard
+        setWeather({
+          temperature:          json.current.temperature_2m,
+          apparent_temperature: json.current.apparent_temperature,
+          relative_humidity:    json.current.relative_humidity_2m,
+          wind_speed:           json.current.wind_speed_10m,
+          weather_code:         json.current.weather_code,
+        })
       } catch (e) { /* graceful fallback — card won't render */ }
     }
     fetchWeather()
@@ -1530,28 +1537,20 @@ function WireContent() {
           </div>
         </div>
 
-        <div style={{ textAlign: 'center' }}>
+        <div style={{ textAlign: 'right' }}>
           <div style={{ color: 'white', fontSize: 28, fontWeight: 500, fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em', lineHeight: 1 }}>
             {now ? fmtTime(now) : '—:—'}
           </div>
           <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 2 }}>
             {now ? fmtDateLong(now) : ''}
           </div>
-        </div>
-
-        <div style={{ textAlign: 'right' }}>
           {periodInfo?.status === 'period' && periodInfo.current && (
-            <>
-              <div style={{ color: 'white', fontSize: 14, fontWeight: 500 }}>
-                {periodInfo.current.label}
-              </div>
-              <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, marginTop: 1 }}>
-                {SCHEDULE_LABELS[scheduleType] || scheduleType || ''}
-              </div>
-            </>
+            <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, marginTop: 4 }}>
+              {periodInfo.current.label} · {SCHEDULE_LABELS[scheduleType] || scheduleType || ''}
+            </div>
           )}
           {periodInfo?.status === 'break' && (
-            <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 500 }}>
+            <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, marginTop: 4 }}>
               {periodInfo.current?.label || 'Break'}
             </div>
           )}
