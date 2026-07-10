@@ -1068,8 +1068,9 @@ function WireContent() {
 
   useEffect(() => {
     async function loadSchedule() {
-      const type = await fetchTodayScheduleType()
-      setScheduleType(type)
+      const result = await fetchTodayScheduleType()
+      // fetchTodayScheduleType returns { type, schedule, isOverride } — store just the type string
+      setScheduleType(result?.type ?? null)
     }
     loadSchedule()
   }, [])
@@ -1077,7 +1078,7 @@ function WireContent() {
   useEffect(() => {
     if (!scheduleType) return
     function tick() {
-      const info = getCurrentPeriodInfo(scheduleType)
+      const info = getCurrentPeriodInfo(SCHEDULES[scheduleType] || null)
       const cs   = getCheckoutStatus(info)
       setPeriodInfo(info)
       setCheckoutStatus(cs)
