@@ -1420,7 +1420,7 @@ function WireContent() {
         const dd2 = String(tom.getDate()).padStart(2, '0')
         const { data } = await supabase
           .from('cw_birthdays')
-          .select('name, date, note')
+          .select('name, month_day')
           .in('month_day', [`${mm}-${dd}`, `${mm2}-${dd2}`])
         setCwBirthdays(data || [])
       } catch { setCwBirthdays([]) }
