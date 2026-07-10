@@ -877,6 +877,17 @@ function ConfigPanel({ prefs, setPrefs, open, setOpen }) {
     }))
   }
 
+  function move(id, dir) {
+    setPrefs(p => {
+      const order = [...p.order]
+      const i = order.indexOf(id)
+      const j = i + dir
+      if (j < 0 || j >= order.length) return p
+      ;[order[i], order[j]] = [order[j], order[i]]
+      return { ...p, order }
+    })
+  }
+
   return (
     <>
       {/* Gear button */}
@@ -901,7 +912,7 @@ function ConfigPanel({ prefs, setPrefs, open, setOpen }) {
       {open && (
         <div style={{
           position: 'fixed', bottom: 66, right: 16,
-          width: 300, background: 'white',
+          width: 280, background: 'white',
           borderRadius: 12, border: '0.5px solid #e0ddd8',
           boxShadow: '0 4px 20px rgba(0,0,0,0.12)', zIndex: 99,
           overflow: 'hidden',
@@ -911,55 +922,64 @@ function ConfigPanel({ prefs, setPrefs, open, setOpen }) {
               Your display
             </p>
             <p style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>
-              Toggle cards on or off · locked items always show
+              Toggle · use arrows to reorder · locked always show
             </p>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: 8, gap: 2 }}>
-            {/* Locked items */}
-            {['Schedule','Calendar','Objectives'].map(label => (
-              <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 4px' }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: '#e8f5ee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <i className={`ti ${label === 'Schedule' ? 'ti-calendar-week' : label === 'Calendar' ? 'ti-calendar-event' : 'ti-notebook'}`}
-                     aria-hidden="true" style={{ fontSize: 15, color: RHS_GREEN }} />
+
+          {/* Locked items — compact icon row */}
+          <div style={{ display: 'flex', gap: 0, padding: '6px 10px', borderBottom: '0.5px solid #f0eeea' }}>
+            {[
+              { label: 'Schedule',   icon: 'ti-calendar-week' },
+              { label: 'Calendar',   icon: 'ti-calendar-event' },
+              { label: 'Objectives', icon: 'ti-notebook' },
+            ].map(({ label, icon }) => (
+              <div key={label} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 5, padding: '3px 4px' }}>
+                <div style={{ width: 22, height: 22, borderRadius: 6, background: '#e8f5ee', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <i className={`ti ${icon}`} aria-hidden="true" style={{ fontSize: 12, color: RHS_GREEN }} />
                 </div>
-                <span style={{ fontSize: 9, color: RHS_GREEN, textAlign: 'center', lineHeight: 1.3 }}>{label}</span>
-                <div style={{ width: 28, height: 14, background: '#e0ece6', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <i className="ti ti-lock" aria-hidden="true" style={{ fontSize: 9, color: RHS_GREEN }} />
-                </div>
+                <span style={{ fontSize: 9, color: RHS_GREEN, lineHeight: 1.2 }}>{label}</span>
+                <i className="ti ti-lock" aria-hidden="true" style={{ fontSize: 8, color: '#aad4bb', marginLeft: 'auto' }} />
               </div>
             ))}
-            {/* Configurable items */}
-            {COMPONENT_REGISTRY.map(c => {
-              const isOn = prefs.enabled[c.id]
+          </div>
+
+          {/* Configurable items — list with toggle + reorder */}
+          <div style={{ maxHeight: 340, overflowY: 'auto', padding: '4px 8px 8px' }}>
+            {prefs.order.map((id, idx) => {
+              const c = COMPONENT_REGISTRY.find(r => r.id === id)
+              if (!c) return null
+              const isOn = prefs.enabled[id]
+              const isFirst = idx === 0
+              const isLast = idx === prefs.order.length - 1
               return (
-                <button
-                  key={c.id}
-                  onClick={() => toggle(c.id)}
-                  style={{
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                    padding: '8px 4px', background: 'none', border: 'none', cursor: c.alwaysOn ? 'default' : 'pointer',
-                    borderRadius: 8,
-                  }}
-                >
+                <div key={id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '5px 2px',
+                  borderBottom: isLast ? 'none' : '0.5px solid #f5f3f0',
+                }}>
+                  {/* Icon */}
                   <div style={{
-                    width: 32, height: 32, borderRadius: 8,
+                    width: 26, height: 26, borderRadius: 6, flexShrink: 0,
                     background: isOn ? '#f0f8f4' : '#f5f5f5',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
                     <i className={`ti ${c.icon}`} aria-hidden="true"
-                       style={{ fontSize: 15, color: isOn ? RHS_GREEN : '#ccc' }} />
+                       style={{ fontSize: 13, color: isOn ? RHS_GREEN : '#ccc' }} />
                   </div>
-                  <span style={{ fontSize: 9, color: isOn ? '#555' : '#bbb', textAlign: 'center', lineHeight: 1.3 }}>
+                  {/* Label */}
+                  <span style={{ fontSize: 11, color: isOn ? '#333' : '#bbb', flex: 1, lineHeight: 1.3 }}>
                     {c.label}
                   </span>
+                  {/* Toggle */}
                   {c.alwaysOn ? (
-                    <div style={{ width: 28, height: 14, background: '#e0ece6', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: 28, height: 14, background: '#e0ece6', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <i className="ti ti-lock" aria-hidden="true" style={{ fontSize: 9, color: RHS_GREEN }} />
                     </div>
                   ) : (
-                    <div style={{
-                      width: 28, height: 14, borderRadius: 7, position: 'relative',
+                    <button onClick={() => toggle(id)} style={{
+                      width: 28, height: 14, borderRadius: 7, position: 'relative', flexShrink: 0,
                       background: isOn ? RHS_GREEN : '#ddd',
+                      border: 'none', cursor: 'pointer',
                       transition: 'background 0.15s',
                     }}>
                       <div style={{
@@ -968,9 +988,30 @@ function ConfigPanel({ prefs, setPrefs, open, setOpen }) {
                         width: 10, height: 10, borderRadius: '50%', background: 'white',
                         transition: 'left 0.15s',
                       }} />
-                    </div>
+                    </button>
                   )}
-                </button>
+                  {/* ↑ ↓ reorder */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
+                    <button
+                      onClick={() => move(id, -1)}
+                      disabled={isFirst}
+                      style={{
+                        border: 'none', background: 'none', padding: '1px 4px',
+                        borderRadius: 3, cursor: isFirst ? 'default' : 'pointer',
+                        color: isFirst ? '#e0ddd8' : '#999', fontSize: 9, lineHeight: 1,
+                      }}
+                    >▲</button>
+                    <button
+                      onClick={() => move(id, 1)}
+                      disabled={isLast}
+                      style={{
+                        border: 'none', background: 'none', padding: '1px 4px',
+                        borderRadius: 3, cursor: isLast ? 'default' : 'pointer',
+                        color: isLast ? '#e0ddd8' : '#999', fontSize: 9, lineHeight: 1,
+                      }}
+                    >▼</button>
+                  </div>
+                </div>
               )
             })}
           </div>
@@ -979,7 +1020,6 @@ function ConfigPanel({ prefs, setPrefs, open, setOpen }) {
     </>
   )
 }
-
 // ── CheckMate Equipment Card ──────────────────────────────────────────────────
 function CheckMateCard({ checkouts }) {
   if (!checkouts || checkouts.length === 0) return null
