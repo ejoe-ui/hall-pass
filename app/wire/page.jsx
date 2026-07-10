@@ -219,7 +219,7 @@ function ScheduleCard({ periodInfo, scheduleType }) {
     </Card>
   )
 
-  const schedule = SCHEDULES[scheduleType] || []
+  const schedule = SCHEDULES[scheduleType]?.periods || []
   const now = new Date()
   const nowMins = now.getHours() * 60 + now.getMinutes()
 
@@ -1456,7 +1456,7 @@ function WireContent() {
   // ── Lunch bell label ───────────────────────────────────────────────────────
   function lunchBellLabel() {
     if (!scheduleType || !SCHEDULES[scheduleType]) return 'Today'
-    const slots = SCHEDULES[scheduleType]
+    const slots = SCHEDULES[scheduleType]?.periods || []
     const lunch = slots.find(s => s.label?.toLowerCase().includes('lunch'))
     if (!lunch) return 'Today'
     const [h, m] = (lunch.start || '12:00').split(':').map(Number)
