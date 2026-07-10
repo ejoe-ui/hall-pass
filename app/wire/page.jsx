@@ -1053,6 +1053,18 @@ function WireContent() {
   const roomParam = searchParams.get('room') || ''
   const uid = normalizeUid(rawUid)
 
+  // ── Tabler Icons font (not in layout — inject once) ───────────────────────
+  useEffect(() => {
+    const id = 'tabler-icons-css'
+    if (!document.getElementById(id)) {
+      const link = document.createElement('link')
+      link.id   = id
+      link.rel  = 'stylesheet'
+      link.href = 'https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css'
+      document.head.appendChild(link)
+    }
+  }, [])
+
   // ── Clock ──────────────────────────────────────────────────────────────────
   const [now, setNow] = useState(null) // null until mounted (avoids hydration mismatch)
   useEffect(() => {
