@@ -1151,6 +1151,10 @@ function WireContent() {
   const [selfCheckoutEnabled, setSelfCheckoutEnabled] = useState(false)
   const [checkoutUrl, setCheckoutUrl] = useState(SELF_CHECKOUT_BASE)
 
+  // ── [A] Wire commands ────────────────────────────────────────────────────────
+  const [announcement, setAnnouncement] = useState(null)
+  const lastCmdTimestamp = useRef(null)
+
   useEffect(() => {
     async function load() {
       let resolvedRoom = roomParam
@@ -1461,6 +1465,61 @@ function WireContent() {
     return () => clearInterval(id)
   }, [student?.id])
 
+  // ── [B] Wire commands polling ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!roomParam) return
+    const storageKey = `wire-last-cmd-${roomParam}`
+    const stored = localStorage.getItem(storageKey)
+    if (stored) lastCmdTimestamp.current = stored
+
+    async function pollCommands() {
+      try {
+        const cutoff = lastCmdTimestamp.current
+          || new Date(Date.now() - 30000).toISOString()
+        const { data } = await supabase
+          .from('wire_commands')
+          .select('*')
+          .eq('room', roomParam)
+          .gt('created_at', cutoff)
+          .order('created_at', { ascending: true })
+        if (!data || data.length === 0) return
+        for (const cmd of data) {
+          lastCmdTimestamp.current = cmd.created_at
+          localStorage.setItem(storageKey, cmd.created_at)
+          handleWireCommand(cmd)
+        }
+      } catch { /* silent — wire page should never crash from a missing command */ }
+    }
+
+    pollCommands()
+    const interval = setInterval(pollCommands, 5000)
+    return () => clearInterval(interval)
+  }, [roomParam])
+
+  // ── [C] Wire command handler ─────────────────────────────────────────────────
+  function handleWireCommand(cmd) {
+    const { action, payload } = cmd
+    if (action === 'set_mode') {
+      if (payload === 'rotation') {
+        setAnnouncement(null)
+      } else if (payload === 'objectives') {
+        const objCard = document.getElementById('objectives-card')
+        if (objCard) {
+          objCard.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          objCard.style.outline = '2px solid #FFAA00'
+          setTimeout(() => { objCard.style.outline = '' }, 2000)
+        }
+      }
+    } else if (action === 'launch') {
+      if (payload === 'scrape') window.location.href = '/display-scrape-v2.html'
+      else if (payload === 'orb') window.location.href = '/display-orb.html'
+    } else if (action === 'announce') {
+      setAnnouncement(payload)
+    } else if (action === 'dismiss') {
+      setAnnouncement(null)
+    }
+  }
+
   // ── Prefs (localStorage) ───────────────────────────────────────────────────
   const [prefs, setPrefs] = useState(getDefaultPrefs())
   const [configOpen, setConfigOpen] = useState(false)
@@ -1680,6 +1739,47 @@ function WireContent() {
 
       {/* ── CONFIG PANEL ───────────────────────────────────────────────────── */}
       <ConfigPanel prefs={prefs} setPrefs={setPrefs} open={configOpen} setOpen={setConfigOpen} />
+
+      {/* ── [D] ANNOUNCEMENT OVERLAY ───────────────────────────────────────── */}
+      {announcement && (
+        <div
+          onClick={() => setAnnouncement(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.88)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backdropFilter: 'blur(6px)', cursor: 'pointer',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#006938', border: '3px solid #C4BEB5',
+              borderRadius: 20, padding: '48px 72px',
+              textAlign: 'center', maxWidth: '80vw',
+              boxShadow: '0 0 80px rgba(0,105,56,0.5)',
+            }}
+          >
+            <div style={{ fontSize: 16, color: '#C4BEB5', letterSpacing: 4, textTransform: 'uppercase', marginBottom: 16 }}>
+              📢 Announcement
+            </div>
+            <div style={{ fontSize: 42, color: '#FFFFFF', fontWeight: 'bold', lineHeight: 1.25 }}>
+              {announcement}
+            </div>
+            <button
+              onClick={() => setAnnouncement(null)}
+              style={{
+                marginTop: 28, padding: '10px 32px',
+                background: 'rgba(196,190,181,0.2)', border: '1.5px solid #C4BEB5',
+                borderRadius: 30, color: '#C4BEB5', fontSize: 13,
+                letterSpacing: 2, textTransform: 'uppercase', cursor: 'pointer',
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   )
