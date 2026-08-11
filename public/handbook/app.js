@@ -751,10 +751,20 @@ function renderStaticLabels(){
 function renderCategories(){
   $('#categoryList').innerHTML = cats.map(c => `<button class="cat-btn ${c===activeCategory?'active':''}" data-cat="${esc(c)}">${c==='All Sections'?'📚':iconFor(c)} ${esc(catFor(c))}</button>`).join('');
   $('#categoryFilter').innerHTML = cats.map(c => `<option value="${esc(c)}" ${c===activeCategory?'selected':''}>${esc(catFor(c))}</option>`).join('');
-  $$('.cat-btn').forEach(b=>b.addEventListener('click',()=>{activeCategory=b.dataset.cat; renderAll(); $('#topicCards').scrollIntoView({behavior:'smooth',block:'start'});}));
-  $('#categoryFilter').onchange = e => {activeCategory=e.target.value; renderAll(); $('#topicCards').scrollIntoView({behavior:'smooth',block:'start'});};
+  $$('.cat-btn').forEach(b=>b.addEventListener('click',()=>openCategory(b.dataset.cat)));
+  $('#categoryFilter').onchange = e => openCategory(e.target.value);
 }
 function visibleSections(){return activeCategory==='All Sections'?sections:sections.filter(s=>s.category===activeCategory)}
+function openCategory(category){
+  activeCategory = category;
+  activePopular = null;
+  const first = visibleSections()[0];
+  if(first) activeSection = first;
+  activeTab = 'official';
+  renderAll();
+  $('#sectionView').scrollIntoView({behavior:'smooth',block:'start'});
+  $('#sectionView').focus({preventScroll:true});
+}
 
 const TOPIC_PRIORITY = [
   'cell-phone-policy-answer',
@@ -793,13 +803,8 @@ function isOfficeClarification(topic){
 
 function renderTopics(){
   const base = (activeCategory==='All Sections' ? popularTopics : popularTopics.filter(pt => pt.category===activeCategory)).slice().sort((a,b)=>topicRank(a)-topicRank(b));
-  const cardsHtml = base.map(pt => `<article class="topic-card ${activePopular && activePopular.id===pt.id?'active-topic':''} ${isOfficeClarification(pt)?'needs-office':''} ${pt.id==='cell-phone-policy-answer'?'phone-priority':''}" data-topic="${pt.id}"><span class="badge">${pt.icon} ${esc(catFor(pt.category))}</span>${isOfficeClarification(pt)?`<span class="office-badge">${esc(t().officeBadgeShort)}</span>`:''}<h3>${esc(popularTitle(pt))}</h3><p>${esc(popularSummary(pt))}</p><small class="answer-chip">${esc(helperLang==='es'?'Ver respuesta':'Get the answer')}</small></article>`).join('') || `<div class="empty-card">${esc(helperLang==='es'?'No hay preguntas populares en esta categoría todavía. Usa las secciones de abajo.':'No popular questions in this category yet. Use the sections below.')}</div>`;
-  const secs = visibleSections();
-  const sectionListHtml = activeCategory==='All Sections' ? '' : `<div class="section-picker"><p class="eyebrow" style="margin:18px 0 8px">${esc(helperLang==='es'?'Todas las secciones en esta categoría':'All sections in this category')}</p><div class="related">${secs.map(s=>`<button data-id="${s.id}">${esc(titleFor(s))}</button>`).join('')}</div></div>`;
-  $('#topicCards').innerHTML = cardsHtml + sectionListHtml;
+  $('#topicCards').innerHTML = base.map(pt => `<article class="topic-card ${activePopular && activePopular.id===pt.id?'active-topic':''} ${isOfficeClarification(pt)?'needs-office':''} ${pt.id==='cell-phone-policy-answer'?'phone-priority':''}" data-topic="${pt.id}"><span class="badge">${pt.icon} ${esc(catFor(pt.category))}</span>${isOfficeClarification(pt)?`<span class="office-badge">${esc(t().officeBadgeShort)}</span>`:''}<h3>${esc(popularTitle(pt))}</h3><p>${esc(popularSummary(pt))}</p><small class="answer-chip">${esc(helperLang==='es'?'Ver respuesta':'Get the answer')}</small></article>`).join('') || `<div class="empty-card">${esc(helperLang==='es'?'No hay preguntas populares en esta categoría todavía. Usa las secciones de la izquierda.':'No popular questions in this category yet. Use the sections on the left.')}</div>`;
   $$('.topic-card[data-topic]').forEach(card => card.addEventListener('click',()=>openPopularTopic(card.dataset.topic)));
-  const picker = $('#topicCards .section-picker .related');
-  if(picker) picker.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>openSection(b.dataset.id)));
 }
 function renderScenarios(){
   const holder = $('#scenarioCards');
@@ -908,7 +913,7 @@ function renderAll(){
 
 $('#searchInput').addEventListener('input', e=>search(e.target.value));
 $('#clearSearch').addEventListener('click',()=>{$('#searchInput').value=''; search(''); $('#searchInput').focus();});
-$('#showAllBtn').addEventListener('click',()=>{activeCategory='All Sections'; renderAll();});
+$('#showAllBtn').addEventListener('click',()=>openCategory('All Sections'));
 $('#printBtn').addEventListener('click',()=>window.print());
 $('#helperEnglish')?.addEventListener('click',()=>{helperLang='en'; localStorage.setItem('rhsHelperLang','en'); renderAll();});
 $('#helperSpanish')?.addEventListener('click',()=>{helperLang='es'; localStorage.setItem('rhsHelperLang','es'); renderAll();});

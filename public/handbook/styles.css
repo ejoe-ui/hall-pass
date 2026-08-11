@@ -425,3 +425,7 @@
   .how-to-card{display:grid;gap:4px;}
   .how-to-card strong{white-space:normal;}
 }
+
+/* Usability fix: let Common Student Questions expand with the page instead of trapping scroll. */
+.quick-panel{max-height:none !important;overflow:visible !important;}
+.quick-panel .topic-grid{max-height:none !important;overflow:visible !important;padding-right:0 !important;}
