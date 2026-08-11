@@ -751,8 +751,8 @@ function renderStaticLabels(){
 function renderCategories(){
   $('#categoryList').innerHTML = cats.map(c => `<button class="cat-btn ${c===activeCategory?'active':''}" data-cat="${esc(c)}">${c==='All Sections'?'📚':iconFor(c)} ${esc(catFor(c))}</button>`).join('');
   $('#categoryFilter').innerHTML = cats.map(c => `<option value="${esc(c)}" ${c===activeCategory?'selected':''}>${esc(catFor(c))}</option>`).join('');
-  $$('.cat-btn').forEach(b=>b.addEventListener('click',()=>{activeCategory=b.dataset.cat; renderAll();}));
-  $('#categoryFilter').onchange = e => {activeCategory=e.target.value; renderAll();};
+  $$('.cat-btn').forEach(b=>b.addEventListener('click',()=>{activeCategory=b.dataset.cat; renderAll(); $('#topicCards').scrollIntoView({behavior:'smooth',block:'start'});}));
+  $('#categoryFilter').onchange = e => {activeCategory=e.target.value; renderAll(); $('#topicCards').scrollIntoView({behavior:'smooth',block:'start'});};
 }
 function visibleSections(){return activeCategory==='All Sections'?sections:sections.filter(s=>s.category===activeCategory)}
 
