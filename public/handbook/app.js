@@ -129,6 +129,20 @@ let helperLang = localStorage.getItem('rhsHelperLang') || 'en';
 
 const popularTopics = [
   {
+    id:'cell-phone-policy-answer',
+    title:'Can I use my phone during the school day?',
+    esTitle:'¿Puedo usar mi teléfono durante el día escolar?',
+    icon:'📵',
+    sectionId:'disciplinary-procedures',
+    category:'Discipline & Conduct',
+    summary:'New emphasis: phones and electronic devices should be off, away, and out of sight unless staff give permission for an approved purpose.',
+    esSummary:'Nuevo énfasis: teléfonos y aparatos electrónicos deben estar apagados, guardados y fuera de vista a menos que el personal dé permiso para un propósito aprobado.',
+    answer:'The 2026–2027 update elevates the no-phone expectation. Treat cell phones and electronic devices as not allowed during class/instructional time unless school staff clearly give permission for an approved academic, health, or office-related purpose.',
+    esAnswer:'La actualización 2026–2027 enfatiza la expectativa de no usar teléfono. Trata los teléfonos y aparatos electrónicos como no permitidos durante clase/tiempo de instrucción a menos que el personal dé permiso claro para un propósito académico, de salud o de oficina aprobado.',
+    bullets:['Keep the device off, away, and out of sight during instructional time.','For urgent family needs, use the school office process rather than texting during class.','Device misuse can lead to confiscation, citizenship-point loss, suspension for repeated offenses, and parent/guardian pickup as described in the official text.'],
+    esBullets:['Mantén el aparato apagado, guardado y fuera de vista durante tiempo de instrucción.','Para necesidades urgentes de familia, usa el proceso de la oficina en vez de mandar mensajes durante clase.','El mal uso puede resultar en confiscación, pérdida de puntos de ciudadanía, suspensión por ofensas repetidas y recogida por padre/tutor según el texto oficial.']
+  },
+  {
     id:'graduate-answer',
     title:'What do I need to graduate?',
     esTitle:'¿Qué necesito para graduarme?',
@@ -277,10 +291,10 @@ const popularTopics = [
     category:'Attendance',
     summary:'Five or more minutes late after the bell is considered a cut.',
     esSummary:'Cinco minutos o más tarde después de la campana se considera corte.',
-    answer:'Five or more minutes late to class after the bell rings is considered a cut. The handbook says a class cut results in loss of 5 citizenship points and lunch detention.',
-    esAnswer:'Llegar cinco minutos o más tarde a clase después de la campana se considera corte. El manual dice que un corte de clase resulta en pérdida de 5 puntos de ciudadanía y detención de almuerzo.',
-    bullets:['Use the handbook number: 5 citizenship points.','A cut is different from a regular tardy because it starts at 5+ minutes late.','Repeated issues can lead to more consequences.'],
-    esBullets:['Usa el número del manual: 5 puntos de ciudadanía.','Un corte es diferente de una tardanza regular porque empieza a los 5+ minutos tarde.','Problemas repetidos pueden llevar a más consecuencias.']
+    answer:'Five or more minutes late to class after the bell rings is considered a cut. The handbook says a class cut results in loss of 10 citizenship points and lunch detention.',
+    esAnswer:'Llegar cinco minutos o más tarde a clase después de la campana se considera corte. El manual dice que un corte de clase resulta en pérdida de 10 puntos de ciudadanía y detención de almuerzo.',
+    bullets:['Use the 2026-2027 handbook number: 10 citizenship points.','A cut is different from a regular tardy because it starts at 5+ minutes late.','Repeated issues can lead to more consequences.'],
+    esBullets:['Usa el número del manual 2026-2027: 10 puntos de ciudadanía.','Un corte es diferente de una tardanza regular porque empieza a los 5+ minutos tarde.','Problemas repetidos pueden llevar a más consecuencias.']
   },
   {
     id:'tardy-count-answer',
@@ -291,10 +305,10 @@ const popularTopics = [
     category:'Attendance',
     summary:'4 = warning, 8 = point loss and lunch detention, each additional 4 = more consequences.',
     esSummary:'4 = advertencia, 8 = pérdida de puntos y detención de almuerzo, cada 4 adicionales = más consecuencias.',
-    answer:'The handbook says 4 tardies results in a warning notice. At 8 tardies, 5 citizenship points are deducted and lunch detention is assigned. With each additional series of 4 tardies—12, 16, 20, etc.—5 citizenship points are deducted and 1 day of After School Detention is assigned.',
-    esAnswer:'El manual dice que 4 tardanzas resultan en aviso de advertencia. A las 8 tardanzas, se deducen 5 puntos de ciudadanía y se asigna detención de almuerzo. Con cada serie adicional de 4 tardanzas—12, 16, 20, etc.—se deducen 5 puntos de ciudadanía y se asigna 1 día de detención después de escuela.',
-    bullets:['After School Detention is listed as 3:20–6:15.','Habitual tardiness may lead to parent meeting, reassessment contract, or alternative placement consideration.','Use the handbook number: 5 citizenship points.'],
-    esBullets:['La detención después de escuela aparece como 3:20–6:15.','Tardanzas habituales pueden llevar a reunión con padres, contrato de reevaluación o consideración de colocación alternativa.','Usa el número del manual: 5 puntos de ciudadanía.']
+    answer:'The handbook says 4 tardies results in a warning notice. At 8 tardies, 10 citizenship points are deducted and lunch detention is assigned. With each additional series of 4 tardies—12, 16, 20, etc.—10 citizenship points are deducted and 1 day of After School Detention is assigned.',
+    esAnswer:'El manual dice que 4 tardanzas resultan en aviso de advertencia. A las 8 tardanzas, se deducen 10 puntos de ciudadanía y se asigna detención de almuerzo. Con cada serie adicional de 4 tardanzas—12, 16, 20, etc.—se deducen 10 puntos de ciudadanía y se asigna 1 día de detención después de escuela.',
+    bullets:['After School Detention is listed as 3:20–6:15.','Habitual tardiness may lead to parent meeting, reassessment contract, or alternative placement consideration.','Use the 2026-2027 handbook number: 10 citizenship points.'],
+    esBullets:['La detención después de escuela aparece como 3:20–6:15.','Tardanzas habituales pueden llevar a reunión con padres, contrato de reevaluación o consideración de colocación alternativa.','Usa el número del manual 2026-2027: 10 puntos de ciudadanía.']
   },
   {
     id:'tardy-sweep-answer',
@@ -401,10 +415,10 @@ const popularTopics = [
     icon:'💇',
     sectionId:'nonprivileged-dress',
     category:'Discipline & Conduct',
-    summary:'No. Hair must be a naturally occurring color.',
-    esSummary:'No. El cabello debe ser de un color natural.',
-    answer:'No. The handbook says hair and facial hair shall be neatly groomed, and hair shall be a naturally occurring color such as black, brown, blond, or natural red.',
-    esAnswer:'No. El manual dice que el cabello y vello facial deben estar arreglados, y el cabello debe ser de un color natural como negro, café, rubio o rojo natural.',
+    summary:'Not automatically. The 2026-2027 wording focuses on neat grooming and hair that causes undue attention.',
+    esSummary:'No automáticamente. La redacción 2026-2027 se enfoca en arreglo adecuado y cabello que cause atención indebida.',
+    answer:'The 2026-2027 wording says hair and facial hair shall be neatly groomed. Hair that causes undue attention is not permitted, including unusual or extreme designs, colors, symbols, razor cuts, or messages.',
+    esAnswer:'La redacción 2026-2027 dice que el cabello y vello facial deben estar arreglados. No se permite cabello que cause atención indebida, incluyendo diseños, colores, símbolos, cortes o mensajes inusuales o extremos.',
     bullets:['Unusual or extreme designs, colors, symbols, razor cuts, or messages are not permitted.','Natural color examples are listed in the handbook.','Ask administration before making a major change if you are unsure.'],
     esBullets:['Diseños, colores, símbolos, cortes de navaja o mensajes inusuales/extremos no se permiten.','El manual da ejemplos de colores naturales.','Pregunta a administración antes de un cambio grande si tienes duda.']
   },
@@ -743,6 +757,7 @@ function renderCategories(){
 function visibleSections(){return activeCategory==='All Sections'?sections:sections.filter(s=>s.category===activeCategory)}
 
 const TOPIC_PRIORITY = [
+  'cell-phone-policy-answer',
   'absent-answer',
   'ten-absence-answer',
   'late-answer',
@@ -778,7 +793,7 @@ function isOfficeClarification(topic){
 
 function renderTopics(){
   const base = (activeCategory==='All Sections' ? popularTopics : popularTopics.filter(pt => pt.category===activeCategory)).slice().sort((a,b)=>topicRank(a)-topicRank(b));
-  $('#topicCards').innerHTML = base.map(pt => `<article class="topic-card ${activePopular && activePopular.id===pt.id?'active-topic':''} ${isOfficeClarification(pt)?'needs-office':''}" data-topic="${pt.id}"><span class="badge">${pt.icon} ${esc(catFor(pt.category))}</span>${isOfficeClarification(pt)?`<span class="office-badge">${esc(t().officeBadgeShort)}</span>`:''}<h3>${esc(popularTitle(pt))}</h3><p>${esc(popularSummary(pt))}</p><small class="answer-chip">${esc(helperLang==='es'?'Ver respuesta':'Get the answer')}</small></article>`).join('') || `<div class="empty-card">${esc(helperLang==='es'?'No hay preguntas populares en esta categoría todavía. Usa las secciones de la izquierda.':'No popular questions in this category yet. Use the sections on the left.')}</div>`;
+  $('#topicCards').innerHTML = base.map(pt => `<article class="topic-card ${activePopular && activePopular.id===pt.id?'active-topic':''} ${isOfficeClarification(pt)?'needs-office':''} ${pt.id==='cell-phone-policy-answer'?'phone-priority':''}" data-topic="${pt.id}"><span class="badge">${pt.icon} ${esc(catFor(pt.category))}</span>${isOfficeClarification(pt)?`<span class="office-badge">${esc(t().officeBadgeShort)}</span>`:''}<h3>${esc(popularTitle(pt))}</h3><p>${esc(popularSummary(pt))}</p><small class="answer-chip">${esc(helperLang==='es'?'Ver respuesta':'Get the answer')}</small></article>`).join('') || `<div class="empty-card">${esc(helperLang==='es'?'No hay preguntas populares en esta categoría todavía. Usa las secciones de la izquierda.':'No popular questions in this category yet. Use the sections on the left.')}</div>`;
   $$('.topic-card[data-topic]').forEach(card => card.addEventListener('click',()=>openPopularTopic(card.dataset.topic)));
 }
 function renderScenarios(){
@@ -795,7 +810,7 @@ function renderSection(){
   const s = activeSection;
   let body;
   const pdfPage = (s.pdfPages && s.pdfPages.length ? s.pdfPages[0] : (s.pdfStart || 1));
-  const pdfUrl = `assets/RHS-Parent-Student-Handbook-2025-26.pdf#page=${pdfPage}&zoom=page-width`;
+  const pdfUrl = `assets/RHS-Parent-Student-Handbook-2026-27.pdf#page=${pdfPage}&zoom=page-width`;
   if(activeTab==='official'){
     body = `<p class="pdf-tip">${esc(t().pdfTip)}</p><div class="official-text">${esc(s.officialText)}</div>`;
   } else if(activeTab==='pdf'){
@@ -821,7 +836,7 @@ function renderSection(){
     <div class="card"><h3>${activeTab==='official'?esc(t().cardOfficial):(activeTab==='pdf'?esc(t().cardOriginal):esc(t().cardHelper))}</h3>${body}</div>
     <div class="card"><h3>${esc(t().keyDetails)}</h3><ul class="key-list">${keysFor(s).map(k=>`<li>${esc(k)}</li>`).join('')}</ul></div>
     <div class="card"><h3>${esc(t().related)}</h3><div class="related">${relatedButtons(s)}</div></div>
-    <div class="card"><h3>${esc(t().finalWord)}</h3><p>${esc(t().finalWordText)}</p><a class="pdf-link" style="display:inline-block;background:var(--green);color:white" href="assets/RHS-Parent-Student-Handbook-2025-26.pdf" target="_blank" rel="noopener">${esc(t().openPdf)}</a></div>`;
+    <div class="card"><h3>${esc(t().finalWord)}</h3><p>${esc(t().finalWordText)}</p><a class="pdf-link" style="display:inline-block;background:var(--green);color:white" href="assets/RHS-Parent-Student-Handbook-2026-27.pdf" target="_blank" rel="noopener">${esc(t().openPdf)}</a></div>`;
   $$('.tab').forEach(b=>b.addEventListener('click',()=>{activeTab=b.dataset.tab; renderSection();}));
   $$('.related button').forEach(b=>b.addEventListener('click',()=>openSection(b.dataset.id)));
 }

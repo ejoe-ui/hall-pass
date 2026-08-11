@@ -1,13 +1,13 @@
 # RHS Handbook Hub Prototype
 
-Static website prototype for the Riverdale High School Parent/Student Handbook 2025–2026.
+Static website prototype for the Riverdale High School Parent/Student Handbook 2026–2027.
 
 ## Files
 - `index.html` – main page
 - `styles.css` – visual design
 - `app.js` – navigation, search, tabs, helper-language toggle
 - `data.js` – handbook section data
-- `assets/RHS-Parent-Student-Handbook-2025-26.pdf` – original PDF reference
+- `assets/RHS-Parent-Student-Handbook-2026-27.pdf` – original PDF reference
 
 ## Important Accuracy Note
 The official handbook text is displayed in English and should remain unchanged. The Spanish layer is a convenience/helper translation only. If the district later provides an approved Spanish PDF, replace the Spanish helper layer with the official approved Spanish text and update the disclaimer accordingly.
