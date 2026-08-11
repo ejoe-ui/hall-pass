@@ -793,8 +793,13 @@ function isOfficeClarification(topic){
 
 function renderTopics(){
   const base = (activeCategory==='All Sections' ? popularTopics : popularTopics.filter(pt => pt.category===activeCategory)).slice().sort((a,b)=>topicRank(a)-topicRank(b));
-  $('#topicCards').innerHTML = base.map(pt => `<article class="topic-card ${activePopular && activePopular.id===pt.id?'active-topic':''} ${isOfficeClarification(pt)?'needs-office':''} ${pt.id==='cell-phone-policy-answer'?'phone-priority':''}" data-topic="${pt.id}"><span class="badge">${pt.icon} ${esc(catFor(pt.category))}</span>${isOfficeClarification(pt)?`<span class="office-badge">${esc(t().officeBadgeShort)}</span>`:''}<h3>${esc(popularTitle(pt))}</h3><p>${esc(popularSummary(pt))}</p><small class="answer-chip">${esc(helperLang==='es'?'Ver respuesta':'Get the answer')}</small></article>`).join('') || `<div class="empty-card">${esc(helperLang==='es'?'No hay preguntas populares en esta categoría todavía. Usa las secciones de la izquierda.':'No popular questions in this category yet. Use the sections on the left.')}</div>`;
+  const cardsHtml = base.map(pt => `<article class="topic-card ${activePopular && activePopular.id===pt.id?'active-topic':''} ${isOfficeClarification(pt)?'needs-office':''} ${pt.id==='cell-phone-policy-answer'?'phone-priority':''}" data-topic="${pt.id}"><span class="badge">${pt.icon} ${esc(catFor(pt.category))}</span>${isOfficeClarification(pt)?`<span class="office-badge">${esc(t().officeBadgeShort)}</span>`:''}<h3>${esc(popularTitle(pt))}</h3><p>${esc(popularSummary(pt))}</p><small class="answer-chip">${esc(helperLang==='es'?'Ver respuesta':'Get the answer')}</small></article>`).join('') || `<div class="empty-card">${esc(helperLang==='es'?'No hay preguntas populares en esta categoría todavía. Usa las secciones de abajo.':'No popular questions in this category yet. Use the sections below.')}</div>`;
+  const secs = visibleSections();
+  const sectionListHtml = activeCategory==='All Sections' ? '' : `<div class="section-picker"><p class="eyebrow" style="margin:18px 0 8px">${esc(helperLang==='es'?'Todas las secciones en esta categoría':'All sections in this category')}</p><div class="related">${secs.map(s=>`<button data-id="${s.id}">${esc(titleFor(s))}</button>`).join('')}</div></div>`;
+  $('#topicCards').innerHTML = cardsHtml + sectionListHtml;
   $$('.topic-card[data-topic]').forEach(card => card.addEventListener('click',()=>openPopularTopic(card.dataset.topic)));
+  const picker = $('#topicCards .section-picker .related');
+  if(picker) picker.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>openSection(b.dataset.id)));
 }
 function renderScenarios(){
   const holder = $('#scenarioCards');
@@ -810,7 +815,7 @@ function renderSection(){
   const s = activeSection;
   let body;
   const pdfPage = (s.pdfPages && s.pdfPages.length ? s.pdfPages[0] : (s.pdfStart || 1));
-  const pdfUrl = `assets/RHS-Parent-Student-Handbook-2026-27.pdf#page=${pdfPage}&zoom=page-width`;
+  const pdfUrl = `/handbook/assets/RHS-Parent-Student-Handbook-2026-27.pdf#page=${pdfPage}&zoom=page-width`;
   if(activeTab==='official'){
     body = `<p class="pdf-tip">${esc(t().pdfTip)}</p><div class="official-text">${esc(s.officialText)}</div>`;
   } else if(activeTab==='pdf'){
@@ -836,7 +841,7 @@ function renderSection(){
     <div class="card"><h3>${activeTab==='official'?esc(t().cardOfficial):(activeTab==='pdf'?esc(t().cardOriginal):esc(t().cardHelper))}</h3>${body}</div>
     <div class="card"><h3>${esc(t().keyDetails)}</h3><ul class="key-list">${keysFor(s).map(k=>`<li>${esc(k)}</li>`).join('')}</ul></div>
     <div class="card"><h3>${esc(t().related)}</h3><div class="related">${relatedButtons(s)}</div></div>
-    <div class="card"><h3>${esc(t().finalWord)}</h3><p>${esc(t().finalWordText)}</p><a class="pdf-link" style="display:inline-block;background:var(--green);color:white" href="assets/RHS-Parent-Student-Handbook-2026-27.pdf" target="_blank" rel="noopener">${esc(t().openPdf)}</a></div>`;
+    <div class="card"><h3>${esc(t().finalWord)}</h3><p>${esc(t().finalWordText)}</p><a class="pdf-link" style="display:inline-block;background:var(--green);color:white" href="/handbook/assets/RHS-Parent-Student-Handbook-2026-27.pdf" target="_blank" rel="noopener">${esc(t().openPdf)}</a></div>`;
   $$('.tab').forEach(b=>b.addEventListener('click',()=>{activeTab=b.dataset.tab; renderSection();}));
   $$('.related button').forEach(b=>b.addEventListener('click',()=>openSection(b.dataset.id)));
 }
