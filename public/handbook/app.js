@@ -762,8 +762,6 @@ function openCategory(category){
   if(first) activeSection = first;
   activeTab = 'official';
   renderAll();
-  $('#sectionView').scrollIntoView({behavior:'smooth',block:'start'});
-  $('#sectionView').focus({preventScroll:true});
 }
 
 const TOPIC_PRIORITY = [
@@ -855,10 +853,8 @@ function openPopularTopic(topicId){
   activeSection = sections.find(s=>s.id===activePopular.sectionId) || activeSection;
   activeTab = 'plain';
   renderAll();
-  $('#sectionView').scrollIntoView({behavior:'smooth',block:'start'});
-  $('#sectionView').focus({preventScroll:true});
 }
-function openSection(id){activePopular = null; activeSection = sections.find(s=>s.id===id) || activeSection; activeTab='official'; renderSection(); $('#sectionView').scrollIntoView({behavior:'smooth',block:'start'}); $('#sectionView').focus({preventScroll:true});}
+function openSection(id){activePopular = null; activeSection = sections.find(s=>s.id===id) || activeSection; activeTab='official'; renderSection();}
 function search(q){
   q=q.trim();
   if(!q){$('#searchResults').innerHTML=''; return;}
