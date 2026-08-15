@@ -58,6 +58,7 @@ export default function StudentsAdmin() {
   const [nfcSaved, setNfcSaved] = useState(false)
   const [nfcQR, setNfcQR] = useState(null)
   const [nfcCopied, setNfcCopied] = useState(false)
+  const [nfcError, setNfcError] = useState(null)
 
   // ── Import ────────────────────────────────────────────────────────────────
   const [activeView, setActiveView] = useState('manage') // 'manage' | 'import'
@@ -176,8 +177,18 @@ export default function StudentsAdmin() {
 
   // ── NFC helpers ───────────────────────────────────────────────────────────
   // Convert decimal output from NFC reader → 8-char hex UID stored in DB
-  function decimalToHexUid(decimal) {
-    const num = parseInt(String(decimal).trim(), 10)
+  function decimalToHexUid(raw) {
+    const trimmed = String(raw).trim()
+    if (!trimmed) return null
+    // Some readers output the UID as raw hex (which can include a-f), not
+    // decimal — if we see a hex letter, the value IS the UID, use it as-is.
+    // Silently stripping those letters (old behavior) corrupted the ID and
+    // caused unrelated cards to collide on the same leftover digits.
+    if (/[a-fA-F]/.test(trimmed)) {
+      return trimmed.toUpperCase().padStart(8, '0')
+    }
+    // Otherwise this is a decimal reading (older reader/card behavior).
+    const num = parseInt(trimmed, 10)
     if (isNaN(num) || num < 0) return null
     return num.toString(16).toUpperCase().padStart(8, '0')
   }
@@ -191,7 +202,36 @@ export default function StudentsAdmin() {
     const hexUid = decimalToHexUid(editNfcDecimal)
     if (!hexUid) return
     setNfcSaving(true)
-    await supabase.from('students').update({ nfc_uid: hexUid }).eq('id', editStudent.id)
+    setNfcError(null)
+
+    // Check whether this card is already assigned to a different student —
+    // a duplicate UID silently fails the update below (unique constraint),
+    // so we catch it up front and tell the teacher exactly who has it.
+    const { data: dupe, error: dupeError } = await supabase
+      .from('students')
+      .select('id, full_name')
+      .eq('nfc_uid', hexUid)
+      .neq('id', editStudent.id)
+      .maybeSingle()
+
+    if (dupeError) {
+      setNfcSaving(false)
+      setNfcError(`Couldn't check for duplicate cards — ${dupeError.message}`)
+      return
+    }
+    if (dupe) {
+      setNfcSaving(false)
+      setNfcError(`This card is already assigned to ${dupe.full_name || dupe.id}. Try a different card, or remove it from them first.`)
+      return
+    }
+
+    const { error } = await supabase.from('students').update({ nfc_uid: hexUid }).eq('id', editStudent.id)
+    if (error) {
+      setNfcSaving(false)
+      setNfcError(`Couldn't save this card — ${error.message}`)
+      return
+    }
+
     const tapUrl = getNfcTapUrl(hexUid)
     const qrDataUrl = await QRCode.toDataURL(tapUrl, { width: 200, margin: 1 })
     setNfcQR(qrDataUrl)
@@ -204,7 +244,12 @@ export default function StudentsAdmin() {
 
   async function removeNfc() {
     if (!editStudent) return
-    await supabase.from('students').update({ nfc_uid: null }).eq('id', editStudent.id)
+    setNfcError(null)
+    const { error } = await supabase.from('students').update({ nfc_uid: null }).eq('id', editStudent.id)
+    if (error) {
+      setNfcError(`Couldn't remove this card — ${error.message}`)
+      return
+    }
     setEditStudent(prev => ({ ...prev, nfc_uid: null }))
     setNfcQR(null)
     setEditNfcDecimal('')
@@ -294,6 +339,7 @@ export default function StudentsAdmin() {
     setEditNfcDecimal('')
     setNfcSaved(false)
     setNfcCopied(false)
+    setNfcError(null)
     if (s.nfc_uid) {
       QRCode.toDataURL(getNfcTapUrl(s.nfc_uid), { width: 200, margin: 1 }).then(setNfcQR)
     } else {
@@ -756,6 +802,12 @@ export default function StudentsAdmin() {
                 )}
               </div>
 
+              {nfcError && (
+                <div className="mb-2 p-2 rounded-lg border border-red-200 bg-red-50">
+                  <p className="text-xs text-red-700">⚠️ {nfcError}</p>
+                </div>
+              )}
+
               {editStudent.nfc_uid ? (
                 /* Has NFC — show QR + tap URL + replace option */
                 <div className="p-3 rounded-xl border border-green-200 bg-green-50">
@@ -789,9 +841,9 @@ export default function StudentsAdmin() {
                     <div className="flex gap-2">
                       <input
                         type="text"
-                        placeholder="New decimal ID from reader"
+                        placeholder="New ID from reader"
                         value={editNfcDecimal}
-                        onChange={e => setEditNfcDecimal(e.target.value.replace(/\D/g, ''))}
+                        onChange={e => setEditNfcDecimal(e.target.value.replace(/[^0-9a-fA-F]/g, ''))}
                         className="flex-1 p-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-800"
                       />
                       <button
@@ -810,14 +862,14 @@ export default function StudentsAdmin() {
                 /* No NFC — assign flow */
                 <div className="p-3 rounded-xl border border-gray-200 bg-gray-50">
                   <p className="text-xs text-gray-500 mb-2">
-                    Scan the card with your USB NFC reader. Enter the decimal number it outputs, then click Assign.
+                    Scan the card with your USB NFC reader. Enter the ID it outputs, then click Assign.
                   </p>
                   <div className="flex gap-2 mb-1">
                     <input
                       type="text"
-                      placeholder="Decimal ID (e.g. 2056423425)"
+                      placeholder="ID from reader (e.g. 2056423425 or 8941591629A104)"
                       value={editNfcDecimal}
-                      onChange={e => setEditNfcDecimal(e.target.value.replace(/\D/g, ''))}
+                      onChange={e => setEditNfcDecimal(e.target.value.replace(/[^0-9a-fA-F]/g, ''))}
                       className="flex-1 p-2 text-sm border-2 rounded-lg bg-white text-gray-800"
                       style={{ borderColor: editNfcDecimal ? RHS_GREEN : '#e5e7eb' }}
                     />
