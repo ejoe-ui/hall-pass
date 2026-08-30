@@ -21,7 +21,7 @@ const RHS_GREEN = '#006938'
 
 const REASONS = [
   'Restroom', 'Library', 'Lockers', 'Office', 'Counselor',
-  'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support',
+  'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support', 'Prayer Room',
 ]
 
 const TEACHERS = [
