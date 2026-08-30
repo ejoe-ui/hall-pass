@@ -47,7 +47,7 @@ function fmtDate(ts) {
 
 const REASONS = [
   'Restroom', 'Library', 'Lockers', 'Office', 'Counselor',
-  'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support',
+  'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support', 'Prayer Room',
 ]
 
 const TEACHERS = [
@@ -136,6 +136,17 @@ function PeriodStatusBar({ periodInfo, checkoutStatus, blockMinsEnabled }) {
   }
 
   return null
+}
+
+// ── Prayer Window Bar (discreet Dhuhr/Asr accommodation notice) ───────────────
+function PrayerWindowBar({ status }) {
+  if (!status || !status.activeLabel) return null
+  return (
+    <div style={{ width: '100%', padding: '6px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#57534e', color: 'white', fontSize: 12, fontWeight: 600 }}>
+      <span>🕌 {status.activeLabel} prayer window open</span>
+      <span>Until {status.windowEndLabel}</span>
+    </div>
+  )
 }
 
 // ── Audio helpers ─────────────────────────────────────────────────────────────
@@ -540,6 +551,9 @@ function TeacherInner() {
   const [outgoingNotifs, setOutgoingNotifs] = useState([]) // my sent students — return updates
   const [receiveNotifications, setReceiveNotifications] = useState(true)
   const [notifSaved, setNotifSaved] = useState(false)
+  const [prayerNoticeEnabled, setPrayerNoticeEnabled] = useState(false)
+  const [prayerNoticeSaved, setPrayerNoticeSaved] = useState(false)
+  const [prayerStatus, setPrayerStatus] = useState(null)
   const [fogDelay, setFogDelay] = useState(null)
   
   const prevHeldIds = useRef([])
@@ -687,6 +701,7 @@ function TeacherInner() {
       setSessionTimeout(currentTeacher.session_timeout_minutes === 0 ? null : (currentTeacher.session_timeout_minutes || 30))
     }
     if (currentTeacher.receive_notifications !== undefined) setReceiveNotifications(!!currentTeacher.receive_notifications)
+    if (currentTeacher.prayer_notice_enabled !== undefined) setPrayerNoticeEnabled(!!currentTeacher.prayer_notice_enabled)
     if (currentTeacher.tokens_enabled !== undefined) setTokensEnabled(!!currentTeacher.tokens_enabled)
     if (currentTeacher.tokens_per_period) setTokensPerPeriod(currentTeacher.tokens_per_period)
     if (currentTeacher.grading_period_start) setGradingPeriodStart(currentTeacher.grading_period_start)
@@ -877,16 +892,19 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
       const mins = Math.floor((now - new Date(pass.time_out).getTime()) / 60000)
       if (mins >= TIME_LIMIT && !notifiedPassesRef.current.has(pass.id)) {
         notifiedPassesRef.current.add(pass.id)
+        // Prayer Room passes stay visual-only (red row/badge still shows) — no sound
+        // or browser notification, so the accommodation never draws extra attention.
+        const isPrayerRoom = pass.reason?.split(' — ')[0] === 'Prayer Room'
         const studentName = students[pass.student_id]?.full_name?.split(' ')[0] || 'A student'
         // Browser notification (works even if tab is in background)
-        if (Notification?.permission === 'granted') {
+        if (!isPrayerRoom && Notification?.permission === 'granted') {
           new Notification('PassAble — Student Over Time', {
             body: `${studentName} has been out ${mins} minutes (${pass.reason})`,
             icon: '/RHSCOWBOYlogo.png',
           })
         }
         // Subtle audio alert using Web Audio API (no file needed)
-        try {
+        if (!isPrayerRoom) try {
           const ctx = new (window.AudioContext || window.webkitAudioContext)()
           const osc = ctx.createOscillator()
           const gain = ctx.createGain()
@@ -1213,6 +1231,82 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
     setTimeout(() => setNotifSaved(false), 2000)
   }
 
+  async function savePrayerNoticeEnabled(val) {
+    setPrayerNoticeEnabled(val)
+    if (currentTeacher?.id) {
+      await supabase.from('teachers').update({ prayer_notice_enabled: val }).eq('id', currentTeacher.id)
+    }
+    setPrayerNoticeSaved(true)
+    setTimeout(() => setPrayerNoticeSaved(false), 2000)
+  }
+
+  // ── Prayer window status (Dhuhr/Asr accommodation indicator) ───────────────
+  // Reads the shared cw2_prayer_settings row (same table the classroom displays
+  // use) and computes today's window client-side with adhan.js. Independent of
+  // cw2's own shared/prayer-status.js since this is a separate app/deployment.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let cancelled = false
+
+    function loadAdhan() {
+      return new Promise((resolve) => {
+        if (window.adhan) return resolve()
+        const s = document.createElement('script')
+        s.src = 'https://cdn.jsdelivr.net/npm/adhan@4.4.4/lib/bundles/adhan.umd.min.js'
+        s.onload = () => resolve()
+        s.onerror = () => resolve()
+        document.head.appendChild(s)
+      })
+    }
+
+    function parseHHMM(base, hhmm) {
+      const parts = String(hhmm || '').split(':')
+      const d = new Date(base.getFullYear(), base.getMonth(), base.getDate())
+      d.setHours(parseInt(parts[0], 10) || 0, parseInt(parts[1], 10) || 0, 0, 0)
+      return d
+    }
+
+    async function computePrayerStatus() {
+      try {
+        const res = await fetch('https://lgsfrhibzxjwcudjvfzx.supabase.co/rest/v1/cw2_prayer_settings?id=eq.1&select=*', {
+          headers: {
+            apikey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxnc2ZyaGlienhqd2N1ZGp2Znp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1NTM1NTQsImV4cCI6MjA5MzEyOTU1NH0.A1xLychMJ1UBgRHbrtY5RwVULG71zhK9u-WuTrsA8cU',
+            Authorization: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxnc2ZyaGlienhqd2N1ZGp2Znp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1NTM1NTQsImV4cCI6MjA5MzEyOTU1NH0.A1xLychMJ1UBgRHbrtY5RwVULG71zhK9u-WuTrsA8cU',
+          },
+        })
+        const rows = res.ok ? await res.json() : []
+        const s = rows && rows[0] ? rows[0] : null
+        if (!s || s.enabled === false) { if (!cancelled) setPrayerStatus(null); return }
+        await loadAdhan()
+        if (!window.adhan) { if (!cancelled) setPrayerStatus(null); return }
+        const now = new Date()
+        const coords = new window.adhan.Coordinates(s.latitude, s.longitude)
+        const methodFn = window.adhan.CalculationMethod[s.method] || window.adhan.CalculationMethod.MoonsightingCommittee
+        const params = methodFn()
+        params.madhab = (s.madhab === 'Hanafi') ? window.adhan.Madhab.Hanafi : window.adhan.Madhab.Shafi
+        const pt = new window.adhan.PrayerTimes(coords, now, params)
+        const schoolStart = parseHHMM(now, s.school_start)
+        const schoolEnd = parseHHMM(now, s.school_end)
+        const bufferMs = (s.buffer_minutes || 45) * 60000
+        const fmt = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+        let result = null
+        for (const [label, t] of [['Dhuhr', pt.dhuhr], ['Asr', pt.asr]]) {
+          if (t >= schoolStart && t <= schoolEnd) {
+            const end = new Date(t.getTime() + bufferMs)
+            if (now >= t && now <= end) { result = { activeLabel: label, windowEndLabel: fmt(end) }; break }
+          }
+        }
+        if (!cancelled) setPrayerStatus(result)
+      } catch (e) {
+        if (!cancelled) setPrayerStatus(null)
+      }
+    }
+
+    computePrayerStatus()
+    const t = setInterval(computePrayerStatus, 5 * 60000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [])
+
   async function generateCheckoutCode() {
     const code = Math.floor(1000 + Math.random() * 9000).toString()
     setSelfCheckoutCode(code)
@@ -1270,7 +1364,7 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
       const newIds = passes.map(p => p.student_id)
       const returned = prevActiveIds.current.filter(id => !newIds.includes(id))
       if (returned.length > 0 && holds?.length > 0) playClearAlert()
-      const LABEL_REASONS = ['Restroom', 'Library', 'Lockers', 'Office', 'Counselor', 'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support']
+      const LABEL_REASONS = ['Restroom', 'Library', 'Lockers', 'Office', 'Counselor', 'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support', 'Prayer Room']
       passes.filter(p => !prevActiveIds.current.includes(p.student_id)).forEach(p => {
         const base = p.reason?.split(' — ')[0]
         if (printPasses && LABEL_REASONS.includes(base)) window.open(`/pass/${p.id}/label`, '_blank')
@@ -1376,7 +1470,7 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
       destination_note: destNote,
     }).select().single()
     // Only print if printable passes is enabled
-    const PRINT_REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support']
+    const PRINT_REASONS = ['Restroom', 'Library', 'Office', 'Counselor', 'Career Counselor', 'Errand', 'Class Assignment', 'IT / Tech Support', 'Prayer Room']
     if (printPasses && PRINT_REASONS.includes(finalReason.split(' — ')[0]) && passData?.id) {
       const studentName = allStudents.find(s => s.id === selected)?.full_name || 'Student'
       const timeIssued = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -1844,6 +1938,7 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
 
       {/* ── Period Status Bar ── */}
       <PeriodStatusBar periodInfo={periodInfo} checkoutStatus={checkoutStatus} blockMinsEnabled={blockMinsEnabled} />
+      {prayerNoticeEnabled && <PrayerWindowBar status={prayerStatus} />}
 {/* ── Fog Delay Banner ── */}
 {fogDelay?.active && (
   <div style={{ width: '100%', padding: '9px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#92400e', borderBottom: '2px solid #78350f' }}>
@@ -2372,6 +2467,20 @@ ${tokenSummary.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.use
                 </button>
               </div>
               {notifSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium" style={{ color: RHS_GREEN }}>Prayer Window Notice</p>
+                  <p className="text-xs text-gray-400">Off by default. Shows a small, non-alarming status line on your dashboard when a Dhuhr or Asr prayer window is open during the school day — no student names, just the window itself.</p>
+                </div>
+                <button onClick={() => savePrayerNoticeEnabled(!prayerNoticeEnabled)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${prayerNoticeEnabled ? 'bg-green-600' : 'bg-gray-200'}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${prayerNoticeEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+              {prayerNoticeSaved && <p className="text-xs text-green-600 mt-2">✓ Saved</p>}
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 mb-4 p-4">
