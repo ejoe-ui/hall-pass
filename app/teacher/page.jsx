@@ -185,17 +185,17 @@ function playDnloAlert() {
 const RECEIPT_STYLES = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 72mm; margin: 0 auto; }
-  body { font-family: 'Courier New', monospace; font-size: 17px; padding: 8px 10px; text-align: center; }
-  .divider { border-top: 1px dashed #000; margin: 9px 0; }
-  .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 2px; }
-  .value { font-size: 20px; font-weight: bold; margin-bottom: 8px; }
-  .tag { display: inline-block; border: 2px solid #000; padding: 4px 10px; font-weight: bold; font-size: 14px; letter-spacing: 0.1em; margin-bottom: 8px; }
-  .header-title { font-size: 26px; font-weight: bold; }
-  .header-sub { font-size: 12px; margin-bottom: 4px; }
-  .sig-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #555; margin-bottom: 4px; }
-  .sig-line { border-bottom: 1px solid #000; width: 80%; margin: 0 auto 4px auto; height: 28px; }
-  .sig-name { font-size: 13px; color: #555; }
-  .footer { font-size: 12px; color: #444; margin-top: 10px; line-height: 1.6; }
+  body { font-family: 'Courier New', monospace; font-size: 17px; padding: 8px 10px; text-align: center; color: #000; }
+  .divider { border-top: 2px dashed #000; margin: 9px 0; }
+  .label { font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #000; margin-bottom: 2px; }
+  .value { font-size: 20px; font-weight: bold; margin-bottom: 8px; color: #000; }
+  .tag { display: inline-block; border: 2px solid #000; padding: 4px 10px; font-weight: bold; font-size: 14px; letter-spacing: 0.1em; margin-bottom: 8px; color: #000; }
+  .header-title { font-size: 26px; font-weight: bold; color: #000; }
+  .header-sub { font-size: 12px; margin-bottom: 4px; font-weight: bold; color: #000; }
+  .sig-label { font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #000; margin-bottom: 4px; }
+  .sig-line { border-bottom: 2px solid #000; width: 80%; margin: 0 auto 4px auto; height: 28px; }
+  .sig-name { font-size: 13px; font-weight: bold; color: #000; }
+  .footer { font-size: 12px; font-weight: bold; color: #000; margin-top: 10px; line-height: 1.6; }
   @media print { html, body { margin: 0 auto; } }
 `
 
